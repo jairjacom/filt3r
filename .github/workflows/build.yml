@@ -25,6 +25,9 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon
 
+      - name: List APK output
+        run: ls -l app/build/outputs/apk/debug/
+
       - uses: actions/upload-artifact@v7
         with:
           name: filt3r-debug-apk

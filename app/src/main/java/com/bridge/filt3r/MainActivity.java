@@ -1,4 +1,4 @@
-package com.jairjacom.filt3r;
+package com.bridge.filt3r;
 
 import android.app.Activity;
 import android.content.Intent;
