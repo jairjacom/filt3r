@@ -7,3 +7,5 @@ local.properties
 native/hev/
 *.jks
 *.keystore
+AGENTS.md
+NOTES.md
