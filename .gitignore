@@ -1,0 +1,9 @@
+reference/
+PLAN.md
+research.md
+build/
+.gradle/
+local.properties
+native/hev/
+*.jks
+*.keystore
