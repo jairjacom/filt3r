@@ -17,126 +17,125 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * App-private files for the node list. All files live in files/ and hold passwords, so they stay
- * private and are never logged.
- * <ul>
- * <li>nodes.txt: the cached nodes, one ss:// URL per line (written after each subscription update).</li>
- * <li>subscriptions.txt: up to 3 subscription URLs, one per line. Temporary until the Settings
- * screen exists (Step 6).</li>
- * <li>node.txt: one hand-placed ss:// node for development. Temporary, like the line above.</li>
- * </ul>
+ * The node cache, one file per subscription slot (files/nodes_N.txt). The file holds the ss:// URLs
+ * after a "#url" line naming the subscription it came from; its modification time is the time of
+ * the last successful download. Files hold passwords, so they stay in private storage and are
+ * never logged. A cache whose "#url" line no longer matches the slot's URL is ignored.
  */
 final class NodeStore {
 
-    static final long STALE_MS = 24L * 60 * 60 * 1000;
-    private static final String CACHE = "nodes.txt";
-    private static final String SUBSCRIPTIONS = "subscriptions.txt";
-    private static final String DEV_NODE = "node.txt";
-    private static final int MAX_SUBSCRIPTIONS = 3;
+    private static final String URL_MARK = "#url ";
 
     private final File dir;
+    private final List<Settings.Subscription> subscriptions;
 
-    NodeStore(File filesDir) {
+    NodeStore(File filesDir, List<Settings.Subscription> subscriptions) {
         this.dir = filesDir;
+        this.subscriptions = subscriptions;
     }
 
-    /** The cached nodes plus the development node, without duplicates. */
+    boolean hasSubscriptions() {
+        return !subscriptions.isEmpty();
+    }
+
+    /** The cached nodes of all subscriptions, without duplicates. */
     List<ShadowsocksNode> load() {
         Map<String, ShadowsocksNode> all = new LinkedHashMap<>();
-        for (String line : lines(new File(dir, CACHE))) {
-            add(all, line);
-        }
-        for (String line : lines(new File(dir, DEV_NODE))) {
-            add(all, line);
+        for (Settings.Subscription s : subscriptions) {
+            for (String line : cachedLines(s)) {
+                try {
+                    ShadowsocksNode n = ShadowsocksNode.parse(line);
+                    all.putIfAbsent(n.host + ":" + n.port, n);
+                } catch (IllegalArgumentException e) {
+                    // a bad line is skipped
+                }
+            }
         }
         return new ArrayList<>(all.values());
     }
 
-    /** True if there is a subscription to read and the cache is missing or older than a day. */
-    boolean needsUpdate() {
-        File cache = new File(dir, CACHE);
-        return !subscriptionUrls().isEmpty()
-                && (!cache.isFile() || System.currentTimeMillis() - cache.lastModified() > STALE_MS);
-    }
-
-    boolean hasSubscriptions() {
-        return !subscriptionUrls().isEmpty();
+    /** True if a subscription has no cache yet or its cache is older than its update interval. */
+    boolean anyDue() {
+        for (Settings.Subscription s : subscriptions) {
+            if (isDue(s)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
-     * Downloads every subscription, turns host names into IPs and saves the result as the cache.
+     * Downloads subscriptions, turns host names into IPs and saves each result as that slot's cache.
+     * A subscription that fails keeps its old cache.
      *
-     * @return the new node list (cache content, not including the development node)
-     * @throws IOException if no subscription could be fetched and read
+     * @param onlyDue true to skip subscriptions that are not due yet
+     * @throws IOException if every attempted subscription failed
      */
-    List<ShadowsocksNode> update(HttpsFetcher fetcher, NameResolver names) throws IOException {
-        Map<String, ShadowsocksNode> all = new LinkedHashMap<>();
+    void update(HttpsFetcher fetcher, NameResolver names, boolean onlyDue) throws IOException {
         IOException last = null;
+        int attempted = 0;
         int ok = 0;
-        for (String url : subscriptionUrls()) {
+        for (Settings.Subscription s : subscriptions) {
+            if (onlyDue && !isDue(s)) {
+                continue;
+            }
+            attempted++;
             try {
-                for (ShadowsocksNode n : SubscriptionParser.parse(fetcher.get(url)).nodes) {
-                    all.putIfAbsent(n.host + ":" + n.port, n);
+                List<ShadowsocksNode> nodes = SubscriptionParser.parse(fetcher.get(s.url)).nodes;
+                List<ShadowsocksNode> resolved = HostNameResolver.resolve(nodes, names);
+                if (resolved.isEmpty()) {
+                    throw new IOException("subscription held no usable node");
                 }
+                save(s, resolved);
                 ok++;
             } catch (IOException | IllegalArgumentException e) {
                 last = e instanceof IOException ? (IOException) e : new IOException(e.getMessage());
             }
         }
-        if (ok == 0) {
-            throw last != null ? last : new IOException("no subscription configured");
+        if (attempted > 0 && ok == 0) {
+            throw last;
         }
-        List<ShadowsocksNode> resolved = HostNameResolver.resolve(new ArrayList<>(all.values()), names);
-        if (resolved.isEmpty()) {
-            throw new IOException("subscriptions held no usable node");
-        }
-        save(resolved);
-        return resolved;
     }
 
-    private List<String> subscriptionUrls() {
-        List<String> out = new ArrayList<>();
-        for (String line : lines(new File(dir, SUBSCRIPTIONS))) {
-            if (out.size() < MAX_SUBSCRIPTIONS) {
-                out.add(line);
-            }
-        }
-        return out;
+    private boolean isDue(Settings.Subscription s) {
+        File f = file(s);
+        return cachedLines(s).isEmpty()
+                || System.currentTimeMillis() - f.lastModified() > s.intervalHours * 3_600_000L;
     }
 
-    private void save(List<ShadowsocksNode> nodes) throws IOException {
-        StringBuilder text = new StringBuilder();
+    private File file(Settings.Subscription s) {
+        return new File(dir, "nodes_" + s.slot + ".txt");
+    }
+
+    private void save(Settings.Subscription s, List<ShadowsocksNode> nodes) throws IOException {
+        StringBuilder text = new StringBuilder(URL_MARK).append(s.url).append('\n');
         for (ShadowsocksNode n : nodes) {
             text.append(n.toUri()).append('\n');
         }
-        File tmp = new File(dir, CACHE + ".tmp");
+        File tmp = new File(dir, "nodes_" + s.slot + ".tmp");
         Files.write(tmp.toPath(), text.toString().getBytes(StandardCharsets.UTF_8));
-        Files.move(tmp.toPath(), new File(dir, CACHE).toPath(), StandardCopyOption.REPLACE_EXISTING);
+        Files.move(tmp.toPath(), file(s).toPath(), StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private static void add(Map<String, ShadowsocksNode> into, String line) {
-        try {
-            ShadowsocksNode n = ShadowsocksNode.parse(line);
-            into.putIfAbsent(n.host + ":" + n.port, n);
-        } catch (IllegalArgumentException e) {
-            // a bad line is skipped
-        }
-    }
-
-    private static List<String> lines(File f) {
+    /** The ss:// lines of the slot's cache, or none if there is no cache or it belongs to another URL. */
+    private List<String> cachedLines(Settings.Subscription s) {
         List<String> out = new ArrayList<>();
+        File f = file(s);
         if (!f.isFile()) {
             return out;
         }
         try {
-            for (String l : Files.readAllLines(f.toPath(), StandardCharsets.UTF_8)) {
-                String t = l.trim();
-                if (!t.isEmpty() && !t.startsWith("#")) {
-                    out.add(t);
+            List<String> lines = Files.readAllLines(f.toPath(), StandardCharsets.UTF_8);
+            if (lines.isEmpty() || !lines.get(0).equals(URL_MARK + s.url)) {
+                return out;
+            }
+            for (String l : lines.subList(1, lines.size())) {
+                if (!l.trim().isEmpty()) {
+                    out.add(l.trim());
                 }
             }
         } catch (IOException e) {
-            // unreadable file: treated as empty
+            // unreadable file: treated as no cache
         }
         return out;
     }

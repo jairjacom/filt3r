@@ -17,6 +17,10 @@ import android.util.Log;
 import com.bridge.filt3r.core.dns.DohBootstrapResolver;
 import com.bridge.filt3r.core.dns.UpstreamNameResolver;
 import com.bridge.filt3r.core.dnscrypt.DnsCryptStamp;
+import com.bridge.filt3r.core.dnscrypt.DnsCryptUpstream;
+import com.bridge.filt3r.core.dnscrypt.MinisignVerifier;
+import com.bridge.filt3r.core.dnscrypt.ResolverList;
+import com.bridge.filt3r.core.dnscrypt.ResolverTester;
 import com.bridge.filt3r.core.filter.DNSFilterManager;
 import com.bridge.filt3r.core.filter.DNSResolver;
 import com.bridge.filt3r.core.http.HttpsFetcher;
@@ -26,7 +30,6 @@ import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.DirectDialer;
-import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
@@ -55,17 +58,18 @@ public class Filt3rVpnService extends VpnService {
     private static final String ADDRESS_V6 = "fdc8:1095:91e1:aaaa:aaaa:aaaa:aaaa:aaa2";
     private static final byte[] DNS_V4_BYTES = {10, 10, 10, 10};
     private static final String DNS_V4 = "10.10.10.10";
-    // The one built-in resolver (dnscry.pt, Gigahost Norway, no query logs, no filtering). No picker in v1.
-    private static final String DNSCRYPT_STAMP =
-            "sdns://AQcAAAAAAAAADjE5OC4xNDAuMTQxLjQ2IFqbafOxgXuKwOgYxQ6XUqHWkMUt_5LI2nDkdVFU5hm7GTIuZG5zY3J5cHQtY2VydC5kbnNjcnkucHQ";
+    static final String ACTION_REFRESH_RESOLVERS = "com.bridge.filt3r.REFRESH_RESOLVERS";
+    // The official DNSCrypt list (what dnscrypt-proxy reads) and its minisign public key.
+    private static final String RESOLVER_LIST_URL =
+            "https://raw.githubusercontent.com/DNSCrypt/dnscrypt-resolvers/master/v3/public-resolvers.md";
+    private static final String RESOLVER_LIST_KEY = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+    private static final long RESOLVER_LIST_MAX_AGE_MS = 7L * 24 * 3600 * 1000;
+    private static final long RESOLVER_TEST_TIMEOUT_S = 90;
+    private static final long FIRST_MAINTENANCE_MIN = 2;
     private static final int MTU = 1500;
     private static final long CONFIG_BACKSTOP_MS = 5000;
     static final String ACTION_STOP = "com.bridge.filt3r.STOP";
     static final String ACTION_RESTART = "com.bridge.filt3r.RESTART";
-    static final String PREFS = "filt3r";
-    static final String PREF_FAILURE_MODE = "failure_mode";
-    // Off until a node is known to have IPv6 egress (node tests, Step 5).
-    static final String PREF_ALLOW_IPV6 = "allow_ipv6";
     private static final String CHANNEL_ID = "tunnel";
     private static final int NOTIFICATION_ID = 1;
     private static final String BOOTSTRAP_DOH = "https://1.1.1.1/dns-query";
@@ -116,6 +120,14 @@ public class Filt3rVpnService extends VpnService {
             shutdown(TunnelState.State.STOPPED);
             return START_NOT_STICKY;
         }
+        if (ACTION_REFRESH_RESOLVERS.equals(action)) {
+            NodeRuntime r = runtime;
+            ScheduledExecutorService maint = maintenance;
+            if (r != null && maint != null) {
+                maint.execute(() -> r.refreshResolvers(true));
+            }
+            return tun != null ? START_STICKY : START_NOT_STICKY;
+        }
         if (ACTION_RESTART.equals(action)) {
             stopEverything();
         }
@@ -143,8 +155,9 @@ public class Filt3rVpnService extends VpnService {
             ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
             startFilter();
             DirectDialer direct = new DirectDialer(protector);
-            DnsCryptStamp stamp = DnsCryptStamp.parse(DNSCRYPT_STAMP);
-            NodeStore store = new NodeStore(getFilesDir());
+            DnsCryptStamp testStamp = DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
+            Settings settings = new Settings(this);
+            NodeStore store = new NodeStore(getFilesDir(), settings.subscriptions());
             NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
             nodes = manager;
 
@@ -152,14 +165,14 @@ public class Filt3rVpnService extends VpnService {
             if (list.isEmpty() && store.hasSubscriptions()) {
                 // First run: no node is up, so this download goes out directly (the bootstrap cost).
                 DohBootstrapResolver doh = new DohBootstrapResolver(BOOTSTRAP_DOH);
-                store.update(new HttpsFetcher(direct, doh), doh);
+                store.update(new HttpsFetcher(direct, doh), doh, false);
                 list = store.load();
             }
             if (list.isEmpty()) {
-                throw new IOException("no nodes: add subscriptions.txt or node.txt");
+                throw new IOException("no nodes: add a subscription URL in Settings");
             }
             manager.setNodes(list);
-            NodeTester tester = new NodeTester(direct, stamp);
+            NodeTester tester = new NodeTester(direct, testStamp);
             for (int round = 0; round < START_ROUNDS && manager.current() == null; round++) {
                 tester.testAndRecord(manager, manager.pickForTest(0, START_ROUND_NODES, RANDOM), TEST_THREADS);
                 manager.selectBest();
@@ -173,20 +186,20 @@ public class Filt3rVpnService extends VpnService {
             Log.i(TAG, "start round done: " + manager.summary());
 
             FailoverDialer viaNode = new FailoverDialer(manager, direct);
-            FailoverUpstream upstream = new FailoverUpstream(manager, stamp, viaNode);
+            DnsCryptStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
+            FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp, viaNode, tester);
             // DNS always goes through the node: it is never sent direct, whatever the failure mode.
             DNSResolver resolver = new DNSResolver(upstream);
             bridge = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
                 return resolver.resolve(client, query);
             }, viaNode, direct);
-            bridge.setFailureMode(readFailureMode());
-            boolean allowIPv6 = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ALLOW_IPV6, false);
-            bridge.setAllowIPv6(allowIPv6);
-            resolver.setAllowIPv6(allowIPv6);
+            bridge.setFailureMode(settings.failureMode());
+            bridge.setAllowIPv6(settings.allowIpv6());
+            resolver.setAllowIPv6(settings.allowIpv6());
             bridge.start();
 
-            tun = new Builder()
+            Builder builder = new Builder()
                     .setSession("filt3r")
                     .setMtu(MTU)
                     .setBlocking(true)
@@ -195,8 +208,16 @@ public class Filt3rVpnService extends VpnService {
                     .addRoute("0.0.0.0", 0)
                     .addRoute("::", 0)
                     .addDnsServer(DNS_V4)
-                    .addDisallowedApplication(getPackageName())
-                    .establish();
+                    .addDisallowedApplication(getPackageName());
+            // Exempt apps skip the tunnel: they use the real IP and the real DNS.
+            for (String pkg : settings.exemptApps()) {
+                try {
+                    builder.addDisallowedApplication(pkg);
+                } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+                    Log.w(TAG, "exempt app is not installed, skipped");
+                }
+            }
+            tun = builder.establish();
             if (tun == null) {
                 throw new IOException("establish() returned null: VPN consent revoked");
             }
@@ -210,7 +231,7 @@ public class Filt3rVpnService extends VpnService {
             if (gen != generation.get()) {
                 return; // stopped while starting: stopEverything has already cleaned up
             }
-            startMaintenance(manager, tester, store, viaNode, upstream);
+            startMaintenance(manager, tester, store, viaNode, testStamp);
             starting = false;
             TunnelState.set(TunnelState.State.RUNNING);
         } catch (IOException | android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
@@ -218,6 +239,16 @@ public class Filt3rVpnService extends VpnService {
                 Log.e(TAG, "start failed: " + e.getMessage());
                 handler.post(() -> shutdown(TunnelState.State.FAILED));
             }
+        }
+    }
+
+    /** The user's resolver, or the built-in one if the saved stamp cannot be read. */
+    private static DnsCryptStamp parseStampOrDefault(String stamp) {
+        try {
+            return DnsCryptStamp.parse(stamp);
+        } catch (IllegalArgumentException e) {
+            Log.w(TAG, "saved resolver is not usable, using the default");
+            return DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
         }
     }
 
@@ -237,29 +268,59 @@ public class Filt3rVpnService extends VpnService {
         final NodeTester tester;
         final NodeStore store;
         final FailoverDialer viaNode;
-        final FailoverUpstream upstream;
+        /** Looks names up through the node with the built-in resolver, so a bad user choice cannot block downloads. */
+        final UpstreamNameResolver names;
 
         NodeRuntime(NodeManager manager, NodeTester tester, NodeStore store,
-                    FailoverDialer viaNode, FailoverUpstream upstream) {
+                    FailoverDialer viaNode, DnsCryptStamp testStamp) {
             this.manager = manager;
             this.tester = tester;
             this.store = store;
             this.viaNode = viaNode;
-            this.upstream = upstream;
+            this.names = new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode));
         }
 
-        /** Re-reads the subscriptions through the node when the cache is a day old. */
+        /** Re-reads the subscriptions through the node when a subscription is due. */
         void updateSubscriptions() {
-            if (!store.needsUpdate()) {
+            if (!store.anyDue()) {
                 return;
             }
             try {
-                UpstreamNameResolver names = new UpstreamNameResolver(upstream);
-                store.update(new HttpsFetcher(viaNode, names), names);
+                store.update(new HttpsFetcher(viaNode, names), names, true);
                 manager.setNodes(store.load());
                 Log.i(TAG, "subscriptions updated: " + manager.summary());
             } catch (IOException e) {
                 Log.w(TAG, "subscription update failed: " + e.getMessage());
+            }
+        }
+
+        /**
+         * Downloads the official resolver list, checks its signature, tests every DNSCrypt resolver in
+         * it through the node and keeps the ones that answer.
+         *
+         * @param force false to skip when the stored list is younger than a week
+         */
+        void refreshResolvers(boolean force) {
+            ResolverStore resolvers = new ResolverStore(getFilesDir());
+            if (!force && !resolvers.isOlderThan(RESOLVER_LIST_MAX_AGE_MS)) {
+                return;
+            }
+            try {
+                HttpsFetcher fetcher = new HttpsFetcher(viaNode, names);
+                String list = fetcher.get(RESOLVER_LIST_URL);
+                String signature = fetcher.get(RESOLVER_LIST_URL + ".minisig");
+                if (!MinisignVerifier.verify(list.getBytes(StandardCharsets.UTF_8), signature, RESOLVER_LIST_KEY)) {
+                    throw new IOException("resolver list signature is not valid");
+                }
+                List<ResolverTester.Result> working = ResolverTester.testAll(
+                        ResolverList.parse(list), viaNode, TEST_THREADS, RESOLVER_TEST_TIMEOUT_S);
+                if (working.isEmpty()) {
+                    throw new IOException("no resolver answered");
+                }
+                resolvers.save(working);
+                Log.i(TAG, "resolver list updated: " + working.size() + " working");
+            } catch (IOException e) {
+                Log.w(TAG, "resolver list update failed: " + e.getMessage());
             }
         }
 
@@ -271,19 +332,20 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private void startMaintenance(NodeManager manager, NodeTester tester, NodeStore store,
-                                  FailoverDialer viaNode, FailoverUpstream upstream) {
-        NodeRuntime r = new NodeRuntime(manager, tester, store, viaNode, upstream);
+                                  FailoverDialer viaNode, DnsCryptStamp testStamp) {
+        NodeRuntime r = new NodeRuntime(manager, tester, store, viaNode, testStamp);
         runtime = r;
         ScheduledExecutorService maint = Executors.newSingleThreadScheduledExecutor();
         maintenance = maint;
         maint.scheduleWithFixedDelay(() -> {
             try {
                 r.updateSubscriptions();
+                r.refreshResolvers(false);
                 r.testRound(ROUND_TOP, ROUND_RANDOM);
             } catch (RuntimeException e) {
                 Log.w(TAG, "maintenance failed: " + e);
             }
-        }, MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
+        }, FIRST_MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
     }
 
     @Override
@@ -308,16 +370,6 @@ public class Filt3rVpnService extends VpnService {
         stopSelf();
     }
 
-    private FailureMode readFailureMode() {
-        String saved = getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(PREF_FAILURE_MODE, FailureMode.FAIL_CLOSED.name());
-        try {
-            return FailureMode.valueOf(saved);
-        } catch (IllegalArgumentException e) {
-            return FailureMode.FAIL_CLOSED; // unknown value: take the safe default
-        }
-    }
-
     private Notification buildNotification() {
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
@@ -333,6 +385,32 @@ public class Filt3rVpnService extends VpnService {
                         Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
                         "Stop", stop).build())
                 .build();
+    }
+
+    /**
+     * Tests a resolver stamp through the current node, for the Settings screen's custom-stamp field.
+     * Blocks; call it off the main thread.
+     *
+     * @return a short result such as "works, 340 ms"
+     * @throws IOException with a reason a user can read
+     */
+    static String checkResolver(String stampText) throws IOException {
+        DnsCryptStamp stamp;
+        try {
+            stamp = DnsCryptStamp.parse(stampText);
+        } catch (IllegalArgumentException e) {
+            throw new IOException("not a usable DNSCrypt stamp: " + e.getMessage());
+        }
+        Filt3rVpnService s = instance;
+        NodeRuntime r = s == null ? null : s.runtime;
+        if (r == null) {
+            throw new IOException("start the VPN first: resolvers are tested through the node");
+        }
+        try {
+            return "works, " + ResolverTester.test(stamp, r.viaNode) + " ms";
+        } catch (IOException e) {
+            throw new IOException("resolver did not answer (it may use another cipher or no TCP): " + e.getMessage());
+        }
     }
 
     /** Counters for the status line: hev packets and bytes, then the bridge counters. */
