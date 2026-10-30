@@ -14,16 +14,21 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
-import com.bridge.filt3r.core.socks.SocketProtector;
+import com.bridge.filt3r.core.dns.DohBootstrapResolver;
+import com.bridge.filt3r.core.dns.UpstreamNameResolver;
+import com.bridge.filt3r.core.dnscrypt.DnsCryptStamp;
 import com.bridge.filt3r.core.filter.DNSFilterManager;
 import com.bridge.filt3r.core.filter.DNSResolver;
-import com.bridge.filt3r.core.shadowsocks.ShadowsocksDialer;
+import com.bridge.filt3r.core.http.HttpsFetcher;
+import com.bridge.filt3r.core.nodes.FailoverDialer;
+import com.bridge.filt3r.core.nodes.FailoverUpstream;
+import com.bridge.filt3r.core.nodes.NodeManager;
+import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.DirectDialer;
 import com.bridge.filt3r.core.socks.FailureMode;
-import com.bridge.filt3r.core.dnscrypt.DnsCryptStamp;
-import com.bridge.filt3r.core.dnscrypt.DnsCryptUpstream;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
+import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
 
 import java.io.File;
@@ -32,7 +37,12 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.List;
+import java.util.Random;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -58,7 +68,14 @@ public class Filt3rVpnService extends VpnService {
     static final String PREF_ALLOW_IPV6 = "allow_ipv6";
     private static final String CHANNEL_ID = "tunnel";
     private static final int NOTIFICATION_ID = 1;
-    private static final String NODE_FILE = "node.txt";
+    private static final String BOOTSTRAP_DOH = "https://1.1.1.1/dns-query";
+    private static final int START_ROUNDS = 2;          // test rounds before giving up on a start
+    private static final int START_ROUND_NODES = 40;    // random nodes tested per start round
+    private static final int TEST_THREADS = 16;
+    private static final int ROUND_TOP = 5;             // hourly: best-ranked nodes re-tested
+    private static final int ROUND_RANDOM = 5;          // hourly: random others tested
+    private static final long MAINTENANCE_MIN = 60;
+    private static final Random RANDOM = new Random();
     private static final long FILTER_WAIT_S = 30;
 
     private final SocketProtector protector = new SocketProtector() {
@@ -76,6 +93,13 @@ public class Filt3rVpnService extends VpnService {
     private volatile CountDownLatch filterReady = new CountDownLatch(0);
     private volatile boolean filterOk;
     private static volatile Filt3rVpnService instance;
+
+    private final AtomicInteger generation = new AtomicInteger(); // bumped by every stop
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private volatile boolean starting;
+    private volatile ScheduledExecutorService maintenance;
+    private volatile NodeManager nodes;
+    private volatile NodeRuntime runtime;
 
     @Override
     public void onCreate() {
@@ -98,21 +122,60 @@ public class Filt3rVpnService extends VpnService {
         // Touching the class loads libhev-socks5-tunnel.so; JNI_OnLoad then
         // registers the natives, so this call proves the library is usable.
         Log.i(TAG, "hev loaded, running=" + TProxyService.TProxyIsRunning());
-        if (tun != null) {
+        if (tun != null || starting) {
             return START_STICKY;
         }
         startForeground(NOTIFICATION_ID, buildNotification(),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
         TunnelState.set(TunnelState.State.STARTING);
+        starting = true;
+        int gen = generation.get();
+        worker.execute(() -> startTunnel(gen));
+        return START_STICKY;
+    }
+
+    /**
+     * Runs on the worker thread: finding a working node can take many seconds (a subscription
+     * download and a test round), so it must not block the main thread.
+     */
+    private void startTunnel(int gen) {
         try {
             ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
             startFilter();
             DirectDialer direct = new DirectDialer(protector);
-            ShadowsocksNode node = loadNode();
-            ShadowsocksDialer viaNode = new ShadowsocksDialer(node, direct);
+            DnsCryptStamp stamp = DnsCryptStamp.parse(DNSCRYPT_STAMP);
+            NodeStore store = new NodeStore(getFilesDir());
+            NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
+            nodes = manager;
+
+            List<ShadowsocksNode> list = store.load();
+            if (list.isEmpty() && store.hasSubscriptions()) {
+                // First run: no node is up, so this download goes out directly (the bootstrap cost).
+                DohBootstrapResolver doh = new DohBootstrapResolver(BOOTSTRAP_DOH);
+                store.update(new HttpsFetcher(direct, doh), doh);
+                list = store.load();
+            }
+            if (list.isEmpty()) {
+                throw new IOException("no nodes: add subscriptions.txt or node.txt");
+            }
+            manager.setNodes(list);
+            NodeTester tester = new NodeTester(direct, stamp);
+            for (int round = 0; round < START_ROUNDS && manager.current() == null; round++) {
+                tester.testAndRecord(manager, manager.pickForTest(0, START_ROUND_NODES, RANDOM), TEST_THREADS);
+                manager.selectBest();
+                if (gen != generation.get()) {
+                    return;
+                }
+            }
+            if (manager.current() == null) {
+                throw new IOException("no working node found");
+            }
+            Log.i(TAG, "start round done: " + manager.summary());
+
+            FailoverDialer viaNode = new FailoverDialer(manager, direct);
+            FailoverUpstream upstream = new FailoverUpstream(manager, stamp, viaNode);
             // DNS always goes through the node: it is never sent direct, whatever the failure mode.
-            DNSResolver resolver = new DNSResolver(
-                    new DnsCryptUpstream(DnsCryptStamp.parse(DNSCRYPT_STAMP), viaNode));
+            DNSResolver resolver = new DNSResolver(upstream);
             bridge = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
                 return resolver.resolve(client, query);
@@ -144,17 +207,88 @@ public class Filt3rVpnService extends VpnService {
                 throw new IOException("TProxyStartService failed");
             }
             Log.i(TAG, "hev started, bridge on loopback");
+            if (gen != generation.get()) {
+                return; // stopped while starting: stopEverything has already cleaned up
+            }
+            startMaintenance(manager, tester, store, viaNode, upstream);
+            starting = false;
             TunnelState.set(TunnelState.State.RUNNING);
-        } catch (IOException | android.content.pm.PackageManager.NameNotFoundException e) {
-            Log.e(TAG, "start failed: " + e.getMessage());
-            shutdown(TunnelState.State.FAILED);
-            return START_NOT_STICKY;
+        } catch (IOException | android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
+            if (gen == generation.get()) {
+                Log.e(TAG, "start failed: " + e.getMessage());
+                handler.post(() -> shutdown(TunnelState.State.FAILED));
+            }
         }
-        return START_STICKY;
+    }
+
+    private void onCurrentNodeChanged(ShadowsocksNode node) {
+        NodeManager m = nodes;
+        Log.i(TAG, "current node changed: " + (node == null ? "none" : "ok") + (m == null ? "" : ", " + m.summary()));
+        NodeRuntime r = runtime;
+        ScheduledExecutorService maint = maintenance;
+        if (node == null && r != null && maint != null) {
+            maint.execute(() -> r.testRound(0, START_ROUND_NODES)); // nothing usable: look for a node now
+        }
+    }
+
+    /** What the hourly maintenance needs; created once the tunnel is up. */
+    private final class NodeRuntime {
+        final NodeManager manager;
+        final NodeTester tester;
+        final NodeStore store;
+        final FailoverDialer viaNode;
+        final FailoverUpstream upstream;
+
+        NodeRuntime(NodeManager manager, NodeTester tester, NodeStore store,
+                    FailoverDialer viaNode, FailoverUpstream upstream) {
+            this.manager = manager;
+            this.tester = tester;
+            this.store = store;
+            this.viaNode = viaNode;
+            this.upstream = upstream;
+        }
+
+        /** Re-reads the subscriptions through the node when the cache is a day old. */
+        void updateSubscriptions() {
+            if (!store.needsUpdate()) {
+                return;
+            }
+            try {
+                UpstreamNameResolver names = new UpstreamNameResolver(upstream);
+                store.update(new HttpsFetcher(viaNode, names), names);
+                manager.setNodes(store.load());
+                Log.i(TAG, "subscriptions updated: " + manager.summary());
+            } catch (IOException e) {
+                Log.w(TAG, "subscription update failed: " + e.getMessage());
+            }
+        }
+
+        /** Tests the best-ranked {@code top} nodes and {@code random} others. The current node stays unless it died. */
+        void testRound(int top, int random) {
+            tester.testAndRecord(manager, manager.pickForTest(top, random, RANDOM), TEST_THREADS);
+            Log.i(TAG, "node round: " + manager.summary());
+        }
+    }
+
+    private void startMaintenance(NodeManager manager, NodeTester tester, NodeStore store,
+                                  FailoverDialer viaNode, FailoverUpstream upstream) {
+        NodeRuntime r = new NodeRuntime(manager, tester, store, viaNode, upstream);
+        runtime = r;
+        ScheduledExecutorService maint = Executors.newSingleThreadScheduledExecutor();
+        maintenance = maint;
+        maint.scheduleWithFixedDelay(() -> {
+            try {
+                r.updateSubscriptions();
+                r.testRound(ROUND_TOP, ROUND_RANDOM);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "maintenance failed: " + e);
+            }
+        }, MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
     }
 
     @Override
     public void onDestroy() {
+        worker.shutdownNow();
         stopEverything();
         if (TunnelState.get() != TunnelState.State.FAILED) {
             TunnelState.set(TunnelState.State.STOPPED);
@@ -172,22 +306,6 @@ public class Filt3rVpnService extends VpnService {
         TunnelState.set(finalState);
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
-    }
-
-    /**
-     * Interim node source until the node manager exists (Step 5): an ss:// URL in
-     * files/node.txt. It never ships in the APK or the repo.
-     */
-    private ShadowsocksNode loadNode() throws IOException {
-        File file = new File(getFilesDir(), NODE_FILE);
-        if (!file.isFile()) {
-            throw new IOException("no node configured (" + NODE_FILE + " missing)");
-        }
-        try {
-            return ShadowsocksNode.parse(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
-        } catch (IllegalArgumentException e) {
-            throw new IOException("invalid node: " + e.getMessage());
-        }
     }
 
     private FailureMode readFailureMode() {
@@ -228,7 +346,7 @@ public class Filt3rVpnService extends VpnService {
         String traffic = hev != null && hev.length >= 4
                 ? "up " + hev[0] + " pkts / " + hev[1] + " B, down " + hev[2] + " pkts / " + hev[3] + " B\n"
                 : "";
-        return traffic + b.stats();
+        return traffic + b.stats() + "\n" + (s.nodes == null ? "" : s.nodes.summary());
     }
 
     /**
@@ -314,6 +432,15 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private void stopEverything() {
+        generation.incrementAndGet(); // a start still running in the worker will notice and stop
+        starting = false;
+        ScheduledExecutorService m = maintenance;
+        maintenance = null;
+        if (m != null) {
+            m.shutdownNow();
+        }
+        nodes = null;
+        runtime = null;
         handler.removeCallbacksAndMessages(null);
         TProxyService.TProxyStopService();
         deleteConfig();
