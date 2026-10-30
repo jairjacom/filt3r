@@ -26,7 +26,6 @@ import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.DirectDialer;
-import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
@@ -62,10 +61,6 @@ public class Filt3rVpnService extends VpnService {
     private static final long CONFIG_BACKSTOP_MS = 5000;
     static final String ACTION_STOP = "com.bridge.filt3r.STOP";
     static final String ACTION_RESTART = "com.bridge.filt3r.RESTART";
-    static final String PREFS = "filt3r";
-    static final String PREF_FAILURE_MODE = "failure_mode";
-    // Off until a node is known to have IPv6 egress (node tests, Step 5).
-    static final String PREF_ALLOW_IPV6 = "allow_ipv6";
     private static final String CHANNEL_ID = "tunnel";
     private static final int NOTIFICATION_ID = 1;
     private static final String BOOTSTRAP_DOH = "https://1.1.1.1/dns-query";
@@ -144,7 +139,8 @@ public class Filt3rVpnService extends VpnService {
             startFilter();
             DirectDialer direct = new DirectDialer(protector);
             DnsCryptStamp stamp = DnsCryptStamp.parse(DNSCRYPT_STAMP);
-            NodeStore store = new NodeStore(getFilesDir());
+            Settings settings = new Settings(this);
+            NodeStore store = new NodeStore(getFilesDir(), settings.subscriptions());
             NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
             nodes = manager;
 
@@ -152,11 +148,11 @@ public class Filt3rVpnService extends VpnService {
             if (list.isEmpty() && store.hasSubscriptions()) {
                 // First run: no node is up, so this download goes out directly (the bootstrap cost).
                 DohBootstrapResolver doh = new DohBootstrapResolver(BOOTSTRAP_DOH);
-                store.update(new HttpsFetcher(direct, doh), doh);
+                store.update(new HttpsFetcher(direct, doh), doh, false);
                 list = store.load();
             }
             if (list.isEmpty()) {
-                throw new IOException("no nodes: add subscriptions.txt or node.txt");
+                throw new IOException("no nodes: add a subscription URL in Settings");
             }
             manager.setNodes(list);
             NodeTester tester = new NodeTester(direct, stamp);
@@ -180,13 +176,12 @@ public class Filt3rVpnService extends VpnService {
                 awaitFilter();
                 return resolver.resolve(client, query);
             }, viaNode, direct);
-            bridge.setFailureMode(readFailureMode());
-            boolean allowIPv6 = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ALLOW_IPV6, false);
-            bridge.setAllowIPv6(allowIPv6);
-            resolver.setAllowIPv6(allowIPv6);
+            bridge.setFailureMode(settings.failureMode());
+            bridge.setAllowIPv6(settings.allowIpv6());
+            resolver.setAllowIPv6(settings.allowIpv6());
             bridge.start();
 
-            tun = new Builder()
+            Builder builder = new Builder()
                     .setSession("filt3r")
                     .setMtu(MTU)
                     .setBlocking(true)
@@ -195,8 +190,16 @@ public class Filt3rVpnService extends VpnService {
                     .addRoute("0.0.0.0", 0)
                     .addRoute("::", 0)
                     .addDnsServer(DNS_V4)
-                    .addDisallowedApplication(getPackageName())
-                    .establish();
+                    .addDisallowedApplication(getPackageName());
+            // Exempt apps skip the tunnel: they use the real IP and the real DNS.
+            for (String pkg : settings.exemptApps()) {
+                try {
+                    builder.addDisallowedApplication(pkg);
+                } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+                    Log.w(TAG, "exempt app is not installed, skipped");
+                }
+            }
+            tun = builder.establish();
             if (tun == null) {
                 throw new IOException("establish() returned null: VPN consent revoked");
             }
@@ -248,14 +251,14 @@ public class Filt3rVpnService extends VpnService {
             this.upstream = upstream;
         }
 
-        /** Re-reads the subscriptions through the node when the cache is a day old. */
+        /** Re-reads the subscriptions through the node when a subscription is due. */
         void updateSubscriptions() {
-            if (!store.needsUpdate()) {
+            if (!store.anyDue()) {
                 return;
             }
             try {
                 UpstreamNameResolver names = new UpstreamNameResolver(upstream);
-                store.update(new HttpsFetcher(viaNode, names), names);
+                store.update(new HttpsFetcher(viaNode, names), names, true);
                 manager.setNodes(store.load());
                 Log.i(TAG, "subscriptions updated: " + manager.summary());
             } catch (IOException e) {
@@ -306,16 +309,6 @@ public class Filt3rVpnService extends VpnService {
         TunnelState.set(finalState);
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
-    }
-
-    private FailureMode readFailureMode() {
-        String saved = getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(PREF_FAILURE_MODE, FailureMode.FAIL_CLOSED.name());
-        try {
-            return FailureMode.valueOf(saved);
-        } catch (IllegalArgumentException e) {
-            return FailureMode.FAIL_CLOSED; // unknown value: take the safe default
-        }
     }
 
     private Notification buildNotification() {
