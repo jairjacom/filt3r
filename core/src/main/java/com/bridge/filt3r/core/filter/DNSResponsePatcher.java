@@ -199,11 +199,21 @@ public class DNSResponsePatcher {
 
 	}
 
+	/** Receives one call per A/AAAA query the filter decides on. */
+	public interface QueryObserver {
+		void onQuery(String host, boolean blocked);
+	}
+
+	private static volatile QueryObserver observer;
+
+	public static void setObserver(QueryObserver o) {
+		observer = o;
+	}
+
 	protected static void logNstats(boolean result, String host) {
-		if (result == true)
-			Logger.getLogger().logLine("FILTERED:" + host);
-		else
-			Logger.getLogger().logLine("ALLOWED:" + host);
+		QueryObserver o = observer;
+		if (o != null)
+			o.onQuery(host, result);
 
 		if (result == false)
 			okCnt++;
@@ -220,8 +230,7 @@ public class DNSResponsePatcher {
 		else
 			result = FILTER.contains("%IP%"+ip);
 
-		if (result)
-			Logger.getLogger().logLine("FILTERED:" + ip);
+		// no logging of the address here: the query log is the only place names are recorded
 
 		if (!result)
 			okCnt++;
