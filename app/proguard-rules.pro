@@ -1,0 +1,1 @@
+-keep class hev.htproxy.TProxyService { *; }

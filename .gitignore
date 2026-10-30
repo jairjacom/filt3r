@@ -4,7 +4,7 @@ research.md
 build/
 .gradle/
 local.properties
-native/hev/
+app/src/main/jni/hev-socks5-tunnel/
 *.jks
 *.keystore
 AGENTS.md

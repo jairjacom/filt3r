@@ -7,6 +7,8 @@ import android.util.Log;
 
 import java.io.IOException;
 
+import hev.htproxy.TProxyService;
+
 public class Filt3rVpnService extends VpnService {
 
     private static final String TAG = "filt3r";
@@ -19,6 +21,9 @@ public class Filt3rVpnService extends VpnService {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // Touching the class loads libhev-socks5-tunnel.so; JNI_OnLoad then
+        // registers the natives, so this call proves the library is usable.
+        Log.i(TAG, "hev loaded, running=" + TProxyService.TProxyIsRunning());
         if (tun == null) {
             tun = new Builder()
                     .setSession("filt3r")
