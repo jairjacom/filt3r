@@ -58,6 +58,7 @@ public final class Socks5Bridge {
     private static final int REP_OK = 0;
     private static final int REP_FAILURE = 1;
     private static final int REP_NOT_ALLOWED = 2;
+    private static final int REP_NET_UNREACHABLE = 3;
     private static final int REP_HOST_UNREACHABLE = 4;
     private static final int REP_REFUSED = 5;
     private static final int REP_TTL_EXPIRED = 6;
@@ -76,6 +77,8 @@ public final class Socks5Bridge {
     private final AtomicLong connectOk = new AtomicLong();
     private final AtomicLong connectFailed = new AtomicLong();
     private final AtomicLong refusedDomain = new AtomicLong();
+    private final AtomicLong refusedIPv6 = new AtomicLong();
+    private volatile boolean allowIPv6 = true;
     private final AtomicLong failedOpen = new AtomicLong();
     private volatile FailureMode failureMode = FailureMode.FAIL_CLOSED;
     private volatile String lastConnectError = "none";
@@ -103,6 +106,11 @@ public final class Socks5Bridge {
 
     public void setFailureMode(FailureMode mode) {
         this.failureMode = mode;
+    }
+
+    /** When off, IPv6 destinations are refused immediately. */
+    public void setAllowIPv6(boolean allow) {
+        this.allowIPv6 = allow;
     }
 
     public synchronized void start() throws IOException {
@@ -148,6 +156,7 @@ public final class Socks5Bridge {
     public String stats() {
         return "authFailed=" + authFailed + " connectOk=" + connectOk + " connectFailed=" + connectFailed
                 + " failedOpen=" + failedOpen + " mode=" + failureMode + " refusedDomain=" + refusedDomain
+                + " refusedIPv6=" + refusedIPv6
                 + " lastConnectError=" + lastConnectError
                 + " dnsForwarded=" + dnsForwarded + " udpDropped=" + udpDropped;
     }
@@ -266,6 +275,12 @@ public final class Socks5Bridge {
             // Domain names never arrive from hev (no mapdns): refuse, fail closed.
             reply(out, REP_ATYP_UNSUPPORTED, 0);
             refusedDomain.incrementAndGet();
+            return;
+        }
+        if (ip.length == 16 && !allowIPv6) {
+            // The node has no IPv6 exit: fail at once so the app falls back to IPv4 without waiting.
+            reply(out, REP_NET_UNREACHABLE, 0);
+            refusedIPv6.incrementAndGet();
             return;
         }
         InetAddress addr = InetAddress.getByAddress(ip);

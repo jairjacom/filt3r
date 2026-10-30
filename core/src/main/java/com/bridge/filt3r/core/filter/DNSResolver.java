@@ -53,6 +53,8 @@ public class DNSResolver {
 	private static int localResolverTTL = 0;
 	private static PatternSequence customIPMappings = null;
 
+	private static final int TYPE_AAAA = 28;
+	private volatile boolean allowIPv6 = true;
 	private final Upstream upstream;
 
 	public DNSResolver(Upstream upstream) {
@@ -63,6 +65,27 @@ public class DNSResolver {
 		customIPMappings = customMappings;
 		localResolverTTL= ttl;
 		enableLocalResolver = enabled;
+	}
+
+	/** When off, AAAA queries get an empty answer so apps use IPv4 only. */
+	public void setAllowIPv6(boolean allow) {
+		this.allowIPv6 = allow;
+	}
+
+	/** NOERROR with no records: the query's header and question only, flagged as a response. */
+	private static byte[] emptyAnswer(byte[] request) throws IOException {
+		int pos = 12;
+		while (pos < request.length && request[pos] != 0)
+			pos += (request[pos] & 0xFF) + 1;
+		int end = pos + 1 + 4; // root label, QTYPE, QCLASS
+		if (pos >= request.length || end > request.length)
+			throw new IOException("malformed question");
+		byte[] r = Arrays.copyOf(request, end);
+		r[2] = (byte) (0x80 | (request[2] & 0x01)); // QR, keep RD, opcode 0
+		r[3] = (byte) 0x80;                          // RA, RCODE 0
+		r[4] = 0; r[5] = 1;                          // one question
+		r[6] = 0; r[7] = 0; r[8] = 0; r[9] = 0; r[10] = 0; r[11] = 0;
+		return r;
 	}
 
 	/**
@@ -77,6 +100,8 @@ public class DNSResolver {
 			SimpleDNSMessage query = getDNSQuery(clientID, req);
 			if (query == null)
 				return null;
+			if (!allowIPv6 && query.qType == TYPE_AAAA)
+				return emptyAnswer(request);
 
 			byte[] buf = new byte[MAX_LOCAL_RESPONSE];
 			DatagramPacket local = new DatagramPacket(buf, 0, buf.length);
