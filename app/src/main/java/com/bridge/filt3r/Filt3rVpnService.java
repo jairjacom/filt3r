@@ -54,6 +54,8 @@ public class Filt3rVpnService extends VpnService {
     static final String ACTION_RESTART = "com.bridge.filt3r.RESTART";
     static final String PREFS = "filt3r";
     static final String PREF_FAILURE_MODE = "failure_mode";
+    // Off until a node is known to have IPv6 egress (node tests, Step 5).
+    static final String PREF_ALLOW_IPV6 = "allow_ipv6";
     private static final String CHANNEL_ID = "tunnel";
     private static final int NOTIFICATION_ID = 1;
     private static final String NODE_FILE = "node.txt";
@@ -119,6 +121,9 @@ public class Filt3rVpnService extends VpnService {
                 return resolver.resolve(client, query);
             }, new ShadowsocksDialer(node, direct), direct);
             bridge.setFailureMode(readFailureMode());
+            boolean allowIPv6 = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ALLOW_IPV6, false);
+            bridge.setAllowIPv6(allowIPv6);
+            resolver.setAllowIPv6(allowIPv6);
             bridge.start();
 
             tun = new Builder()
