@@ -10,7 +10,6 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
-import java.net.PortUnreachableException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
@@ -24,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>Requires RFC 1929 username/password; the credentials are random per instance.</li>
  *   <li>TCP CONNECT to IPv4 and IPv6 addresses goes straight to the destination over a protected
  *       socket. Domain-name destinations are refused.</li>
- *   <li>UDP ASSOCIATE relays only DNS (the virtual DNS address, port 53) to one upstream server.
+ *   <li>UDP ASSOCIATE answers only DNS (the virtual DNS address, port 53) through the DnsHandler.
  *       All other UDP is dropped.</li>
  * </ul>
  */
@@ -44,6 +44,7 @@ public final class Socks5Bridge {
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int UDP_HEADER = 10; // RSV(2) FRAG(1) ATYP(1) IPv4(4) PORT(2)
     private static final int DNS_MAX = 4096;
+    private static final String DNS_CLIENT = "tunnel"; // label in the query log; hev hides the app
     private static final byte[] LOOPBACK = {127, 0, 0, 1};
 
     private static final int ATYP_IPV4 = 1;
@@ -64,7 +65,7 @@ public final class Socks5Bridge {
 
     private final SocketProtector protector;
     private final byte[] dnsVirtual;
-    private final InetSocketAddress dnsUpstream;
+    private final DnsHandler dns;
     private final byte[] username;
     private final byte[] password;
     private final Set<Closeable> open = ConcurrentHashMap.newKeySet();
@@ -82,13 +83,13 @@ public final class Socks5Bridge {
     private ExecutorService pool;
 
     /**
-     * @param dnsVirtual  IPv4 address (4 bytes) that the tunnel advertises as its DNS server
-     * @param dnsUpstream where DNS queries are really sent
+     * @param dnsVirtual IPv4 address (4 bytes) that the tunnel advertises as its DNS server
+     * @param dns        answers the DNS queries that arrive for that address
      */
-    public Socks5Bridge(SocketProtector protector, byte[] dnsVirtual, InetSocketAddress dnsUpstream) {
+    public Socks5Bridge(SocketProtector protector, byte[] dnsVirtual, DnsHandler dns) {
         this.protector = protector;
         this.dnsVirtual = dnsVirtual.clone();
-        this.dnsUpstream = dnsUpstream;
+        this.dns = dns;
         SecureRandom random = new SecureRandom();
         this.username = randomHex(random);
         this.password = randomHex(random);
@@ -328,43 +329,31 @@ public final class Socks5Bridge {
      */
     private void udpAssociate(Socket control, DataInputStream in, OutputStream out) throws IOException {
         DatagramSocket relay = new DatagramSocket(0, InetAddress.getByAddress(LOOPBACK));
-        DatagramSocket upstream = new DatagramSocket();
         open.add(relay);
-        open.add(upstream);
         try {
-            if (!protector.protect(upstream)) {
-                reply(out, REP_FAILURE, 0);
-                return;
-            }
-            upstream.connect(dnsUpstream);
             reply(out, REP_OK, relay.getLocalPort());
             control.setSoTimeout(0);
 
-            UdpAssociation assoc = new UdpAssociation(relay, upstream);
-            pool.execute(assoc::clientToUpstream);
-            pool.execute(assoc::upstreamToClient);
+            UdpAssociation assoc = new UdpAssociation(relay);
+            pool.execute(assoc::receiveLoop);
             while (in.read() != -1) {
                 // control connection carries nothing after the request; wait for it to close
             }
         } finally {
             open.remove(relay);
-            open.remove(upstream);
             closeQuietly(relay);
-            closeQuietly(upstream);
         }
     }
 
     private final class UdpAssociation {
         private final DatagramSocket relay;
-        private final DatagramSocket upstream;
         private volatile SocketAddress client; // pinned to the first sender
 
-        UdpAssociation(DatagramSocket relay, DatagramSocket upstream) {
+        UdpAssociation(DatagramSocket relay) {
             this.relay = relay;
-            this.upstream = upstream;
         }
 
-        void clientToUpstream() {
+        void receiveLoop() {
             byte[] buf = new byte[UDP_HEADER + DNS_MAX];
             DatagramPacket p = new DatagramPacket(buf, buf.length);
             try {
@@ -381,11 +370,12 @@ public final class Socks5Bridge {
                         udpDropped.incrementAndGet();
                         continue;
                     }
+                    byte[] query = Arrays.copyOfRange(buf, UDP_HEADER, p.getLength());
+                    SocketAddress to = client;
                     try {
-                        upstream.send(new DatagramPacket(buf, UDP_HEADER, p.getLength() - UDP_HEADER));
-                        dnsForwarded.incrementAndGet();
-                    } catch (PortUnreachableException e) {
-                        udpDropped.incrementAndGet();
+                        pool.execute(() -> answer(query, to));
+                    } catch (RejectedExecutionException e) {
+                        udpDropped.incrementAndGet(); // bridge is stopping
                     }
                 }
             } catch (IOException e) {
@@ -401,28 +391,23 @@ public final class Socks5Bridge {
             return port == 53 && Arrays.equals(Arrays.copyOfRange(b, 4, 8), dnsVirtual);
         }
 
-        void upstreamToClient() {
-            byte[] buf = new byte[UDP_HEADER + DNS_MAX];
-            DatagramPacket p = new DatagramPacket(buf, UDP_HEADER, DNS_MAX);
-            buf[3] = ATYP_IPV4;
-            System.arraycopy(dnsVirtual, 0, buf, 4, 4);
-            buf[8] = 0;
-            buf[9] = 53;
+        /** Runs on its own pool thread: resolving may block on the network. */
+        private void answer(byte[] query, SocketAddress to) {
             try {
-                while (true) {
-                    p.setLength(DNS_MAX);
-                    try {
-                        upstream.receive(p);
-                    } catch (PortUnreachableException e) {
-                        continue; // ICMP from an earlier send; keep the association
-                    }
-                    SocketAddress to = client;
-                    if (to != null) {
-                        relay.send(new DatagramPacket(buf, 0, UDP_HEADER + p.getLength(), to));
-                    }
+                byte[] response = dns.handle(DNS_CLIENT, query);
+                if (response == null || response.length > DNS_MAX) {
+                    udpDropped.incrementAndGet();
+                    return;
                 }
-            } catch (IOException e) {
-                // socket closed: association is over
+                byte[] packet = new byte[UDP_HEADER + response.length];
+                packet[3] = ATYP_IPV4;
+                System.arraycopy(dnsVirtual, 0, packet, 4, 4);
+                packet[9] = 53;
+                System.arraycopy(response, 0, packet, UDP_HEADER, response.length);
+                relay.send(new DatagramPacket(packet, packet.length, to));
+                dnsForwarded.incrementAndGet();
+            } catch (IOException | RuntimeException e) {
+                udpDropped.incrementAndGet();
             }
         }
     }

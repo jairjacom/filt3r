@@ -9,7 +9,11 @@ import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
 import com.bridge.filt3r.core.socks.SocketProtector;
+import com.bridge.filt3r.core.filter.DNSFilterManager;
+import com.bridge.filt3r.core.filter.DNSResolver;
+import com.bridge.filt3r.core.socks.ProtectedUdpUpstream;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
+import com.bridge.filt3r.core.util.ExecutionEnvironment;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,6 +23,8 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import hev.htproxy.TProxyService;
@@ -30,10 +36,11 @@ public class Filt3rVpnService extends VpnService {
     private static final String ADDRESS_V6 = "fdc8:1095:91e1:aaaa:aaaa:aaaa:aaaa:aaa2";
     private static final byte[] DNS_V4_BYTES = {10, 10, 10, 10};
     private static final String DNS_V4 = "10.10.10.10";
-    // Step 0 spike only: where the bridge really sends DNS. Replaced by DNSCrypt later.
+    // Interim: where the filter sends allowed queries (plain UDP). Replaced by DNSCrypt at Step 4.
     private static final String UPSTREAM_DNS = "1.1.1.1";
     private static final int MTU = 1500;
     private static final long CONFIG_BACKSTOP_MS = 5000;
+    private static final long FILTER_WAIT_S = 30;
 
     private final SocketProtector protector = new SocketProtector() {
         @Override
@@ -52,6 +59,8 @@ public class Filt3rVpnService extends VpnService {
     private Socks5Bridge bridge;
     private File config;
     private FileObserver configObserver;
+    private volatile CountDownLatch filterReady = new CountDownLatch(0);
+    private volatile boolean filterOk;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -62,7 +71,14 @@ public class Filt3rVpnService extends VpnService {
             return START_NOT_STICKY;
         }
         try {
-            bridge = new Socks5Bridge(protector, DNS_V4_BYTES, new InetSocketAddress(UPSTREAM_DNS, 53));
+            ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
+            startFilter();
+            DNSResolver resolver = new DNSResolver(
+                    new ProtectedUdpUpstream(protector, new InetSocketAddress(UPSTREAM_DNS, 53)));
+            bridge = new Socks5Bridge(protector, DNS_V4_BYTES, (client, query) -> {
+                awaitFilter();
+                return resolver.resolve(client, query);
+            });
             bridge.start();
 
             tun = new Builder()
@@ -157,6 +173,36 @@ public class Filt3rVpnService extends VpnService {
         }
     }
 
+    private void startFilter() {
+        CountDownLatch ready = new CountDownLatch(1);
+        filterReady = ready;
+        filterOk = false;
+        Thread t = new Thread(() -> {
+            try {
+                DNSFilterManager.getInstance().init();
+                filterOk = true;
+            } catch (IOException | RuntimeException e) {
+                Log.e(TAG, "filter init failed: " + e);
+            } finally {
+                ready.countDown();
+            }
+        }, "filter-init");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** DNS waits here until the filter lists are loaded. A failed filter blocks DNS (fail closed). */
+    private void awaitFilter() throws IOException {
+        try {
+            if (!filterReady.await(FILTER_WAIT_S, TimeUnit.SECONDS) || !filterOk) {
+                throw new IOException("filter not ready");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(e);
+        }
+    }
+
     private void stopEverything() {
         handler.removeCallbacksAndMessages(null);
         TProxyService.TProxyStopService();
@@ -165,6 +211,11 @@ public class Filt3rVpnService extends VpnService {
             Log.i(TAG, "bridge stats: " + bridge.stats());
             bridge.stop();
             bridge = null;
+        }
+        try {
+            DNSFilterManager.getInstance().stop();
+        } catch (IOException e) {
+            Log.w(TAG, "filter stop failed: " + e.getMessage());
         }
         if (tun != null) {
             try {
