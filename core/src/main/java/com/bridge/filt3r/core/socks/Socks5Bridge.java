@@ -32,8 +32,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * <ul>
  *   <li>Listens on 127.0.0.1, random port.</li>
  *   <li>Requires RFC 1929 username/password; the credentials are random per instance.</li>
- *   <li>TCP CONNECT to IPv4 addresses goes straight to the destination over a protected socket.
- *       IPv6 and domain-name destinations are refused.</li>
+ *   <li>TCP CONNECT to IPv4 and IPv6 addresses goes straight to the destination over a protected
+ *       socket. Domain-name destinations are refused.</li>
  *   <li>UDP ASSOCIATE relays only DNS (the virtual DNS address, port 53) to one upstream server.
  *       All other UDP is dropped.</li>
  * </ul>
@@ -72,7 +72,7 @@ public final class Socks5Bridge {
     private final AtomicLong authFailed = new AtomicLong();
     private final AtomicLong connectOk = new AtomicLong();
     private final AtomicLong connectFailed = new AtomicLong();
-    private final AtomicLong refusedNonIpv4 = new AtomicLong();
+    private final AtomicLong refusedDomain = new AtomicLong();
     private final AtomicLong protectFailed = new AtomicLong();
     private volatile String lastConnectError = "none";
     private final AtomicLong dnsForwarded = new AtomicLong();
@@ -136,7 +136,7 @@ public final class Socks5Bridge {
     /** Counters only; never contains addresses or credentials. */
     public String stats() {
         return "authFailed=" + authFailed + " connectOk=" + connectOk + " connectFailed=" + connectFailed
-                + " refusedNonIpv4=" + refusedNonIpv4 + " protectFailed=" + protectFailed
+                + " refusedDomain=" + refusedDomain + " protectFailed=" + protectFailed
                 + " lastConnectError=" + lastConnectError
                 + " dnsForwarded=" + dnsForwarded + " udpDropped=" + udpDropped;
     }
@@ -179,12 +179,12 @@ public final class Socks5Bridge {
             int cmd = in.readUnsignedByte();
             in.readUnsignedByte(); // RSV
             int atyp = in.readUnsignedByte();
-            byte[] ipv4 = readAddress(in, atyp); // null unless IPv4
+            byte[] ip = readAddress(in, atyp);
             int port = in.readUnsignedShort();
             if (cmd == CMD_UDP_ASSOCIATE) {
                 udpAssociate(client, in, out);
             } else if (cmd == CMD_CONNECT) {
-                connect(client, out, atyp, ipv4, port);
+                connect(client, out, ip, port);
             } else {
                 reply(out, REP_CMD_UNSUPPORTED, 0);
             }
@@ -229,7 +229,7 @@ public final class Socks5Bridge {
         return ok;
     }
 
-    /** Reads the address field. Returns the 4 bytes for IPv4, null for IPv6 or a domain name. */
+    /** Reads the address field. Returns 4 bytes (IPv4), 16 bytes (IPv6), or null for a domain name. */
     private static byte[] readAddress(DataInputStream in, int atyp) throws IOException {
         switch (atyp) {
             case ATYP_IPV4: {
@@ -237,9 +237,11 @@ public final class Socks5Bridge {
                 in.readFully(a);
                 return a;
             }
-            case ATYP_IPV6:
-                in.readFully(new byte[16]);
-                return null;
+            case ATYP_IPV6: {
+                byte[] a = new byte[16];
+                in.readFully(a);
+                return a;
+            }
             case ATYP_DOMAIN:
                 in.readFully(new byte[in.readUnsignedByte()]);
                 return null;
@@ -248,12 +250,11 @@ public final class Socks5Bridge {
         }
     }
 
-    private void connect(Socket client, OutputStream out, int atyp, byte[] ipv4, int port)
-            throws IOException {
-        if (ipv4 == null) {
-            // IPv6 is blocked on purpose; domain names never arrive from hev (no mapdns).
-            reply(out, atyp == ATYP_IPV6 ? REP_NOT_ALLOWED : REP_ATYP_UNSUPPORTED, 0);
-            refusedNonIpv4.incrementAndGet();
+    private void connect(Socket client, OutputStream out, byte[] ip, int port) throws IOException {
+        if (ip == null) {
+            // Domain names never arrive from hev (no mapdns): refuse, fail closed.
+            reply(out, REP_ATYP_UNSUPPORTED, 0);
+            refusedDomain.incrementAndGet();
             return;
         }
         Socket up = new Socket();
@@ -265,7 +266,7 @@ public final class Socks5Bridge {
                     protectFailed.incrementAndGet();
                     throw new IOException("protect failed");
                 }
-                up.connect(new InetSocketAddress(InetAddress.getByAddress(ipv4), port), CONNECT_TIMEOUT_MS);
+                up.connect(new InetSocketAddress(InetAddress.getByAddress(ip), port), CONNECT_TIMEOUT_MS);
                 up.setTcpNoDelay(true);
             } catch (IOException e) {
                 connectFailed.incrementAndGet();
