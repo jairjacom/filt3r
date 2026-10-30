@@ -55,7 +55,7 @@ public class Filt3rVpnService extends VpnService {
     private static final String ADDRESS_V6 = "fdc8:1095:91e1:aaaa:aaaa:aaaa:aaaa:aaa2";
     private static final byte[] DNS_V4_BYTES = {10, 10, 10, 10};
     private static final String DNS_V4 = "10.10.10.10";
-    // The one built-in resolver (dnscry.pt Amsterdam, no query logs, no filtering). No picker in v1.
+    // The one built-in resolver (dnscry.pt, Gigahost Norway, no query logs, no filtering). No picker in v1.
     private static final String DNSCRYPT_STAMP =
             "sdns://AQcAAAAAAAAADjE5OC4xNDAuMTQxLjQ2IFqbafOxgXuKwOgYxQ6XUqHWkMUt_5LI2nDkdVFU5hm7GTIuZG5zY3J5cHQtY2VydC5kbnNjcnkucHQ";
     private static final int MTU = 1500;
