@@ -9,3 +9,4 @@ app/src/main/jni/hev-socks5-tunnel/
 *.keystore
 AGENTS.md
 NOTES.md
+local/

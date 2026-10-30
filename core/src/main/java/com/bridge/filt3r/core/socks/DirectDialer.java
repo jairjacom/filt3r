@@ -15,7 +15,7 @@ public final class DirectDialer implements Dialer {
     }
 
     @Override
-    public Socket dial(InetAddress address, int port, int timeoutMs) throws IOException {
+    public Link dial(InetAddress address, int port, int timeoutMs) throws IOException {
         Socket socket = new Socket();
         try {
             socket.bind(null); // creates the fd; protect() needs it
@@ -24,7 +24,7 @@ public final class DirectDialer implements Dialer {
             }
             socket.connect(new InetSocketAddress(address, port), timeoutMs);
             socket.setTcpNoDelay(true);
-            return socket;
+            return new SocketLink(socket);
         } catch (IOException | RuntimeException e) {
             try {
                 socket.close();
