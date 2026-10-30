@@ -72,6 +72,9 @@ public final class Socks5Bridge {
     private final AtomicLong authFailed = new AtomicLong();
     private final AtomicLong connectOk = new AtomicLong();
     private final AtomicLong connectFailed = new AtomicLong();
+    private final AtomicLong refusedNonIpv4 = new AtomicLong();
+    private final AtomicLong protectFailed = new AtomicLong();
+    private volatile String lastConnectError = "none";
     private final AtomicLong dnsForwarded = new AtomicLong();
     private final AtomicLong udpDropped = new AtomicLong();
 
@@ -133,6 +136,8 @@ public final class Socks5Bridge {
     /** Counters only; never contains addresses or credentials. */
     public String stats() {
         return "authFailed=" + authFailed + " connectOk=" + connectOk + " connectFailed=" + connectFailed
+                + " refusedNonIpv4=" + refusedNonIpv4 + " protectFailed=" + protectFailed
+                + " lastConnectError=" + lastConnectError
                 + " dnsForwarded=" + dnsForwarded + " udpDropped=" + udpDropped;
     }
 
@@ -248,20 +253,23 @@ public final class Socks5Bridge {
         if (ipv4 == null) {
             // IPv6 is blocked on purpose; domain names never arrive from hev (no mapdns).
             reply(out, atyp == ATYP_IPV6 ? REP_NOT_ALLOWED : REP_ATYP_UNSUPPORTED, 0);
-            connectFailed.incrementAndGet();
+            refusedNonIpv4.incrementAndGet();
             return;
         }
         Socket up = new Socket();
         open.add(up);
         try {
             try {
+                up.bind(null); // creates the fd; protect() needs it
                 if (!protector.protect(up)) {
+                    protectFailed.incrementAndGet();
                     throw new IOException("protect failed");
                 }
                 up.connect(new InetSocketAddress(InetAddress.getByAddress(ipv4), port), CONNECT_TIMEOUT_MS);
                 up.setTcpNoDelay(true);
             } catch (IOException e) {
                 connectFailed.incrementAndGet();
+                lastConnectError = e.getClass().getSimpleName();
                 reply(out, failureCode(e), 0);
                 return;
             }
