@@ -3,6 +3,7 @@ package com.bridge.filt3r.core.socks;
 import java.io.Closeable;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ConnectException;
 import java.net.DatagramPacket;
@@ -268,7 +269,7 @@ public final class Socks5Bridge {
             return;
         }
         InetAddress addr = InetAddress.getByAddress(ip);
-        Socket up;
+        Link up;
         try {
             up = dialer.dial(addr, port, CONNECT_TIMEOUT_MS);
         } catch (IOException e) {
@@ -294,7 +295,7 @@ public final class Socks5Bridge {
             connectOk.incrementAndGet();
             reply(out, REP_OK, 0);
             client.setSoTimeout(0);
-            relay(client, up);
+            relay(new SocketLink(client), up);
         } finally {
             open.remove(up);
             closeQuietly(up);
@@ -315,7 +316,7 @@ public final class Socks5Bridge {
     }
 
     /** Copies both directions until both sides are finished. */
-    private void relay(Socket a, Socket b) {
+    private void relay(Link a, Link b) {
         Future<?> back = pool.submit(() -> copy(b, a));
         copy(a, b);
         try {
@@ -325,12 +326,14 @@ public final class Socks5Bridge {
         }
     }
 
-    private static void copy(Socket src, Socket dst) {
+    private static void copy(Link src, Link dst) {
         byte[] buf = new byte[16 * 1024];
         try {
+            InputStream in = src.in();
+            OutputStream out = dst.out();
             int n;
-            while ((n = src.getInputStream().read(buf)) != -1) {
-                dst.getOutputStream().write(buf, 0, n);
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
             }
             dst.shutdownOutput(); // clean EOF: pass it on, keep the other direction open
         } catch (IOException e) {

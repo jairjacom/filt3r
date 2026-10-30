@@ -17,6 +17,8 @@ import android.util.Log;
 import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.filter.DNSFilterManager;
 import com.bridge.filt3r.core.filter.DNSResolver;
+import com.bridge.filt3r.core.shadowsocks.ShadowsocksDialer;
+import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.DirectDialer;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.socks.ProtectedUdpUpstream;
@@ -54,6 +56,7 @@ public class Filt3rVpnService extends VpnService {
     static final String PREF_FAILURE_MODE = "failure_mode";
     private static final String CHANNEL_ID = "tunnel";
     private static final int NOTIFICATION_ID = 1;
+    private static final String NODE_FILE = "node.txt";
     private static final long FILTER_WAIT_S = 30;
 
     private final SocketProtector protector = new SocketProtector() {
@@ -110,10 +113,11 @@ public class Filt3rVpnService extends VpnService {
             DNSResolver resolver = new DNSResolver(
                     new ProtectedUdpUpstream(protector, new InetSocketAddress(UPSTREAM_DNS, 53)));
             DirectDialer direct = new DirectDialer(protector);
+            ShadowsocksNode node = loadNode();
             bridge = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
                 return resolver.resolve(client, query);
-            }, direct, direct);
+            }, new ShadowsocksDialer(node, direct), direct);
             bridge.setFailureMode(readFailureMode());
             bridge.start();
 
@@ -166,6 +170,22 @@ public class Filt3rVpnService extends VpnService {
         TunnelState.set(finalState);
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
+    }
+
+    /**
+     * Interim node source until the node manager exists (Step 5): an ss:// URL in
+     * files/node.txt. It never ships in the APK or the repo.
+     */
+    private ShadowsocksNode loadNode() throws IOException {
+        File file = new File(getFilesDir(), NODE_FILE);
+        if (!file.isFile()) {
+            throw new IOException("no node configured (" + NODE_FILE + " missing)");
+        }
+        try {
+            return ShadowsocksNode.parse(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            throw new IOException("invalid node: " + e.getMessage());
+        }
     }
 
     private FailureMode readFailureMode() {
