@@ -25,6 +25,13 @@ jobs:
       - name: Fetch hev-socks5-tunnel (pinned tag and submodules)
         run: scripts/fetch-hev.sh
 
+      - name: Restore fixed debug keystore
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon
 
