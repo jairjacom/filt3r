@@ -22,6 +22,9 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
+      - name: Fetch hev-socks5-tunnel (pinned tag and submodules)
+        run: scripts/fetch-hev.sh
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon
 
