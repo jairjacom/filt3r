@@ -98,6 +98,11 @@ final class ShadowsocksLink implements Link {
     }
 
     @Override
+    public void setReadTimeout(int ms) throws IOException {
+        raw.setReadTimeout(ms);
+    }
+
+    @Override
     public void shutdownOutput() throws IOException {
         sendPending();
         raw.shutdownOutput();

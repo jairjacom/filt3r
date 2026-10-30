@@ -21,14 +21,13 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksDialer;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.DirectDialer;
 import com.bridge.filt3r.core.socks.FailureMode;
-import com.bridge.filt3r.core.socks.ProtectedUdpUpstream;
+import com.bridge.filt3r.core.dnscrypt.DnsCryptStamp;
+import com.bridge.filt3r.core.dnscrypt.DnsCryptUpstream;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.DatagramSocket;
-import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -46,8 +45,9 @@ public class Filt3rVpnService extends VpnService {
     private static final String ADDRESS_V6 = "fdc8:1095:91e1:aaaa:aaaa:aaaa:aaaa:aaa2";
     private static final byte[] DNS_V4_BYTES = {10, 10, 10, 10};
     private static final String DNS_V4 = "10.10.10.10";
-    // Interim: where the filter sends allowed queries (plain UDP). Replaced by DNSCrypt at Step 4.
-    private static final String UPSTREAM_DNS = "1.1.1.1";
+    // The one built-in resolver (dnscry.pt Amsterdam, no query logs, no filtering). No picker in v1.
+    private static final String DNSCRYPT_STAMP =
+            "sdns://AQcAAAAAAAAADjE5OC4xNDAuMTQxLjQ2IFqbafOxgXuKwOgYxQ6XUqHWkMUt_5LI2nDkdVFU5hm7GTIuZG5zY3J5cHQtY2VydC5kbnNjcnkucHQ";
     private static final int MTU = 1500;
     private static final long CONFIG_BACKSTOP_MS = 5000;
     static final String ACTION_STOP = "com.bridge.filt3r.STOP";
@@ -64,11 +64,6 @@ public class Filt3rVpnService extends VpnService {
     private final SocketProtector protector = new SocketProtector() {
         @Override
         public boolean protect(Socket socket) {
-            return Filt3rVpnService.this.protect(socket);
-        }
-
-        @Override
-        public boolean protect(DatagramSocket socket) {
             return Filt3rVpnService.this.protect(socket);
         }
     };
@@ -112,14 +107,16 @@ public class Filt3rVpnService extends VpnService {
         try {
             ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
             startFilter();
-            DNSResolver resolver = new DNSResolver(
-                    new ProtectedUdpUpstream(protector, new InetSocketAddress(UPSTREAM_DNS, 53)));
             DirectDialer direct = new DirectDialer(protector);
             ShadowsocksNode node = loadNode();
+            ShadowsocksDialer viaNode = new ShadowsocksDialer(node, direct);
+            // DNS always goes through the node: it is never sent direct, whatever the failure mode.
+            DNSResolver resolver = new DNSResolver(
+                    new DnsCryptUpstream(DnsCryptStamp.parse(DNSCRYPT_STAMP), viaNode));
             bridge = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
                 return resolver.resolve(client, query);
-            }, new ShadowsocksDialer(node, direct), direct);
+            }, viaNode, direct);
             bridge.setFailureMode(readFailureMode());
             boolean allowIPv6 = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ALLOW_IPV6, false);
             bridge.setAllowIPv6(allowIPv6);

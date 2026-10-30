@@ -25,6 +25,11 @@ public final class SocketLink implements Link {
     }
 
     @Override
+    public void setReadTimeout(int ms) throws IOException {
+        socket.setSoTimeout(ms);
+    }
+
+    @Override
     public void shutdownOutput() throws IOException {
         socket.shutdownOutput();
     }
