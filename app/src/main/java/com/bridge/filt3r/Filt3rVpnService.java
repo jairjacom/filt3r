@@ -113,7 +113,6 @@ public class Filt3rVpnService extends VpnService {
     private void writeConfig() throws IOException {
         config = new File(getFilesDir(), "hev.yml");
         Files.deleteIfExists(config.toPath());
-        Files.deleteIfExists(new File(getFilesDir(), "hev.log").toPath());
         Files.createFile(config.toPath(),
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
         String yaml = "tunnel:\n"
@@ -127,8 +126,7 @@ public class Filt3rVpnService extends VpnService {
                 + "  username: '" + bridge.getUsername() + "'\n"
                 + "  password: '" + bridge.getPassword() + "'\n"
                 + "misc:\n"
-                + "  log-file: '" + new File(getFilesDir(), "hev.log").getAbsolutePath() + "'\n"
-                + "  log-level: debug\n"; // Step 0 diagnostic only: log has addresses; remove before release
+                + "  log-level: warn\n";
         Files.write(config.toPath(), yaml.getBytes(StandardCharsets.UTF_8));
 
         final File file = config;
