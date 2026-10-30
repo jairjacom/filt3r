@@ -63,7 +63,8 @@ public final class Socks5Bridge {
     private static final int REP_CMD_UNSUPPORTED = 7;
     private static final int REP_ATYP_UNSUPPORTED = 8;
 
-    private final SocketProtector protector;
+    private final Dialer dialer;
+    private final Dialer fallback;
     private final byte[] dnsVirtual;
     private final DnsHandler dns;
     private final byte[] username;
@@ -74,7 +75,8 @@ public final class Socks5Bridge {
     private final AtomicLong connectOk = new AtomicLong();
     private final AtomicLong connectFailed = new AtomicLong();
     private final AtomicLong refusedDomain = new AtomicLong();
-    private final AtomicLong protectFailed = new AtomicLong();
+    private final AtomicLong failedOpen = new AtomicLong();
+    private volatile FailureMode failureMode = FailureMode.FAIL_CLOSED;
     private volatile String lastConnectError = "none";
     private final AtomicLong dnsForwarded = new AtomicLong();
     private final AtomicLong udpDropped = new AtomicLong();
@@ -85,14 +87,21 @@ public final class Socks5Bridge {
     /**
      * @param dnsVirtual IPv4 address (4 bytes) that the tunnel advertises as its DNS server
      * @param dns        answers the DNS queries that arrive for that address
+     * @param dialer     opens the outgoing connection for each tunnelled TCP connection
+     * @param fallback   used instead of {@code dialer} when it fails and the mode is FAIL_OPEN; may be null
      */
-    public Socks5Bridge(SocketProtector protector, byte[] dnsVirtual, DnsHandler dns) {
-        this.protector = protector;
+    public Socks5Bridge(byte[] dnsVirtual, DnsHandler dns, Dialer dialer, Dialer fallback) {
         this.dnsVirtual = dnsVirtual.clone();
         this.dns = dns;
+        this.dialer = dialer;
+        this.fallback = fallback;
         SecureRandom random = new SecureRandom();
         this.username = randomHex(random);
         this.password = randomHex(random);
+    }
+
+    public void setFailureMode(FailureMode mode) {
+        this.failureMode = mode;
     }
 
     public synchronized void start() throws IOException {
@@ -137,7 +146,7 @@ public final class Socks5Bridge {
     /** Counters only; never contains addresses or credentials. */
     public String stats() {
         return "authFailed=" + authFailed + " connectOk=" + connectOk + " connectFailed=" + connectFailed
-                + " refusedDomain=" + refusedDomain + " protectFailed=" + protectFailed
+                + " failedOpen=" + failedOpen + " mode=" + failureMode + " refusedDomain=" + refusedDomain
                 + " lastConnectError=" + lastConnectError
                 + " dnsForwarded=" + dnsForwarded + " udpDropped=" + udpDropped;
     }
@@ -258,23 +267,30 @@ public final class Socks5Bridge {
             refusedDomain.incrementAndGet();
             return;
         }
-        Socket up = new Socket();
-        open.add(up);
+        InetAddress addr = InetAddress.getByAddress(ip);
+        Socket up;
         try {
-            try {
-                up.bind(null); // creates the fd; protect() needs it
-                if (!protector.protect(up)) {
-                    protectFailed.incrementAndGet();
-                    throw new IOException("protect failed");
+            up = dialer.dial(addr, port, CONNECT_TIMEOUT_MS);
+        } catch (IOException e) {
+            connectFailed.incrementAndGet();
+            lastConnectError = e.getClass().getSimpleName();
+            up = null;
+            Dialer fb = fallback;
+            if (failureMode == FailureMode.FAIL_OPEN && fb != null) {
+                try {
+                    up = fb.dial(addr, port, CONNECT_TIMEOUT_MS);
+                    failedOpen.incrementAndGet();
+                } catch (IOException e2) {
+                    lastConnectError = e2.getClass().getSimpleName();
                 }
-                up.connect(new InetSocketAddress(InetAddress.getByAddress(ip), port), CONNECT_TIMEOUT_MS);
-                up.setTcpNoDelay(true);
-            } catch (IOException e) {
-                connectFailed.incrementAndGet();
-                lastConnectError = e.getClass().getSimpleName();
+            }
+            if (up == null) {
                 reply(out, failureCode(e), 0);
                 return;
             }
+        }
+        open.add(up);
+        try {
             connectOk.incrementAndGet();
             reply(out, REP_OK, 0);
             client.setSoTimeout(0);
