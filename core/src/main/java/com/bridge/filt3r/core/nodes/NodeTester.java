@@ -14,7 +14,7 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.Dialer;
 
 /** Tests nodes with one DNSCrypt-over-TCP query (certificate fetch included) sent through each node. */
-public final class NodeTester {
+public final class NodeTester implements NodeProbe {
 
     private static final String TEST_NAME = "example.com";
     private static final long ROUND_TIMEOUT_S = 40;
@@ -35,6 +35,16 @@ public final class NodeTester {
         byte[] answer = upstream.query(DnsWire.query(TEST_NAME, DnsWire.TYPE_A));
         DnsWire.answers(answer, DnsWire.TYPE_A); // throws if the resolver reported an error
         return (System.nanoTime() - start) / 1_000_000;
+    }
+
+    @Override
+    public boolean works(ShadowsocksNode node) {
+        try {
+            test(node);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
 
     /** Tests the nodes in parallel and records each result in the manager. Blocks until done or timed out. */

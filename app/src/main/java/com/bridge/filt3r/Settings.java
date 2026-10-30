@@ -20,6 +20,14 @@ final class Settings {
     static final int MAX_SUBSCRIPTIONS = 3;
     static final int DEFAULT_INTERVAL_HOURS = 24;
 
+    /**
+     * The built-in resolver: dnscry.pt in Norway, "no query logs, no intentional filtering". It also
+     * serves as the resolver that tests nodes, so a bad user choice cannot make every node look dead.
+     */
+    static final String DEFAULT_RESOLVER_NAME = "dnscry.pt (default)";
+    static final String DEFAULT_RESOLVER_STAMP =
+            "sdns://AQcAAAAAAAAADjE5OC4xNDAuMTQxLjQ2IFqbafOxgXuKwOgYxQ6XUqHWkMUt_5LI2nDkdVFU5hm7GTIuZG5zY3J5cHQtY2VydC5kbnNjcnkucHQ";
+
     /** One subscription slot. Intervals are whole hours, at least 1. */
     static final class Subscription {
         final int slot;
@@ -38,6 +46,8 @@ final class Settings {
     private static final String KEY_ALLOW_IPV6 = "allow_ipv6";
     private static final String KEY_QUERY_LOG = "query_log";
     private static final String KEY_EXEMPT_APPS = "exempt_apps";
+    private static final String KEY_RESOLVER_NAME = "resolver_name";
+    private static final String KEY_RESOLVER_STAMP = "resolver_stamp";
 
     private final SharedPreferences prefs;
 
@@ -67,6 +77,20 @@ final class Settings {
                 .putString("sub_url_" + slot, url.trim())
                 .putInt("sub_hours_" + slot, Math.max(1, intervalHours))
                 .apply();
+    }
+
+    /** The chosen DNSCrypt resolver's display name. Applies at the next (re)start. */
+    String resolverName() {
+        return prefs.getString(KEY_RESOLVER_NAME, DEFAULT_RESOLVER_NAME);
+    }
+
+    /** The chosen resolver's sdns:// stamp; the built-in default if none was chosen. */
+    String resolverStamp() {
+        return prefs.getString(KEY_RESOLVER_STAMP, DEFAULT_RESOLVER_STAMP);
+    }
+
+    void setResolver(String name, String stamp) {
+        prefs.edit().putString(KEY_RESOLVER_NAME, name).putString(KEY_RESOLVER_STAMP, stamp).apply();
     }
 
     FailureMode failureMode() {
