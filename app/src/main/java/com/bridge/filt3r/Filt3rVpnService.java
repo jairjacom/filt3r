@@ -1,6 +1,12 @@
 package com.bridge.filt3r;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
+import android.graphics.drawable.Icon;
 import android.net.VpnService;
 import android.os.FileObserver;
 import android.os.Handler;
@@ -11,6 +17,8 @@ import android.util.Log;
 import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.filter.DNSFilterManager;
 import com.bridge.filt3r.core.filter.DNSResolver;
+import com.bridge.filt3r.core.socks.DirectDialer;
+import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.socks.ProtectedUdpUpstream;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
@@ -40,6 +48,12 @@ public class Filt3rVpnService extends VpnService {
     private static final String UPSTREAM_DNS = "1.1.1.1";
     private static final int MTU = 1500;
     private static final long CONFIG_BACKSTOP_MS = 5000;
+    static final String ACTION_STOP = "com.bridge.filt3r.STOP";
+    static final String ACTION_RESTART = "com.bridge.filt3r.RESTART";
+    static final String PREFS = "filt3r";
+    static final String PREF_FAILURE_MODE = "failure_mode";
+    private static final String CHANNEL_ID = "tunnel";
+    private static final int NOTIFICATION_ID = 1;
     private static final long FILTER_WAIT_S = 30;
 
     private final SocketProtector protector = new SocketProtector() {
@@ -61,24 +75,46 @@ public class Filt3rVpnService extends VpnService {
     private FileObserver configObserver;
     private volatile CountDownLatch filterReady = new CountDownLatch(0);
     private volatile boolean filterOk;
+    private static volatile Filt3rVpnService instance;
+
+    @Override
+    public void onCreate() {
+        instance = this;
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        nm.createNotificationChannel(new NotificationChannel(
+                CHANNEL_ID, "Tunnel status", NotificationManager.IMPORTANCE_LOW));
+    }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        String action = intent == null ? null : intent.getAction();
+        if (ACTION_STOP.equals(action)) {
+            shutdown(TunnelState.State.STOPPED);
+            return START_NOT_STICKY;
+        }
+        if (ACTION_RESTART.equals(action)) {
+            stopEverything();
+        }
         // Touching the class loads libhev-socks5-tunnel.so; JNI_OnLoad then
         // registers the natives, so this call proves the library is usable.
         Log.i(TAG, "hev loaded, running=" + TProxyService.TProxyIsRunning());
         if (tun != null) {
-            return START_NOT_STICKY;
+            return START_STICKY;
         }
+        startForeground(NOTIFICATION_ID, buildNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
+        TunnelState.set(TunnelState.State.STARTING);
         try {
             ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
             startFilter();
             DNSResolver resolver = new DNSResolver(
                     new ProtectedUdpUpstream(protector, new InetSocketAddress(UPSTREAM_DNS, 53)));
-            bridge = new Socks5Bridge(protector, DNS_V4_BYTES, (client, query) -> {
+            DirectDialer direct = new DirectDialer(protector);
+            bridge = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
                 return resolver.resolve(client, query);
-            });
+            }, direct, direct);
+            bridge.setFailureMode(readFailureMode());
             bridge.start();
 
             tun = new Builder()
@@ -102,23 +138,75 @@ public class Filt3rVpnService extends VpnService {
                 throw new IOException("TProxyStartService failed");
             }
             Log.i(TAG, "hev started, bridge on loopback");
+            TunnelState.set(TunnelState.State.RUNNING);
         } catch (IOException | android.content.pm.PackageManager.NameNotFoundException e) {
             Log.e(TAG, "start failed: " + e.getMessage());
-            stopEverything();
-            stopSelf();
+            shutdown(TunnelState.State.FAILED);
+            return START_NOT_STICKY;
         }
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
         stopEverything();
+        if (TunnelState.get() != TunnelState.State.FAILED) {
+            TunnelState.set(TunnelState.State.STOPPED);
+        }
+        instance = null;
     }
 
     @Override
     public void onRevoke() {
+        shutdown(TunnelState.State.STOPPED);
+    }
+
+    private void shutdown(TunnelState.State finalState) {
         stopEverything();
+        TunnelState.set(finalState);
+        stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
+    }
+
+    private FailureMode readFailureMode() {
+        String saved = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(PREF_FAILURE_MODE, FailureMode.FAIL_CLOSED.name());
+        try {
+            return FailureMode.valueOf(saved);
+        } catch (IllegalArgumentException e) {
+            return FailureMode.FAIL_CLOSED; // unknown value: take the safe default
+        }
+    }
+
+    private Notification buildNotification() {
+        PendingIntent open = PendingIntent.getActivity(this, 0,
+                new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent stop = PendingIntent.getService(this, 1,
+                new Intent(this, Filt3rVpnService.class).setAction(ACTION_STOP),
+                PendingIntent.FLAG_IMMUTABLE);
+        return new Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setContentTitle("filt3r is running")
+                .setContentIntent(open)
+                .setOngoing(true)
+                .addAction(new Notification.Action.Builder(
+                        Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                        "Stop", stop).build())
+                .build();
+    }
+
+    /** Counters for the status line: hev packets and bytes, then the bridge counters. */
+    static String statsText() {
+        Filt3rVpnService s = instance;
+        Socks5Bridge b = s == null ? null : s.bridge;
+        if (b == null) {
+            return "";
+        }
+        long[] hev = TProxyService.TProxyGetStats();
+        String traffic = hev != null && hev.length >= 4
+                ? "up " + hev[0] + " pkts / " + hev[1] + " B, down " + hev[2] + " pkts / " + hev[3] + " B\n"
+                : "";
+        return traffic + b.stats();
     }
 
     /**
