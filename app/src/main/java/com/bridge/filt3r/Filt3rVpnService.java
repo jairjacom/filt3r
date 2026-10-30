@@ -23,6 +23,7 @@ import com.bridge.filt3r.core.dnscrypt.ResolverList;
 import com.bridge.filt3r.core.dnscrypt.ResolverTester;
 import com.bridge.filt3r.core.filter.DNSFilterManager;
 import com.bridge.filt3r.core.filter.DNSResolver;
+import com.bridge.filt3r.core.filter.DNSResponsePatcher;
 import com.bridge.filt3r.core.http.HttpsFetcher;
 import com.bridge.filt3r.core.nodes.FailoverDialer;
 import com.bridge.filt3r.core.nodes.FailoverUpstream;
@@ -157,6 +158,7 @@ public class Filt3rVpnService extends VpnService {
             DirectDialer direct = new DirectDialer(protector);
             DnsCryptStamp testStamp = DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
             Settings settings = new Settings(this);
+            DNSResponsePatcher.setObserver(QueryLogs.get(this)::add);
             NodeStore store = new NodeStore(getFilesDir(), settings.subscriptions());
             NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
             nodes = manager;
@@ -519,6 +521,7 @@ public class Filt3rVpnService extends VpnService {
         }
         nodes = null;
         runtime = null;
+        DNSResponsePatcher.setObserver(null);
         handler.removeCallbacksAndMessages(null);
         TProxyService.TProxyStopService();
         deleteConfig();

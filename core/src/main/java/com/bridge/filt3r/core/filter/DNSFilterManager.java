@@ -1443,25 +1443,9 @@ public class DNSFilterManager extends ConfigurationAccess  {
 			if (config.getProperty("androidKeepAwake", "true").equalsIgnoreCase("true"))
 				ExecutionEnvironment.getEnvironment().wakeLock();
 
-			//Init traffic Logger
-			try {
-
-				if (config.getProperty("enableTrafficLog", "true").equalsIgnoreCase("true")) {
-					TRAFFIC_LOG = new FileLogger(getPath() + "log",
-							config.getProperty("trafficLogName", "trafficlog"),
-							Integer.parseInt(config.getProperty("trafficLogSize", "1048576").trim()),
-							Integer.parseInt(config.getProperty("trafficLogSlotCount", "2").trim()),
-							"timestamp, client:port, class, type, domain name, answer");
-
-					((FileLogger) TRAFFIC_LOG).enableTimestamp(true);
-
-					Logger.setLogger(TRAFFIC_LOG, "TrafficLogger");
-				} else TRAFFIC_LOG = null;
-
-			} catch (NumberFormatException nfe) {
-				Logger.getLogger().logLine("Cannot parse log configuration!");
-				throw new IOException(nfe);
-			}
+			// The PDNSF traffic log is never started: QueryLog is the only record of queries, and a
+			// config file kept from an older install must not be able to switch this one back on.
+			TRAFFIC_LOG = null;
 
 			debug = Boolean.parseBoolean(config.getProperty("debug", "false"));
 			//filterHostsFileRemoveDuplicates = Boolean.parseBoolean(config.getProperty("filterHostsFileRemoveDuplicates", "false"));
