@@ -5,7 +5,6 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
@@ -14,10 +13,7 @@ import java.security.KeyPairGenerator;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Signature;
-import java.security.interfaces.XECPublicKey;
-import java.security.spec.NamedParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
-import java.security.spec.XECPublicKeySpec;
 import java.util.Arrays;
 
 import javax.crypto.KeyAgreement;
@@ -43,6 +39,7 @@ public final class DnsCryptUpstream implements DNSResolver.Upstream {
     private static final byte[] CERT_MAGIC = {'D', 'N', 'S', 'C'};
     private static final byte[] RESOLVER_MAGIC = {'r', '6', 'f', 'n', 'v', 'W', 'j', '8'};
     private static final byte[] ED25519_PREFIX = hex("302a300506032b6570032100");
+    private static final byte[] X25519_PREFIX = hex("302a300506032b656e032100");
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final DnsCryptStamp stamp;
@@ -185,12 +182,14 @@ public final class DnsCryptUpstream implements DNSResolver.Upstream {
     private static Cert newCert(byte[] cert) throws IOException {
         try {
             KeyPair mine = KeyPairGenerator.getInstance("X25519").generateKeyPair();
-            byte[] clientPublic = littleEndian32(((XECPublicKey) mine.getPublic()).getU());
-            byte[] theirs = Arrays.copyOfRange(cert, 72, 104);
-            theirs[31] &= 0x7F; // RFC 7748: the top bit of a u-coordinate is ignored
-            BigInteger u = new BigInteger(1, reverse(theirs));
-            PublicKey resolverKey = KeyFactory.getInstance("X25519")
-                    .generatePublic(new XECPublicKeySpec(NamedParameterSpec.X25519, u));
+            // The platform's key classes differ (Android's is not an XECPublicKey), so use the
+            // RFC 8410 encoding: a fixed 12-byte prefix, then the 32 raw key bytes.
+            byte[] encoded = mine.getPublic().getEncoded();
+            byte[] clientPublic = Arrays.copyOfRange(encoded, encoded.length - 32, encoded.length);
+            byte[] theirs = Arrays.copyOf(X25519_PREFIX, X25519_PREFIX.length + 32);
+            System.arraycopy(cert, 72, theirs, X25519_PREFIX.length, 32);
+            theirs[theirs.length - 1] &= 0x7F; // RFC 7748: the top bit of a u-coordinate is ignored
+            PublicKey resolverKey = KeyFactory.getInstance("X25519").generatePublic(new X509EncodedKeySpec(theirs));
             KeyAgreement ka = KeyAgreement.getInstance("X25519");
             ka.init(mine.getPrivate());
             ka.doPhase(resolverKey, true);
@@ -335,23 +334,6 @@ public final class DnsCryptUpstream implements DNSResolver.Upstream {
     /** Big endian, as DNSCrypt certificates store serial and times. */
     private static long u32(byte[] b, int off) {
         return (long) u16(b, off) << 16 | u16(b, off + 2);
-    }
-
-    private static byte[] reverse(byte[] b) {
-        byte[] r = new byte[b.length];
-        for (int i = 0; i < b.length; i++) {
-            r[i] = b[b.length - 1 - i];
-        }
-        return r;
-    }
-
-    private static byte[] littleEndian32(BigInteger u) {
-        byte[] be = u.toByteArray();
-        byte[] le = new byte[32];
-        for (int i = 0; i < 32 && i < be.length; i++) {
-            le[i] = be[be.length - 1 - i];
-        }
-        return le;
     }
 
     private static byte[] hex(String s) {
