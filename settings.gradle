@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = 'filt3r'
 include ':app'
+include ':core'
