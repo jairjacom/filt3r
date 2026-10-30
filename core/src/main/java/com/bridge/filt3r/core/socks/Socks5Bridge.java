@@ -82,6 +82,7 @@ public final class Socks5Bridge {
     private final AtomicLong failedOpen = new AtomicLong();
     private volatile FailureMode failureMode = FailureMode.FAIL_CLOSED;
     private volatile String lastConnectError = "none";
+    private volatile String lastDnsError = "none"; // DNS handlers never put query names in exceptions
     private final AtomicLong dnsForwarded = new AtomicLong();
     private final AtomicLong udpDropped = new AtomicLong();
 
@@ -158,6 +159,7 @@ public final class Socks5Bridge {
                 + " failedOpen=" + failedOpen + " mode=" + failureMode + " refusedDomain=" + refusedDomain
                 + " refusedIPv6=" + refusedIPv6
                 + " lastConnectError=" + lastConnectError
+                + " lastDnsError=" + lastDnsError
                 + " dnsForwarded=" + dnsForwarded + " udpDropped=" + udpDropped;
     }
 
@@ -441,6 +443,7 @@ public final class Socks5Bridge {
                 relay.send(new DatagramPacket(packet, packet.length, to));
                 dnsForwarded.incrementAndGet();
             } catch (IOException | RuntimeException e) {
+                lastDnsError = e.getClass().getSimpleName() + ": " + e.getMessage();
                 udpDropped.incrementAndGet();
             }
         }
