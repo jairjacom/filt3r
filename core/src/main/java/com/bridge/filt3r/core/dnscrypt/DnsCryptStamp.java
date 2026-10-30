@@ -19,12 +19,27 @@ public final class DnsCryptStamp {
     public final int port;
     public final byte[] providerKey;
     public final String providerName;
+    /** The operator's claims, bit flags: 1 = DNSSEC, 2 = no logs, 4 = no filtering. Not verifiable. */
+    public final long props;
 
-    private DnsCryptStamp(InetAddress address, int port, byte[] providerKey, String providerName) {
+    private DnsCryptStamp(InetAddress address, int port, byte[] providerKey, String providerName, long props) {
         this.address = address;
         this.port = port;
         this.providerKey = providerKey;
         this.providerName = providerName;
+        this.props = props;
+    }
+
+    public boolean claimsDnssec() {
+        return (props & 1) != 0;
+    }
+
+    public boolean claimsNoLogs() {
+        return (props & 2) != 0;
+    }
+
+    public boolean claimsNoFilter() {
+        return (props & 4) != 0;
     }
 
     /** @throws IllegalArgumentException if this is not a well-formed DNSCrypt stamp with an IP address */
@@ -49,10 +64,14 @@ public final class DnsCryptStamp {
         if (key.length != 32 || provider.isEmpty()) {
             throw new IllegalArgumentException("bad provider key or name");
         }
-        return hostPort(addr, key, provider);
+        long props = 0;
+        for (int i = 8; i >= 1; i--) { // 8 bytes, little endian, after the protocol byte
+            props = props << 8 | (b[i] & 0xFF);
+        }
+        return hostPort(addr, key, provider, props);
     }
 
-    private static DnsCryptStamp hostPort(String addr, byte[] key, String provider) {
+    private static DnsCryptStamp hostPort(String addr, byte[] key, String provider, long props) {
         String host = addr;
         int port = 443;
         if (addr.startsWith("[")) {
@@ -73,7 +92,7 @@ public final class DnsCryptStamp {
             throw new IllegalArgumentException("stamp address must be an IP, not a name");
         }
         try {
-            return new DnsCryptStamp(InetAddress.getByName(host), port, key, provider); // literal: no lookup
+            return new DnsCryptStamp(InetAddress.getByName(host), port, key, provider, props); // literal: no lookup
         } catch (UnknownHostException e) {
             throw new IllegalArgumentException("bad address");
         }
