@@ -1,11 +1,9 @@
 package com.bridge.filt3r.core.dnscrypt;
 
-import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -14,10 +12,13 @@ import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import javax.crypto.KeyAgreement;
 
+import com.bridge.filt3r.core.dns.DnsWire;
 import com.bridge.filt3r.core.filter.DNSResolver;
 import com.bridge.filt3r.core.socks.Dialer;
 import com.bridge.filt3r.core.socks.Link;
@@ -139,7 +140,7 @@ public final class DnsCryptUpstream implements DNSResolver.Upstream {
         byte[] answer;
         Link link = open();
         try {
-            writeFrame(link.out(), txtQuery(stamp.providerName));
+            writeFrame(link.out(), DnsWire.query(stamp.providerName, DnsWire.TYPE_TXT));
             answer = readFrame(link.in());
         } finally {
             closeQuietly(link);
@@ -147,7 +148,11 @@ public final class DnsCryptUpstream implements DNSResolver.Upstream {
         long now = System.currentTimeMillis();
         byte[] best = null;
         long bestSerial = -1;
-        for (byte[] txt : txtRecords(answer)) {
+        List<byte[]> txts = new ArrayList<>();
+        for (byte[] rdata : DnsWire.answers(answer, DnsWire.TYPE_TXT)) {
+            txts.addAll(DnsWire.txtStrings(rdata));
+        }
+        for (byte[] txt : txts) {
             if (txt.length != CERT_LEN || !Arrays.equals(Arrays.copyOf(txt, 4), CERT_MAGIC)
                     || u16(txt, 4) != ES_XCHACHA20 || !signatureOk(txt)) {
                 continue;
@@ -198,81 +203,6 @@ public final class DnsCryptUpstream implements DNSResolver.Upstream {
                     u32(cert, 120) * 1000);
         } catch (GeneralSecurityException e) {
             throw new IOException("X25519 key exchange failed: " + e.getMessage(), e);
-        }
-    }
-
-    // ---- plain DNS for the certificate (TXT query, TCP) ----
-
-    private static byte[] txtQuery(String name) {
-        ByteArrayOutputStream q = new ByteArrayOutputStream();
-        byte[] id = new byte[2];
-        RANDOM.nextBytes(id);
-        q.write(id, 0, 2);
-        q.write(0x01); // recursion desired
-        q.write(0x00);
-        q.write(0);
-        q.write(1); // one question
-        q.write(0);
-        q.write(0);
-        q.write(0);
-        q.write(0);
-        q.write(0);
-        q.write(0);
-        for (String label : name.split("\\.")) {
-            byte[] l = label.getBytes(StandardCharsets.US_ASCII);
-            q.write(l.length);
-            q.write(l, 0, l.length);
-        }
-        q.write(0);
-        q.write(0);
-        q.write(16); // TXT
-        q.write(0);
-        q.write(1); // IN
-        return q.toByteArray();
-    }
-
-    /** The character strings of every TXT record in the answer section. */
-    static java.util.List<byte[]> txtRecords(byte[] m) throws IOException {
-        java.util.List<byte[]> out = new java.util.ArrayList<>();
-        try {
-            if (m.length < 12 || (m[3] & 0x0F) != 0) {
-                throw new IOException("certificate query failed (rcode " + (m.length < 12 ? -1 : m[3] & 0x0F) + ")");
-            }
-            int questions = u16(m, 4);
-            int answers = u16(m, 6);
-            int pos = 12;
-            for (int i = 0; i < questions; i++) {
-                pos = skipName(m, pos) + 4;
-            }
-            for (int i = 0; i < answers; i++) {
-                pos = skipName(m, pos);
-                int type = u16(m, pos);
-                int rdlen = u16(m, pos + 8);
-                pos += 10;
-                int end = pos + rdlen;
-                if (type == 16) {
-                    for (int p = pos; p < end; p += 1 + (m[p] & 0xFF)) {
-                        out.add(Arrays.copyOfRange(m, p + 1, p + 1 + (m[p] & 0xFF)));
-                    }
-                }
-                pos = end;
-            }
-        } catch (IndexOutOfBoundsException e) {
-            throw new IOException("malformed certificate response");
-        }
-        return out;
-    }
-
-    private static int skipName(byte[] m, int pos) {
-        while (true) {
-            int len = m[pos] & 0xFF;
-            if (len == 0) {
-                return pos + 1;
-            }
-            if ((len & 0xC0) == 0xC0) {
-                return pos + 2;
-            }
-            pos += 1 + len;
         }
     }
 

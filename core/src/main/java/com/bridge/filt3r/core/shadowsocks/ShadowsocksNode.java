@@ -107,6 +107,26 @@ public final class ShadowsocksNode {
         return new ShadowsocksNode(suite, password, host, port, name);
     }
 
+    /** @throws IllegalArgumentException on an unsupported method, empty password, empty host or bad port */
+    public static ShadowsocksNode of(String method, String password, String host, int port, String name) {
+        if (password == null || password.isEmpty() || host == null || host.isEmpty()) {
+            throw new IllegalArgumentException("missing password or host");
+        }
+        if (port < 1 || port > 65535) {
+            throw new IllegalArgumentException("bad port");
+        }
+        return new ShadowsocksNode(AeadSuite.fromMethod(method), password, host, port, name == null ? "" : name);
+    }
+
+    /** A SIP002 URL that {@link #parse} reads back. Contains the password: store it only in private storage. */
+    public String toUri() {
+        String userinfo = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                (suite.methodName + ":" + password).getBytes(StandardCharsets.UTF_8));
+        String hostText = host.contains(":") ? "[" + host + "]" : host;
+        return "ss://" + userinfo + "@" + hostText + ":" + port + "#"
+                + java.net.URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
     /**
      * The server address. Only IP literals are accepted: a host name would be looked up outside the
      * tunnel and reveal the node to the network. Name handling arrives with the bootstrap step.
