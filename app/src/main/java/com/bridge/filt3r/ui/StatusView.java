@@ -156,8 +156,8 @@ public class StatusView extends ScrollView {
             lastUp = up;
             lastDown = down;
             lastMs = now;
-            trafficCard.set("↓ " + bytes(downRate) + "/s   ↑ " + bytes(upRate) + "/s",
-                    "Session  ↓ " + bytes(down) + "   ↑ " + bytes(up));
+            trafficCard.set("↓ " + Format.bytes(downRate) + "/s   ↑ " + Format.bytes(upRate) + "/s",
+                    "Session  ↓ " + Format.bytes(down) + "   ↑ " + Format.bytes(up));
         }
 
         if (s.dnsCounts == null) {
@@ -168,20 +168,6 @@ public class StatusView extends ScrollView {
             String pct = total == 0 ? "" : String.format(Locale.US, "  (%.0f%%)", 100.0 * blocked / total);
             dnsCard.set("Blocked " + blocked + pct, "Allowed " + s.dnsCounts[1]);
         }
-    }
-
-    private static String bytes(long b) {
-        if (b < 1024) {
-            return b + " B";
-        }
-        double v = b;
-        String[] units = {"kB", "MB", "GB", "TB"};
-        int i = -1;
-        while (v >= 1024 && i < units.length - 1) {
-            v /= 1024;
-            i++;
-        }
-        return String.format(Locale.US, v < 10 ? "%.1f %s" : "%.0f %s", v, units[i]);
     }
 
     private MaterialButton button(Context context, String text, boolean outlined) {

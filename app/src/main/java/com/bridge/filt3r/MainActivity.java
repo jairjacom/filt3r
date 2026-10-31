@@ -8,18 +8,25 @@ import android.net.VpnService;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
+import android.widget.Toast;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.WindowInsets;
 import android.widget.FrameLayout;
 
 import com.bridge.filt3r.core.nodes.NodeInfo;
+import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.ui.FloatingToolbar;
+import com.bridge.filt3r.ui.NodesPanel;
 import com.bridge.filt3r.ui.StatusView;
 
-public class MainActivity extends Activity implements TunnelState.Listener, StatusView.Actions {
+import java.util.List;
 
-    // The toolbar has no items yet and stays hidden. Panels add their own in later PRs.
+public class MainActivity extends Activity
+        implements TunnelState.Listener, StatusView.Actions, NodesPanel.Backend {
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
@@ -28,6 +35,10 @@ public class MainActivity extends Activity implements TunnelState.Listener, Stat
     private final Handler handler = new Handler(Looper.getMainLooper());
     private StatusView status;
     private FloatingToolbar toolbar;
+    private FrameLayout frame;
+    private View panel;
+    private Settings settings;
+    private final OnBackInvokedCallback closePanelOnBack = this::closePanel;
 
     private final Runnable statsTick = new Runnable() {
         @Override
@@ -46,7 +57,8 @@ public class MainActivity extends Activity implements TunnelState.Listener, Stat
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        FrameLayout frame = new FrameLayout(this);
+        settings = new Settings(this);
+        frame = new FrameLayout(this);
         status = new StatusView(this, this);
         frame.addView(status, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -54,6 +66,7 @@ public class MainActivity extends Activity implements TunnelState.Listener, Stat
         frame.addView(toolbar, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM));
+        toolbar.addItem(R.drawable.ic_nodes, "Nodes", this::openNodes);
         frame.setOnApplyWindowInsetsListener((v, insets) -> {
             Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
@@ -86,6 +99,10 @@ public class MainActivity extends Activity implements TunnelState.Listener, Stat
     }
 
     private void refresh() {
+        String notice = Filt3rVpnService.takeNotice();
+        if (notice != null) {
+            Toast.makeText(this, notice, Toast.LENGTH_LONG).show();
+        }
         if (TunnelState.get() != TunnelState.State.RUNNING) {
             return;
         }
@@ -131,5 +148,55 @@ public class MainActivity extends Activity implements TunnelState.Listener, Stat
 
     private void startVpn() {
         startForegroundService(new Intent(this, Filt3rVpnService.class));
+    }
+
+    private void openNodes() {
+        if (panel != null) {
+            return;
+        }
+        panel = new NodesPanel(this, this, this::closePanel);
+        frame.addView(panel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
+    }
+
+    private void closePanel() {
+        if (panel == null) {
+            return;
+        }
+        frame.removeView(panel);
+        panel = null;
+        getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(closePanelOnBack);
+    }
+
+    @Override
+    public List<NodeInfo> nodes() {
+        return Filt3rVpnService.nodeStatus();
+    }
+
+    @Override
+    public boolean retest(Runnable done) {
+        return Filt3rVpnService.retestNodes(done);
+    }
+
+    @Override
+    public boolean pin(ShadowsocksNode node, Runnable done) {
+        return Filt3rVpnService.pinNode(node, done);
+    }
+
+    @Override
+    public void unpin() {
+        Filt3rVpnService.unpinNode();
+    }
+
+    @Override
+    public boolean sortBySpeed() {
+        return settings.nodeSortBySpeed();
+    }
+
+    @Override
+    public void setSortBySpeed(boolean bySpeed) {
+        settings.setNodeSortBySpeed(bySpeed);
     }
 }

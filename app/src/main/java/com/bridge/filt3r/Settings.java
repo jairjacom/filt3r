@@ -55,6 +55,7 @@ final class Settings {
     private static final String KEY_RESOLVER_NAME = "resolver_name";
     private static final String KEY_RESOLVER_STAMP = "resolver_stamp";
     private static final String KEY_PINNED_NODE = "pinned_node";
+    private static final String KEY_NODE_SORT_SPEED = "node_sort_speed";
 
     private final SharedPreferences prefs;
 
@@ -127,6 +128,15 @@ final class Settings {
 
     void setPinnedNode(String key) {
         prefs.edit().putString(KEY_PINNED_NODE, key).apply();
+    }
+
+    /** True to sort the Nodes panel by measured speed instead of latency. */
+    boolean nodeSortBySpeed() {
+        return prefs.getBoolean(KEY_NODE_SORT_SPEED, false);
+    }
+
+    void setNodeSortBySpeed(boolean bySpeed) {
+        prefs.edit().putBoolean(KEY_NODE_SORT_SPEED, bySpeed).apply();
     }
 
     /** Package names that bypass the tunnel (they use the real IP and the real DNS). */
