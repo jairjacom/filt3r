@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_red">#E5383B</color>
+    <color name="canvas_dark">#0B0B0D</color>
+    <color name="canvas_light">#FAF7F7</color>
+    <color name="surface_dark">#1A1A1E</color>
+    <color name="surface_light">#EFE9E9</color>
+    <color name="state_active">#3DDC84</color>
+    <color name="state_inactive">#B9B9C0</color>
+    <color name="state_warning">#FFB300</color>
+</resources>

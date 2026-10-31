@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Filt3r" parent="Theme.Material3Expressive.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_red</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="android:colorBackground">@color/canvas_dark</item>
+        <item name="colorSurface">@color/canvas_dark</item>
+        <item name="colorSurfaceContainer">@color/surface_dark</item>
+        <item name="android:windowBackground">@color/canvas_dark</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowSplashScreenBackground">@color/canvas_dark</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_shield</item>
+    </style>
+</resources>
