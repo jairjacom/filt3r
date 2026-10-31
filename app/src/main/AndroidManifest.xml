@@ -8,8 +8,9 @@
 
     <application
         android:label="filt3r"
+        android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/Theme.Filt3r">
 
         <activity
             android:name=".MainActivity"

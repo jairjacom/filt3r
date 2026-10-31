@@ -7,12 +7,20 @@ import android.net.VpnService;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.graphics.Insets;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.WindowInsets;
+import android.widget.FrameLayout;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.bridge.filt3r.ui.FloatingToolbar;
+
 public class MainActivity extends Activity implements TunnelState.Listener {
+
+    // PR1 shell: the toolbar has no items yet and stays hidden. Panels add their own in PR2-PR5.
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
@@ -22,6 +30,7 @@ public class MainActivity extends Activity implements TunnelState.Listener {
     private TextView status;
     private TextView stats;
     private Button toggle;
+    private FloatingToolbar toolbar;
     private Button restart;
 
     private final Runnable statsTick = new Runnable() {
@@ -31,6 +40,12 @@ public class MainActivity extends Activity implements TunnelState.Listener {
             handler.postDelayed(this, STATS_INTERVAL_MS);
         }
     };
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        toolbar.poke();
+        return super.dispatchTouchEvent(ev);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,7 +80,19 @@ public class MainActivity extends Activity implements TunnelState.Listener {
         root.addView(toggle);
         root.addView(restart);
         root.addView(stats);
-        setContentView(root);
+        FrameLayout frame = new FrameLayout(this);
+        frame.addView(root, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        toolbar = new FloatingToolbar(this);
+        frame.addView(toolbar, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM));
+        frame.setOnApplyWindowInsetsListener((v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return WindowInsets.CONSUMED;
+        });
+        setContentView(frame);
 
         requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
     }
@@ -81,6 +108,7 @@ public class MainActivity extends Activity implements TunnelState.Listener {
     @Override
     protected void onStop() {
         handler.removeCallbacks(statsTick);
+        toolbar.pause();
         TunnelState.unregister(this);
         super.onStop();
     }
