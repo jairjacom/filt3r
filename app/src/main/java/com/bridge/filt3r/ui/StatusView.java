@@ -12,7 +12,7 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonGroup;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
-import com.google.android.material.progressindicator.LoadingIndicator;
+import com.google.android.material.loadingindicator.LoadingIndicator;
 
 import java.util.Locale;
 
