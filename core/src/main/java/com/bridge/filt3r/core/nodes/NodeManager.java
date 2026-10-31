@@ -20,6 +20,12 @@ public final class NodeManager {
     public static final int FAILURES_TO_BLACKLIST = 3;
     private static final int SAMPLES = 5;
 
+    /** Called when a pin is dropped by the manager (not by {@link #unpin}); outside the lock. */
+    public interface PinListener {
+        /** @param dead true if the node failed {@value NodeManager#FAILURES_TO_BLACKLIST} times, false if it left the list */
+        void onPinCleared(ShadowsocksNode node, boolean dead);
+    }
+
     /** Called (outside the manager's lock) whenever the current node changes; null means none is usable. */
     public interface Listener {
         void onCurrentChanged(ShadowsocksNode node);
@@ -33,6 +39,7 @@ public final class NodeManager {
         int failures;   // consecutive
         boolean blacklisted;
         Boolean ipv6;   // null until probed: does the node reach IPv6 destinations?
+        long speedBps = -1; // download speed through the node, -1 if never measured
 
         Entry(ShadowsocksNode node) {
             this.node = node;
@@ -58,7 +65,9 @@ public final class NodeManager {
     private final Map<String, Entry> entries = new HashMap<>();
     private final List<String> order = new ArrayList<>();
     private final Listener listener;
+    private PinListener pinListener;
     private Entry current;
+    private String pinned; // key of the pinned node, or null
 
     public NodeManager(Listener listener) {
         this.listener = listener;
@@ -74,6 +83,7 @@ public final class NodeManager {
      */
     public void setNodes(List<ShadowsocksNode> nodes) {
         boolean changed;
+        ShadowsocksNode unpinned = null;
         synchronized (this) {
             Map<String, Entry> old = new HashMap<>(entries);
             entries.clear();
@@ -90,14 +100,24 @@ public final class NodeManager {
                     e.count = before.count;
                     e.next = before.next;
                     e.ipv6 = before.ipv6;
+                    e.speedBps = before.speedBps;
                 }
                 entries.put(k, e);
                 order.add(k);
+            }
+            // A pin on a node that left the list is dropped (a restored pin has no old entry yet).
+            if (pinned != null && !entries.containsKey(pinned)) {
+                Entry gone = old.get(pinned);
+                pinned = null;
+                unpinned = gone == null ? null : gone.node;
             }
             Entry keep = current == null ? null : entries.get(key(current.node));
             changed = reselect(keep);
         }
         notifyChange(changed);
+        if (unpinned != null && pinListener != null) {
+            pinListener.onPinCleared(unpinned, false);
+        }
     }
 
     /** Switches to the best-ranked tested node. Used after a first test round, when "first to answer" is not "best". */
@@ -135,7 +155,8 @@ public final class NodeManager {
             Entry e = entries.get(k);
             NodeInfo.State state = e.blacklisted ? NodeInfo.State.BLACKLISTED
                     : e.count > 0 ? NodeInfo.State.WORKING : NodeInfo.State.UNTESTED;
-            out.add(new NodeInfo(e.node, state, e.count > 0 ? e.median() : -1, e.failures, e == current, e.ipv6));
+            out.add(new NodeInfo(e.node, state, e.count > 0 ? e.median() : -1, e.failures, e == current, e.ipv6,
+                    k.equals(pinned), e.speedBps));
         }
         // Stable sort: ties keep subscription order.
         out.sort((a, b) -> {
@@ -151,6 +172,58 @@ public final class NodeManager {
         if (e != null) {
             e.ipv6 = reachable;
         }
+    }
+
+    /** Records a download speed measured through the node, in bytes per second. */
+    public synchronized void setSpeed(ShadowsocksNode node, long bytesPerSecond) {
+        Entry e = entries.get(key(node));
+        if (e != null) {
+            e.speedBps = bytesPerSecond;
+        }
+    }
+
+    /**
+     * Pins a node: it carries traffic whenever it is usable. Only a node that answered a test can
+     * be pinned.
+     *
+     * @return false if the node is unknown, blacklisted or untested
+     */
+    public boolean pin(ShadowsocksNode node) {
+        boolean changed;
+        synchronized (this) {
+            Entry e = entries.get(key(node));
+            if (e == null || e.blacklisted || e.count == 0) {
+                return false;
+            }
+            pinned = key(node);
+            changed = reselect(current);
+        }
+        notifyChange(changed);
+        return true;
+    }
+
+    /** Removes the pin; the current node keeps carrying traffic until it dies. */
+    public synchronized void unpin() {
+        pinned = null;
+    }
+
+    /** Restores a pin saved earlier (see {@link #keyOf}); it applies once that node has answered a test. */
+    public synchronized void restorePin(String key) {
+        pinned = key;
+    }
+
+    /** The pinned node's key, or null. */
+    public synchronized String pinnedKey() {
+        return pinned;
+    }
+
+    /** Stable id of a node, for saving a pin. */
+    public static String keyOf(ShadowsocksNode n) {
+        return key(n);
+    }
+
+    public synchronized void setPinListener(PinListener l) {
+        pinListener = l;
     }
 
     /** @return true only if there is a current node that was probed and has IPv6 egress */
@@ -173,8 +246,8 @@ public final class NodeManager {
             }
             e.addSample(ms);
             e.failures = 0;
-            if (current == null) {
-                changed = reselect(null);
+            if (current == null || key(node).equals(pinned)) {
+                changed = reselect(current);
             }
         }
         notifyChange(changed);
@@ -191,6 +264,7 @@ public final class NodeManager {
     /** A connection or test through this node failed; the third one in a row blacklists it. */
     public void recordFailure(ShadowsocksNode node) {
         boolean changed = false;
+        ShadowsocksNode unpinned = null;
         synchronized (this) {
             Entry e = entries.get(key(node));
             if (e == null || e.blacklisted) {
@@ -198,12 +272,19 @@ public final class NodeManager {
             }
             if (++e.failures >= FAILURES_TO_BLACKLIST) {
                 e.blacklisted = true;
+                if (key(node).equals(pinned)) {
+                    pinned = null;
+                    unpinned = e.node;
+                }
                 if (e == current) {
                     changed = reselect(null);
                 }
             }
         }
         notifyChange(changed);
+        if (unpinned != null && pinListener != null) {
+            pinListener.onPinCleared(unpinned, true);
+        }
     }
 
     /**
@@ -233,6 +314,10 @@ public final class NodeManager {
         for (int i = 0; i < Math.min(random, rest.size()); i++) {
             out.add(rest.get(i).node);
         }
+        Entry p = pinned == null ? null : entries.get(pinned);
+        if (p != null && !p.blacklisted && !out.contains(p.node)) {
+            out.add(p.node);
+        }
         return out;
     }
 
@@ -248,10 +333,18 @@ public final class NodeManager {
                 + " current=" + (current == null ? "none" : current.median() + "ms");
     }
 
-    /** Keeps {@code keep} if it is usable, otherwise picks the best tested node. @return true if the current node changed */
+    /**
+     * The pinned node wins while it is usable and has answered a test; otherwise keeps {@code keep}
+     * if it is usable, otherwise picks the best tested node. @return true if the current node changed
+     */
     private boolean reselect(Entry keep) {
         Entry before = current;
-        current = keep != null && !keep.blacklisted ? keep : best();
+        Entry p = pinned == null ? null : entries.get(pinned);
+        if (p != null && !p.blacklisted && p.count > 0) {
+            current = p;
+        } else {
+            current = keep != null && !keep.blacklisted ? keep : best();
+        }
         return current != before;
     }
 

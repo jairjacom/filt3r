@@ -54,6 +54,7 @@ final class Settings {
     private static final String KEY_EXEMPT_APPS = "exempt_apps";
     private static final String KEY_RESOLVER_NAME = "resolver_name";
     private static final String KEY_RESOLVER_STAMP = "resolver_stamp";
+    private static final String KEY_PINNED_NODE = "pinned_node";
 
     private final SharedPreferences prefs;
 
@@ -117,6 +118,15 @@ final class Settings {
 
     void setQueryLogEnabled(boolean on) {
         prefs.edit().putBoolean(KEY_QUERY_LOG, on).apply();
+    }
+
+    /** Key of the pinned node (see NodeManager.keyOf), or null. Applies once that node has answered a test. */
+    String pinnedNode() {
+        return prefs.getString(KEY_PINNED_NODE, null);
+    }
+
+    void setPinnedNode(String key) {
+        prefs.edit().putString(KEY_PINNED_NODE, key).apply();
     }
 
     /** Package names that bypass the tunnel (they use the real IP and the real DNS). */

@@ -43,6 +43,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
@@ -55,6 +56,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import hev.htproxy.TProxyService;
 
@@ -106,6 +108,7 @@ public class Filt3rVpnService extends VpnService {
     private static volatile Filt3rVpnService instance;
     private static final AtomicLong dnsBlocked = new AtomicLong();
     private static final AtomicLong dnsAllowed = new AtomicLong();
+    private static final AtomicReference<String> notice = new AtomicReference<>();
 
     private final AtomicInteger generation = new AtomicInteger(); // bumped by every stop
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -177,6 +180,13 @@ public class Filt3rVpnService extends VpnService {
             NodeStore store = new NodeStore(getFilesDir(), settings.subscriptions());
             NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
             nodes = manager;
+            manager.setPinListener((gone, dead) -> {
+                settings.setPinnedNode(null);
+                if (dead) {
+                    notice.set("Pinned node " + gone.name + " stopped working; switched to the best node");
+                }
+            });
+            manager.restorePin(settings.pinnedNode());
 
             List<ShadowsocksNode> list = store.load();
             if (list.isEmpty() && store.hasSubscriptions()) {
@@ -189,6 +199,7 @@ public class Filt3rVpnService extends VpnService {
                 throw new IOException("no nodes: add a subscription URL in Settings");
             }
             manager.setNodes(list);
+            settings.setPinnedNode(manager.pinnedKey()); // forget a pin whose node left the list
             NodeTester tester = new NodeTester(direct, testStamp, DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP_V6));
             nodeTester = tester; // before the rounds: the first current node triggers an IPv6 probe
             for (int round = 0; round < START_ROUNDS && manager.current() == null; round++) {
@@ -352,6 +363,7 @@ public class Filt3rVpnService extends VpnService {
             maint.execute(() -> {
                 try {
                     r.testRound(ROUND_TOP, START_ROUND_NODES);
+                    r.speedRound(ROUND_TOP);
                     s.probeIpv6();
                 } finally {
                     r.retesting.set(false);
@@ -363,6 +375,63 @@ public class Filt3rVpnService extends VpnService {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Pins a node chosen in the Node list; a node that was never tested is tested first. Runs on
+     * the maintenance thread, and {@code done} is called there (post to the main thread before
+     * touching views). If the node does not answer, nothing is pinned and {@link #takeNotice} says so.
+     *
+     * @return false if the tunnel is not running
+     */
+    static boolean pinNode(ShadowsocksNode node, Runnable done) {
+        Filt3rVpnService s = instance;
+        NodeRuntime r = s == null ? null : s.runtime;
+        ScheduledExecutorService maint = s == null ? null : s.maintenance;
+        if (r == null || maint == null) {
+            return false;
+        }
+        try {
+            maint.execute(() -> {
+                try {
+                    if (!r.manager.pin(node)) { // not tested yet
+                        try {
+                            r.manager.recordTest(node, r.tester.test(node));
+                        } catch (IOException | RuntimeException e) {
+                            r.manager.recordFailure(node);
+                            notice.set(node.name + " did not answer");
+                            return;
+                        }
+                        if (!r.manager.pin(node)) {
+                            return;
+                        }
+                    }
+                    new Settings(s).setPinnedNode(NodeManager.keyOf(node));
+                } finally {
+                    done.run();
+                }
+            });
+        } catch (RejectedExecutionException e) { // the tunnel was stopped just now
+            return false;
+        }
+        return true;
+    }
+
+    /** Removes the pin; the current node keeps carrying traffic until it dies. */
+    static void unpinNode() {
+        Filt3rVpnService s = instance;
+        NodeManager m = s == null ? null : s.nodes;
+        if (m != null) {
+            m.unpin();
+        }
+        if (s != null) {
+            new Settings(s).setPinnedNode(null);
+        }
+    }
+
+    /** A one-time message for the user (a pinned node died, or a pin attempt failed), or null. */
+    static String takeNotice() {
+        return notice.getAndSet(null);
     }
 
     /** What the hourly maintenance needs; created once the tunnel is up. */
@@ -432,6 +501,18 @@ public class Filt3rVpnService extends VpnService {
         void testRound(int top, int random) {
             tester.testAndRecord(manager, manager.pickForTest(top, random, RANDOM), TEST_THREADS);
             Log.i(TAG, "node round: " + manager.summary());
+        }
+
+        /** Speed-tests the best-ranked working nodes, one at a time. */
+        void speedRound(int top) {
+            List<ShadowsocksNode> best = new ArrayList<>();
+            for (NodeInfo n : manager.snapshot()) {
+                if (n.state == NodeInfo.State.WORKING && best.size() < top) {
+                    best.add(n.node);
+                }
+            }
+            tester.speedAndRecord(manager, best);
+            Log.i(TAG, "speed round: " + best.size() + " nodes");
         }
     }
 

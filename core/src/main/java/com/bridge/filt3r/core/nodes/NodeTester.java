@@ -1,6 +1,7 @@
 package com.bridge.filt3r.core.nodes;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -12,6 +13,8 @@ import com.bridge.filt3r.core.dnscrypt.DnsCryptUpstream;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksDialer;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.Dialer;
+import com.bridge.filt3r.core.http.HttpsFetcher;
+import com.bridge.filt3r.core.dns.UpstreamNameResolver;
 
 /**
  * Tests nodes with one DNSCrypt-over-TCP query (certificate fetch included) sent through each node,
@@ -21,6 +24,8 @@ public final class NodeTester implements NodeProbe {
 
     private static final String TEST_NAME = "example.com";
     private static final long ROUND_TIMEOUT_S = 40;
+    private static final String SPEED_URL = "https://speed.cloudflare.com/__down?bytes=1000000";
+    private static final long SPEED_MAX_MS = 15_000;
 
     private final Dialer direct;
     private final DnsCryptStamp stamp;
@@ -94,6 +99,52 @@ public final class NodeTester implements NodeProbe {
         } catch (InterruptedException e) {
             pool.shutdownNow();
             Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Downloads 1 MB through the node and times the body only (connect and TLS are excluded), so
+     * the figure is throughput, not latency. A download that takes longer than
+     * {@value #SPEED_MAX_MS} ms is cut off and the rate so far is used.
+     *
+     * @return bytes per second; @throws IOException if nothing arrived
+     */
+    public long speed(ShadowsocksNode node) throws IOException {
+        ShadowsocksDialer dialer = new ShadowsocksDialer(node, direct);
+        HttpsFetcher fetcher = new HttpsFetcher(dialer,
+                new UpstreamNameResolver(new DnsCryptUpstream(stamp, dialer)));
+        try (InputStream in = fetcher.stream(SPEED_URL)) {
+            long start = System.nanoTime();
+            long total = 0;
+            byte[] buf = new byte[16 * 1024];
+            int n;
+            long ms = 0;
+            while ((n = in.read(buf)) >= 0) {
+                total += n;
+                ms = (System.nanoTime() - start) / 1_000_000;
+                if (ms > SPEED_MAX_MS) {
+                    break;
+                }
+            }
+            if (total == 0) {
+                throw new IOException("no data");
+            }
+            return total * 1000 / Math.max(1, ms);
+        }
+    }
+
+    /**
+     * Speed-tests the nodes one after another (parallel runs would share the phone's bandwidth)
+     * and records each result. A failed speed test says nothing about whether the node is alive,
+     * so it is not counted as a node failure.
+     */
+    public void speedAndRecord(NodeManager manager, List<ShadowsocksNode> nodes) {
+        for (ShadowsocksNode n : nodes) {
+            try {
+                manager.setSpeed(n, speed(n));
+            } catch (IOException | RuntimeException e) {
+                // leaves the earlier figure in place
+            }
         }
     }
 }
