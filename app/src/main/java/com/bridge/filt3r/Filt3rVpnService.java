@@ -35,6 +35,7 @@ import com.bridge.filt3r.core.socks.DirectDialer;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
+import com.bridge.filt3r.core.util.QueryLog;
 
 import java.io.File;
 import java.io.IOException;
@@ -53,6 +54,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import hev.htproxy.TProxyService;
 
@@ -102,6 +104,8 @@ public class Filt3rVpnService extends VpnService {
     private volatile CountDownLatch filterReady = new CountDownLatch(0);
     private volatile boolean filterOk;
     private static volatile Filt3rVpnService instance;
+    private static final AtomicLong dnsBlocked = new AtomicLong();
+    private static final AtomicLong dnsAllowed = new AtomicLong();
 
     private final AtomicInteger generation = new AtomicInteger(); // bumped by every stop
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -163,7 +167,13 @@ public class Filt3rVpnService extends VpnService {
             DirectDialer direct = new DirectDialer(protector);
             DnsCryptStamp testStamp = DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
             Settings settings = new Settings(this);
-            DNSResponsePatcher.setObserver(QueryLogs.get(this)::add);
+            dnsBlocked.set(0);
+            dnsAllowed.set(0);
+            QueryLog queryLog = QueryLogs.get(this);
+            DNSResponsePatcher.setObserver((host, blocked) -> {
+                (blocked ? dnsBlocked : dnsAllowed).incrementAndGet();
+                queryLog.add(host, blocked);
+            });
             NodeStore store = new NodeStore(getFilesDir(), settings.subscriptions());
             NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
             nodes = manager;
@@ -508,18 +518,29 @@ public class Filt3rVpnService extends VpnService {
         }
     }
 
-    /** Counters for the status line: hev packets and bytes, then the bridge counters. */
-    static String statsText() {
+    /** Session traffic through the tunnel as {up, down} bytes, or null while the tunnel is down. */
+    static long[] trafficBytes() {
         Filt3rVpnService s = instance;
-        Socks5Bridge b = s == null ? null : s.bridge;
-        if (b == null) {
-            return "";
+        if (s == null || s.bridge == null) {
+            return null;
         }
         long[] hev = TProxyService.TProxyGetStats();
-        String traffic = hev != null && hev.length >= 4
-                ? "up " + hev[0] + " pkts / " + hev[1] + " B, down " + hev[2] + " pkts / " + hev[3] + " B\n"
-                : "";
-        return traffic + b.stats() + "\n" + (s.nodes == null ? "" : s.nodes.summary());
+        return hev != null && hev.length >= 4 ? new long[] {hev[1], hev[3]} : null;
+    }
+
+    /** DNS decisions this session as {blocked, allowed}. */
+    static long[] dnsCounts() {
+        return new long[] {dnsBlocked.get(), dnsAllowed.get()};
+    }
+
+    /** The node carrying traffic now, or null while the tunnel is down or no node is chosen. */
+    static NodeInfo currentNode() {
+        for (NodeInfo n : nodeStatus()) {
+            if (n.current) {
+                return n;
+            }
+        }
+        return null;
     }
 
     /**
