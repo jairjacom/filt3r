@@ -32,6 +32,7 @@ public final class NodeManager {
         int next;       // ring position
         int failures;   // consecutive
         boolean blacklisted;
+        Boolean ipv6;   // null until probed: does the node reach IPv6 destinations?
 
         Entry(ShadowsocksNode node) {
             this.node = node;
@@ -88,6 +89,7 @@ public final class NodeManager {
                     System.arraycopy(before.samples, 0, e.samples, 0, SAMPLES);
                     e.count = before.count;
                     e.next = before.next;
+                    e.ipv6 = before.ipv6;
                 }
                 entries.put(k, e);
                 order.add(k);
@@ -124,6 +126,41 @@ public final class NodeManager {
             }
         }
         return n;
+    }
+
+    /** Every node, best first: working ones by median time, then untested ones, then blacklisted ones. */
+    public synchronized List<NodeInfo> snapshot() {
+        List<NodeInfo> out = new ArrayList<>(order.size());
+        for (String k : order) {
+            Entry e = entries.get(k);
+            NodeInfo.State state = e.blacklisted ? NodeInfo.State.BLACKLISTED
+                    : e.count > 0 ? NodeInfo.State.WORKING : NodeInfo.State.UNTESTED;
+            out.add(new NodeInfo(e.node, state, e.count > 0 ? e.median() : -1, e.failures, e == current, e.ipv6));
+        }
+        // Stable sort: ties keep subscription order.
+        out.sort((a, b) -> {
+            int byState = a.state.compareTo(b.state);
+            return byState != 0 ? byState : Long.compare(a.medianMs, b.medianMs);
+        });
+        return out;
+    }
+
+    /** Records whether the node reaches IPv6 destinations (the result of a probe). */
+    public synchronized void setIpv6(ShadowsocksNode node, boolean reachable) {
+        Entry e = entries.get(key(node));
+        if (e != null) {
+            e.ipv6 = reachable;
+        }
+    }
+
+    /** @return true only if there is a current node that was probed and has IPv6 egress */
+    public synchronized boolean currentHasIpv6() {
+        return current != null && Boolean.TRUE.equals(current.ipv6);
+    }
+
+    /** @return true if there is a current node that has not been probed for IPv6 yet */
+    public synchronized boolean currentIpv6Unknown() {
+        return current != null && current.ipv6 == null;
     }
 
     /** A test round finished for this node: a working time in ms resets its failure count. */

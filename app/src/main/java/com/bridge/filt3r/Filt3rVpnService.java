@@ -27,6 +27,7 @@ import com.bridge.filt3r.core.filter.DNSResponsePatcher;
 import com.bridge.filt3r.core.http.HttpsFetcher;
 import com.bridge.filt3r.core.nodes.FailoverDialer;
 import com.bridge.filt3r.core.nodes.FailoverUpstream;
+import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
@@ -41,13 +42,16 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import hev.htproxy.TProxyService;
@@ -104,6 +108,8 @@ public class Filt3rVpnService extends VpnService {
     private volatile boolean starting;
     private volatile ScheduledExecutorService maintenance;
     private volatile NodeManager nodes;
+    private volatile NodeTester nodeTester;
+    private volatile DNSResolver dnsResolver;
     private volatile NodeRuntime runtime;
 
     @Override
@@ -173,7 +179,8 @@ public class Filt3rVpnService extends VpnService {
                 throw new IOException("no nodes: add a subscription URL in Settings");
             }
             manager.setNodes(list);
-            NodeTester tester = new NodeTester(direct, testStamp);
+            NodeTester tester = new NodeTester(direct, testStamp, DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP_V6));
+            nodeTester = tester; // before the rounds: the first current node triggers an IPv6 probe
             for (int round = 0; round < START_ROUNDS && manager.current() == null; round++) {
                 tester.testAndRecord(manager, manager.pickForTest(0, START_ROUND_NODES, RANDOM), TEST_THREADS);
                 manager.selectBest();
@@ -197,13 +204,13 @@ public class Filt3rVpnService extends VpnService {
             FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp, viaNode, tester);
             // DNS always goes through the node: it is never sent direct, whatever the failure mode.
             DNSResolver resolver = new DNSResolver(upstream);
+            dnsResolver = resolver;
             bridge = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
                 return resolver.resolve(client, query);
             }, viaNode, direct);
             bridge.setFailureMode(settings.failureMode());
-            bridge.setAllowIPv6(settings.allowIpv6());
-            resolver.setAllowIPv6(settings.allowIpv6());
+            applyIpv6();
             bridge.start();
 
             Builder builder = new Builder()
@@ -262,11 +269,90 @@ public class Filt3rVpnService extends VpnService {
     private void onCurrentNodeChanged(ShadowsocksNode node) {
         NodeManager m = nodes;
         Log.i(TAG, "current node changed: " + (node == null ? "none" : "ok") + (m == null ? "" : ", " + m.summary()));
+        applyIpv6();
+        if (m != null && m.currentIpv6Unknown()) {
+            probeIpv6();
+        }
         NodeRuntime r = runtime;
         ScheduledExecutorService maint = maintenance;
         if (node == null && r != null && maint != null) {
             maint.execute(() -> r.testRound(0, START_ROUND_NODES)); // nothing usable: look for a node now
         }
+    }
+
+    /** IPv6 is allowed only while the current node is known to have IPv6 egress; otherwise apps get IPv4 only. */
+    private void applyIpv6() {
+        NodeManager m = nodes;
+        boolean allow = m != null && m.currentHasIpv6();
+        Socks5Bridge b = bridge;
+        DNSResolver r = dnsResolver;
+        if (b != null) {
+            b.setAllowIPv6(allow);
+        }
+        if (r != null) {
+            r.setAllowIPv6(allow);
+        }
+        Log.i(TAG, "ipv6 " + (allow ? "on" : "off"));
+    }
+
+    /**
+     * Checks the current node for IPv6 egress on a thread of its own: a node without it makes the
+     * probe wait for a connection to be closed or time out.
+     */
+    private void probeIpv6() {
+        NodeManager m = nodes;
+        NodeTester t = nodeTester;
+        ShadowsocksNode node = m == null ? null : m.current();
+        if (node == null || t == null) {
+            return;
+        }
+        Thread th = new Thread(() -> {
+            boolean has = t.hasIpv6(node);
+            if (nodes == m) { // not stopped or restarted meanwhile
+                m.setIpv6(node, has);
+                applyIpv6();
+            }
+        }, "ipv6-probe");
+        th.setDaemon(true);
+        th.start();
+    }
+
+    /** Every node with its state, best first, for the Node list screen. Empty while the tunnel is down. */
+    static List<NodeInfo> nodeStatus() {
+        Filt3rVpnService s = instance;
+        NodeManager m = s == null ? null : s.nodes;
+        return m == null ? Collections.emptyList() : m.snapshot();
+    }
+
+    /**
+     * Re-tests the best nodes and a random sample now, and re-checks the current node's IPv6. Runs
+     * on the maintenance thread; {@code done} is called there when it ends (post to the main thread
+     * before touching views).
+     *
+     * @return false if the tunnel is not running or a re-test is already under way
+     */
+    static boolean retestNodes(Runnable done) {
+        Filt3rVpnService s = instance;
+        NodeRuntime r = s == null ? null : s.runtime;
+        ScheduledExecutorService maint = s == null ? null : s.maintenance;
+        if (r == null || maint == null || !r.retesting.compareAndSet(false, true)) {
+            return false;
+        }
+        try {
+            maint.execute(() -> {
+                try {
+                    r.testRound(ROUND_TOP, START_ROUND_NODES);
+                    s.probeIpv6();
+                } finally {
+                    r.retesting.set(false);
+                    done.run();
+                }
+            });
+        } catch (RejectedExecutionException e) { // the tunnel was stopped just now
+            r.retesting.set(false);
+            return false;
+        }
+        return true;
     }
 
     /** What the hourly maintenance needs; created once the tunnel is up. */
@@ -275,6 +361,7 @@ public class Filt3rVpnService extends VpnService {
         final NodeTester tester;
         final NodeStore store;
         final FailoverDialer viaNode;
+        final AtomicBoolean retesting = new AtomicBoolean();
         /** Looks names up through the node with the built-in resolver, so a bad user choice cannot block downloads. */
         final UpstreamNameResolver names;
 
@@ -349,6 +436,7 @@ public class Filt3rVpnService extends VpnService {
                 r.updateSubscriptions();
                 r.refreshResolvers(false);
                 r.testRound(ROUND_TOP, ROUND_RANDOM);
+                probeIpv6();
             } catch (RuntimeException e) {
                 Log.w(TAG, "maintenance failed: " + e);
             }
@@ -525,6 +613,8 @@ public class Filt3rVpnService extends VpnService {
             m.shutdownNow();
         }
         nodes = null;
+        nodeTester = null;
+        dnsResolver = null;
         runtime = null;
         DNSResponsePatcher.setObserver(null);
         DNSFilterManager.setUrlOpener(null);

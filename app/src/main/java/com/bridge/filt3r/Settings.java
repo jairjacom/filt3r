@@ -28,6 +28,13 @@ final class Settings {
     static final String DEFAULT_RESOLVER_STAMP =
             "sdns://AQcAAAAAAAAADjE5OC4xNDAuMTQxLjQ2IFqbafOxgXuKwOgYxQ6XUqHWkMUt_5LI2nDkdVFU5hm7GTIuZG5zY3J5cHQtY2VydC5kbnNjcnkucHQ";
 
+    /**
+     * The same dnscry.pt resolver (same provider key and name) at its IPv6 address. Reaching it
+     * through a node proves the node has IPv6 egress.
+     */
+    static final String DEFAULT_RESOLVER_STAMP_V6 =
+            "sdns://AQcAAAAAAAAAFlsyYTAzOjk0ZTM6MjIyYjo6MTAzMl0gWptp87GBe4rA6BjFDpdSodaQxS3_ksjacOR1UVTmGbsZMi5kbnNjcnlwdC1jZXJ0LmRuc2NyeS5wdA";
+
     /** One subscription slot. Intervals are whole hours, at least 1. */
     static final class Subscription {
         final int slot;
@@ -43,7 +50,6 @@ final class Settings {
 
     private static final String FILE = "filt3r";
     private static final String KEY_FAILURE_MODE = "failure_mode";
-    private static final String KEY_ALLOW_IPV6 = "allow_ipv6";
     private static final String KEY_QUERY_LOG = "query_log";
     private static final String KEY_EXEMPT_APPS = "exempt_apps";
     private static final String KEY_RESOLVER_NAME = "resolver_name";
@@ -103,11 +109,6 @@ final class Settings {
 
     void setFailureMode(FailureMode mode) {
         prefs.edit().putString(KEY_FAILURE_MODE, mode.name()).apply();
-    }
-
-    /** Off until a node is known to have IPv6 egress. */
-    boolean allowIpv6() {
-        return prefs.getBoolean(KEY_ALLOW_IPV6, false);
     }
 
     boolean queryLogEnabled() {
