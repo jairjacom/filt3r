@@ -60,7 +60,12 @@ public class StatusView extends ScrollView {
         LinearLayout column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setGravity(Gravity.CENTER_HORIZONTAL);
-        column.setPadding(dp(16), dp(32), dp(16), dp(112)); // room for the floating toolbar
+        // Start 15% down the screen so the pulsing circle has room; bottom leaves room for the toolbar.
+        int top = (int) (getResources().getDisplayMetrics().heightPixels * 0.15f);
+        column.setPadding(dp(16), top, dp(16), dp(112));
+        column.setClipChildren(false);
+        column.setClipToPadding(false);
+        setClipChildren(false);
 
         hero = new HeroView(context);
         column.addView(hero, new LinearLayout.LayoutParams(
