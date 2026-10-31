@@ -154,7 +154,6 @@ public class Filt3rVpnService extends VpnService {
     private void startTunnel(int gen) {
         try {
             ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
-            startFilter();
             DirectDialer direct = new DirectDialer(protector);
             DnsCryptStamp testStamp = DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
             Settings settings = new Settings(this);
@@ -188,6 +187,12 @@ public class Filt3rVpnService extends VpnService {
             Log.i(TAG, "start round done: " + manager.summary());
 
             FailoverDialer viaNode = new FailoverDialer(manager, direct);
+            // Filter lists are downloaded through the node, never directly. The filter starts only
+            // now, because its first run downloads the lists and needs a working node.
+            HttpsFetcher listFetcher = new HttpsFetcher(viaNode,
+                    new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode)));
+            DNSFilterManager.setUrlOpener(listFetcher::stream);
+            startFilter();
             DnsCryptStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
             FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp, viaNode, tester);
             // DNS always goes through the node: it is never sent direct, whatever the failure mode.
@@ -522,6 +527,7 @@ public class Filt3rVpnService extends VpnService {
         nodes = null;
         runtime = null;
         DNSResponsePatcher.setObserver(null);
+        DNSFilterManager.setUrlOpener(null);
         handler.removeCallbacksAndMessages(null);
         TProxyService.TProxyStopService();
         deleteConfig();

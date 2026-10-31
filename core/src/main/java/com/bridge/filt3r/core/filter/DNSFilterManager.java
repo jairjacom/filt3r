@@ -86,6 +86,17 @@ public class DNSFilterManager extends ConfigurationAccess  {
 	private boolean reloading_filter = false;
 	private AutoFilterUpdater autoFilterUpdater;
 
+	/** Opens a filter-list URL and returns its (already decoded) body. Set by the app before init(). */
+	public interface UrlOpener {
+		InputStream open(String url) throws IOException;
+	}
+
+	private static volatile UrlOpener urlOpener;
+
+	public static void setUrlOpener(UrlOpener opener) {
+		urlOpener = opener;
+	}
+
 
 
 	private static String DOWNLOADED_FF_PREFIX= "# Downloaded by personalDNSFilter at: ";
@@ -720,24 +731,12 @@ public class DNSFilterManager extends ConfigurationAccess  {
 
 							InputStream in;
 							if (!urlStr.startsWith("file://")) {
-								URL url = new URL(urlStr);
-								URLConnection con = url.openConnection();
-
-
-								con.setConnectTimeout(120000);
-								con.setReadTimeout(120000);
-								con.setRequestProperty("Accept-Encoding", "gzip, deflate, identity");
-								con.setRequestProperty("User-Agent", "Mozilla/5.0 (" + System.getProperty("os.name") + "; " + System.getProperty("os.version") + ")");
-
-								String contentencoding = con.getContentEncoding();
-								
-								if ("gzip".equals(contentencoding))
-									in = new BufferedInputStream(new GZIPInputStream(con.getInputStream()), 2048);
-								else if ("deflate".equals(contentencoding))
-									in = new BufferedInputStream(new InflaterInputStream(con.getInputStream()), 2048);
-								else if (contentencoding == null || "identity".equals(contentencoding))
-									in = new BufferedInputStream(con.getInputStream(), 2048);
-								else throw new IOException("ContentEncoding not supported:"+contentencoding);
+								// Lists are only fetched through the opener (the app sends them through the
+								// node). There is no direct fallback: that would show the lists to the ISP.
+								UrlOpener opener = urlOpener;
+								if (opener == null)
+									throw new IOException("no download route for filter lists");
+								in = new BufferedInputStream(opener.open(urlStr), 2048);
 							} else
 								in = new BufferedInputStream(new FileInputStream(urlStr.substring(7)),2048);
 
