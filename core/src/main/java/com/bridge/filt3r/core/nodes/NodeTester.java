@@ -13,7 +13,10 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksDialer;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.Dialer;
 
-/** Tests nodes with one DNSCrypt-over-TCP query (certificate fetch included) sent through each node. */
+/**
+ * Tests nodes with one DNSCrypt-over-TCP query (certificate fetch included) sent through each node,
+ * and checks IPv6 egress with the same query sent to the resolver's IPv6 address.
+ */
 public final class NodeTester implements NodeProbe {
 
     private static final String TEST_NAME = "example.com";
@@ -21,20 +24,44 @@ public final class NodeTester implements NodeProbe {
 
     private final Dialer direct;
     private final DnsCryptStamp stamp;
+    private final DnsCryptStamp ipv6Stamp;
 
-    /** @param direct opens plain TCP connections to the nodes, outside the VPN */
-    public NodeTester(Dialer direct, DnsCryptStamp stamp) {
+    /**
+     * @param direct opens plain TCP connections to the nodes, outside the VPN
+     * @param stamp the resolver used to time nodes (IPv4)
+     * @param ipv6Stamp the same kind of resolver at an IPv6 address; reaching it proves IPv6 egress
+     */
+    public NodeTester(Dialer direct, DnsCryptStamp stamp, DnsCryptStamp ipv6Stamp) {
         this.direct = direct;
         this.stamp = stamp;
+        this.ipv6Stamp = ipv6Stamp;
+    }
+
+    /**
+     * Asks the IPv6 resolver for a name through the node. Shadowsocks gives no connect reply, so only
+     * a real answer proves the node can reach IPv6 destinations. A failure also happens if that one
+     * resolver is down, in which case IPv6 stays off (apps use IPv4).
+     */
+    public boolean hasIpv6(ShadowsocksNode node) {
+        try {
+            query(node, ipv6Stamp);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
 
     /** @return milliseconds until the answer arrived; @throws IOException if the node does not work */
     public long test(ShadowsocksNode node) throws IOException {
         long start = System.nanoTime();
-        DnsCryptUpstream upstream = new DnsCryptUpstream(stamp, new ShadowsocksDialer(node, direct));
+        query(node, stamp);
+        return (System.nanoTime() - start) / 1_000_000;
+    }
+
+    private void query(ShadowsocksNode node, DnsCryptStamp resolver) throws IOException {
+        DnsCryptUpstream upstream = new DnsCryptUpstream(resolver, new ShadowsocksDialer(node, direct));
         byte[] answer = upstream.query(DnsWire.query(TEST_NAME, DnsWire.TYPE_A));
         DnsWire.answers(answer, DnsWire.TYPE_A); // throws if the resolver reported an error
-        return (System.nanoTime() - start) / 1_000_000;
     }
 
     @Override
