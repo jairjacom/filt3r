@@ -26,7 +26,6 @@ import com.google.android.material.color.MaterialColors;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Full-screen node list: the current node on top, then every node with status, place, latency,
@@ -124,6 +123,7 @@ public class NodesPanel extends LinearLayout {
         MaterialButtonToggleGroup sort = new MaterialButtonToggleGroup(context);
         sort.setSingleSelection(true);
         sort.setSelectionRequired(true);
+        sort.setSpacing(dp(8));
         MaterialButton byLatency = sortButton(context, "Latency");
         MaterialButton bySpeed = sortButton(context, "Speed");
         sort.addView(byLatency);
@@ -315,7 +315,7 @@ public class NodesPanel extends LinearLayout {
         @Override
         public View getView(int position, View convert, ViewGroup parent) {
             Row row = convert == null ? new Row(parent.getContext()) : (Row) convert;
-            row.bind(items.get(position));
+            row.bind(items.get(position), backend.sortBySpeed());
             return row;
         }
     }
@@ -364,6 +364,8 @@ public class NodesPanel extends LinearLayout {
             right.setOrientation(VERTICAL);
             right.setGravity(Gravity.END);
             latency = new TextView(context);
+            latency.setGravity(Gravity.END);
+            latency.setSingleLine(true);
             latency.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
             ipv6 = new TextView(context);
             ipv6.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall);
@@ -371,21 +373,22 @@ public class NodesPanel extends LinearLayout {
             ipv6.setTextColor(context.getColor(R.color.state_active));
             right.addView(latency);
             right.addView(ipv6);
-            addView(right);
+            addView(right, new LayoutParams(dp(84), LayoutParams.WRAP_CONTENT)); // fixed width: columns line up
         }
 
-        void bind(NodeInfo n) {
+        void bind(NodeInfo n, boolean bySpeed) {
             NodeLocation loc = NodeLocation.parse(n.node.name);
             title.setText(loc.city);
+            // The right column shows the metric the list is sorted by; the other one goes under the place.
+            String ms = n.medianMs >= 0 ? n.medianMs + " ms" : "—";
+            String speed = n.speedBps >= 0 ? Format.bytes(n.speedBps) + "/s" : "—";
             StringBuilder sub = new StringBuilder();
             if (!loc.countryCode.isEmpty()) {
-                sub.append(loc.flag).append(' ').append(loc.countryCode);
+                sub.append(loc.flag).append(' ').append(loc.countryCode).append("  ·  ");
             }
-            if (n.speedBps >= 0) {
-                sub.append(sub.length() > 0 ? "  ·  " : "").append(Format.bytes(n.speedBps)).append("/s");
-            }
-            subtitle.setText(sub.length() == 0 ? "Unknown" : sub.toString());
-            latency.setText(n.medianMs >= 0 ? String.format(Locale.US, "%d ms", n.medianMs) : "—");
+            sub.append(bySpeed ? ms : speed);
+            subtitle.setText(sub.toString());
+            latency.setText(bySpeed ? speed : ms);
             ipv6.setVisibility(Boolean.TRUE.equals(n.ipv6) ? VISIBLE : GONE);
             pin.setVisibility(n.pinned ? VISIBLE : GONE);
 

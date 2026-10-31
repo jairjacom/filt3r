@@ -29,6 +29,9 @@ public class StatusView extends ScrollView {
         public String nodeName;
         public long nodeMs = -1;
         public Boolean nodeIpv6;
+        public String nodeIp;
+        public String resolverName;
+        public String resolverIp;
         public long[] trafficBytes;   // {up, down} since start
         public long[] dnsCounts;      // {blocked, allowed}
     }
@@ -135,15 +138,15 @@ public class StatusView extends ScrollView {
 
     public void update(Snapshot s) {
         if (s.nodeName == null) {
-            nodeCard.set("—", "");
+            nodeCard.set("—", "", "");
         } else {
             String ms = s.nodeMs >= 0 ? s.nodeMs + " ms" : "not measured";
             String v6 = s.nodeIpv6 == null ? "IPv6 checking" : s.nodeIpv6 ? "IPv6 on" : "IPv6 off";
-            nodeCard.set(s.nodeName, ms + "  ·  " + v6);
+            nodeCard.set(s.nodeName, ms + "  ·  " + v6, s.nodeIp == null ? "" : "IP " + s.nodeIp);
         }
 
         if (s.trafficBytes == null) {
-            trafficCard.set("—", "");
+            trafficCard.set("—", "", "");
             lastUp = -1;
             lastDown = -1;
         } else {
@@ -157,16 +160,18 @@ public class StatusView extends ScrollView {
             lastDown = down;
             lastMs = now;
             trafficCard.set("↓ " + Format.bytes(downRate) + "/s   ↑ " + Format.bytes(upRate) + "/s",
-                    "Session  ↓ " + Format.bytes(down) + "   ↑ " + Format.bytes(up));
+                    "Session  ↓ " + Format.bytes(down) + "   ↑ " + Format.bytes(up), "");
         }
 
         if (s.dnsCounts == null) {
-            dnsCard.set("—", "");
+            dnsCard.set("—", "", "");
         } else {
             long blocked = s.dnsCounts[0];
             long total = blocked + s.dnsCounts[1];
             String pct = total == 0 ? "" : String.format(Locale.US, "  (%.0f%%)", 100.0 * blocked / total);
-            dnsCard.set("Blocked " + blocked + pct, "Allowed " + s.dnsCounts[1]);
+            String resolver = s.resolverName == null ? ""
+                    : "Resolver " + s.resolverName + (s.resolverIp == null ? "" : "  ·  " + s.resolverIp);
+            dnsCard.set("Blocked " + blocked + pct, "Allowed " + s.dnsCounts[1], resolver);
         }
     }
 
@@ -188,6 +193,7 @@ public class StatusView extends ScrollView {
         final MaterialCardView card;
         private final TextView value;
         private final TextView detail;
+        private final TextView extra;
 
         Card(Context context, String title) {
             card = new MaterialCardView(context);
@@ -208,16 +214,22 @@ public class StatusView extends ScrollView {
             detail = new TextView(context);
             detail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
             detail.setAlpha(0.7f);
+            extra = new TextView(context);
+            extra.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+            extra.setAlpha(0.7f);
             box.addView(label);
             box.addView(value);
             box.addView(detail);
+            box.addView(extra);
             card.addView(box);
         }
 
-        void set(String main, String sub) {
+        void set(String main, String sub, String more) {
             value.setText(main);
             detail.setText(sub);
             detail.setVisibility(sub.isEmpty() ? View.GONE : View.VISIBLE);
+            extra.setText(more);
+            extra.setVisibility(more.isEmpty() ? View.GONE : View.VISIBLE);
         }
     }
 }

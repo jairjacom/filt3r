@@ -109,6 +109,7 @@ public class Filt3rVpnService extends VpnService {
     private static final AtomicLong dnsBlocked = new AtomicLong();
     private static final AtomicLong dnsAllowed = new AtomicLong();
     private static final AtomicReference<String> notice = new AtomicReference<>();
+    private static volatile String[] resolverInfo; // {name, ip} of the DNS resolver in use, null while down
 
     private final AtomicInteger generation = new AtomicInteger(); // bumped by every stop
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -222,6 +223,7 @@ public class Filt3rVpnService extends VpnService {
             DNSFilterManager.setUrlOpener(listFetcher::stream);
             startFilter();
             DnsCryptStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
+            resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
             FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp, viaNode, tester);
             // DNS always goes through the node: it is never sent direct, whatever the failure mode.
             DNSResolver resolver = new DNSResolver(upstream);
@@ -609,6 +611,11 @@ public class Filt3rVpnService extends VpnService {
         return hev != null && hev.length >= 4 ? new long[] {hev[1], hev[3]} : null;
     }
 
+    /** The DNS resolver in use as {name, ip}, or null while the tunnel is down. */
+    static String[] resolver() {
+        return resolverInfo;
+    }
+
     /** DNS decisions this session as {blocked, allowed}. */
     static long[] dnsCounts() {
         return new long[] {dnsBlocked.get(), dnsAllowed.get()};
@@ -719,6 +726,7 @@ public class Filt3rVpnService extends VpnService {
         dnsResolver = null;
         runtime = null;
         DNSResponsePatcher.setObserver(null);
+        resolverInfo = null;
         DNSFilterManager.setUrlOpener(null);
         handler.removeCallbacksAndMessages(null);
         TProxyService.TProxyStopService();

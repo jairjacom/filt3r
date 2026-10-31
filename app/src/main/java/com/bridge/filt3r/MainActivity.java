@@ -112,9 +112,15 @@ public class MainActivity extends Activity
             s.nodeName = node.node.name;
             s.nodeMs = node.medianMs;
             s.nodeIpv6 = node.ipv6;
+            s.nodeIp = node.node.host;
         }
         s.trafficBytes = Filt3rVpnService.trafficBytes();
         s.dnsCounts = Filt3rVpnService.dnsCounts();
+        String[] resolver = Filt3rVpnService.resolver();
+        if (resolver != null) {
+            s.resolverName = resolver[0];
+            s.resolverIp = resolver[1];
+        }
         status.update(s);
     }
 

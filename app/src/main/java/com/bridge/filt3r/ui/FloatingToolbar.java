@@ -60,17 +60,17 @@ public class FloatingToolbar extends FrameLayout {
         GradientDrawable handleBg = new GradientDrawable();
         handleBg.setColor(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface));
-        handleBg.setCornerRadius(dp(2));
+        handleBg.setCornerRadius(dp(3));
         handle.setBackground(handleBg);
         handle.setAlpha(0f);
-        LayoutParams handleParams = new LayoutParams(dp(40), dp(4),
+        LayoutParams handleParams = new LayoutParams(dp(48), dp(5),
                 Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM);
-        handleParams.bottomMargin = dp(8);
+        handleParams.bottomMargin = dp(28); // clear of the system gesture bar
         addView(handle, handleParams);
 
         handleTouch = new View(context);
         handleTouch.setVisibility(GONE);
-        addView(handleTouch, new LayoutParams(dp(160), dp(48),
+        addView(handleTouch, new LayoutParams(dp(240), dp(88),
                 Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM));
         GestureDetector gestures = new GestureDetector(context,
                 new GestureDetector.SimpleOnGestureListener() {
