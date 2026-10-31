@@ -2,6 +2,7 @@ package com.bridge.filt3r.core.http;
 
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -24,12 +25,13 @@ import com.bridge.filt3r.core.socks.Link;
  * A small HTTPS GET client for subscription and filter-list downloads. The name is resolved by a
  * {@link NameResolver} and the connection opened by a {@link Dialer}, so the same code can run
  * directly (bootstrap) or through the node. The certificate is checked against the URL's host name.
+ * Only https:// URLs are accepted.
  */
 public final class HttpsFetcher {
 
     private static final int DIAL_TIMEOUT_MS = 8_000;
-    private static final int READ_TIMEOUT_MS = 15_000;
-    private static final int MAX_BODY = 8 * 1024 * 1024;
+    private static final int READ_TIMEOUT_MS = 60_000;
+    private static final int MAX_TEXT_BODY = 8 * 1024 * 1024;
     private static final int MAX_HEADER = 16 * 1024;
     private static final int MAX_REDIRECTS = 3;
 
@@ -41,20 +43,40 @@ public final class HttpsFetcher {
         this.resolver = resolver;
     }
 
-    /** @return the response body as UTF-8 text; @throws IOException on any failure or a non-200 answer */
+    /** Downloads a small text document (at most 8 MB) as UTF-8. @throws IOException on any failure or a non-200 answer */
     public String get(String url) throws IOException {
+        try (InputStream in = stream(url)) {
+            ByteArrayOutputStream b = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) >= 0) {
+                b.write(buf, 0, n);
+                if (b.size() > MAX_TEXT_BODY) {
+                    throw new IOException("response too large");
+                }
+            }
+            return new String(b.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    /**
+     * Opens a download and returns the body as a stream, for large files. Redirects are followed.
+     * Closing the stream closes the connection.
+     */
+    public InputStream stream(String url) throws IOException {
         String target = url;
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
             URI uri = parse(target);
-            Response r = request(uri);
-            if (r.status == 200) {
-                return new String(r.body, StandardCharsets.UTF_8);
+            Opened o = open(uri);
+            if (o.status == 200) {
+                return o.body;
             }
-            if (r.status >= 300 && r.status < 400 && r.location != null) {
-                target = uri.resolve(r.location).toString();
+            o.body.close();
+            if (o.status >= 300 && o.status < 400 && o.location != null) {
+                target = uri.resolve(o.location).toString();
                 continue;
             }
-            throw new IOException("HTTP " + r.status);
+            throw new IOException("HTTP " + o.status);
         }
         throw new IOException("too many redirects");
     }
@@ -71,13 +93,13 @@ public final class HttpsFetcher {
         }
     }
 
-    private static final class Response {
+    private static final class Opened {
         int status;
         String location;
-        byte[] body;
+        InputStream body; // closing it closes the connection
     }
 
-    private Response request(URI uri) throws IOException {
+    private Opened open(URI uri) throws IOException {
         String host = uri.getHost();
         int port = uri.getPort() > 0 ? uri.getPort() : 443;
         List<InetAddress> addresses = resolver.resolve(host);
@@ -90,7 +112,8 @@ public final class HttpsFetcher {
                 last = e;
                 continue;
             }
-            try (LinkSocket plain = new LinkSocket(link, a, port)) {
+            LinkSocket plain = new LinkSocket(link, a, port);
+            try {
                 plain.setSoTimeout(READ_TIMEOUT_MS);
                 SSLSocket tls = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault())
                         .createSocket(plain, host, port, true);
@@ -98,15 +121,20 @@ public final class HttpsFetcher {
                 p.setEndpointIdentificationAlgorithm("HTTPS"); // verify the certificate against the host
                 tls.setSSLParameters(p);
                 tls.startHandshake();
-                return exchange(tls, uri);
+                return request(tls, uri);
             } catch (IOException e) {
                 last = e;
+                try {
+                    plain.close();
+                } catch (IOException ignored) {
+                    // nothing to do
+                }
             }
         }
         throw last != null ? last : new IOException("no address to connect to");
     }
 
-    private static Response exchange(SSLSocket tls, URI uri) throws IOException {
+    private static Opened request(SSLSocket tls, URI uri) throws IOException {
         String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         if (uri.getRawQuery() != null) {
             path += "?" + uri.getRawQuery();
@@ -118,15 +146,14 @@ public final class HttpsFetcher {
         out.flush();
 
         InputStream in = tls.getInputStream();
-        String head = readHeader(in);
-        String[] lines = head.split("\r\n");
+        String[] lines = readHeader(in).split("\r\n");
         String[] status = lines[0].split(" ", 3);
         if (status.length < 2 || !status[0].startsWith("HTTP/")) {
             throw new IOException("bad HTTP response");
         }
-        Response r = new Response();
+        Opened o = new Opened();
         try {
-            r.status = Integer.parseInt(status[1]);
+            o.status = Integer.parseInt(status[1]);
         } catch (NumberFormatException e) {
             throw new IOException("bad HTTP status");
         }
@@ -148,14 +175,19 @@ public final class HttpsFetcher {
             } else if (name.equals("transfer-encoding") && value.toLowerCase(Locale.ROOT).contains("chunked")) {
                 chunked = true;
             } else if (name.equals("location")) {
-                r.location = value;
+                o.location = value;
+            } else if (name.equals("content-encoding") && !value.equalsIgnoreCase("identity")) {
+                throw new IOException("unsupported Content-Encoding: " + value);
             }
         }
-        if (r.status != 200) {
-            return r; // body not needed
-        }
-        r.body = chunked ? readChunked(in) : readBody(in, length);
-        return r;
+        InputStream body = chunked ? new ChunkedInputStream(in) : length >= 0 ? new LengthInputStream(in, length) : in;
+        o.body = new FilterInputStream(body) {
+            @Override
+            public void close() throws IOException {
+                tls.close(); // also closes the carried connection
+            }
+        };
+        return o;
     }
 
     /** Reads up to and including the blank line; returns the text before it. */
@@ -178,57 +210,81 @@ public final class HttpsFetcher {
         return new String(b.toByteArray(), 0, b.size() - 4, StandardCharsets.ISO_8859_1);
     }
 
-    private static byte[] readBody(InputStream in, long length) throws IOException {
-        if (length > MAX_BODY) {
-            throw new IOException("response too large");
+    /** A body with a Content-Length: ends after that many bytes and fails if the connection ends early. */
+    private static final class LengthInputStream extends InputStream {
+        private final InputStream in;
+        private long left;
+
+        LengthInputStream(InputStream in, long length) {
+            this.in = in;
+            this.left = length;
         }
-        ByteArrayOutputStream b = new ByteArrayOutputStream(length > 0 ? (int) length : 8192);
-        byte[] buf = new byte[8192];
-        while (length < 0 || b.size() < length) {
-            int want = length < 0 ? buf.length : (int) Math.min(buf.length, length - b.size());
-            int n = in.read(buf, 0, want);
+
+        @Override
+        public int read() throws IOException {
+            byte[] one = new byte[1];
+            int n = read(one, 0, 1);
+            return n < 0 ? -1 : one[0] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (left <= 0) {
+                return -1;
+            }
+            int n = in.read(b, off, (int) Math.min(len, left));
             if (n < 0) {
-                if (length >= 0) {
-                    throw new EOFException("connection closed before the full body");
-                }
-                break; // no length: the end of the connection is the end of the body
+                throw new EOFException("connection closed before the full body");
             }
-            b.write(buf, 0, n);
-            if (b.size() > MAX_BODY) {
-                throw new IOException("response too large");
-            }
+            left -= n;
+            return n;
         }
-        return b.toByteArray();
     }
 
-    private static byte[] readChunked(InputStream in) throws IOException {
-        ByteArrayOutputStream b = new ByteArrayOutputStream();
-        while (true) {
-            String line = readLine(in);
-            int semi = line.indexOf(';');
-            int size;
-            try {
-                size = Integer.parseInt((semi >= 0 ? line.substring(0, semi) : line).trim(), 16);
-            } catch (NumberFormatException e) {
-                throw new IOException("bad chunk size");
+    /** A chunked body: decodes the chunk framing and ends at the zero-length chunk (trailers are ignored). */
+    private static final class ChunkedInputStream extends InputStream {
+        private final InputStream in;
+        private long left; // bytes left in the current chunk
+        private boolean done;
+
+        ChunkedInputStream(InputStream in) {
+            this.in = in;
+        }
+
+        @Override
+        public int read() throws IOException {
+            byte[] one = new byte[1];
+            int n = read(one, 0, 1);
+            return n < 0 ? -1 : one[0] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (done) {
+                return -1;
             }
-            if (size == 0) {
-                return b.toByteArray(); // trailers are ignored
-            }
-            if (b.size() + size > MAX_BODY) {
-                throw new IOException("response too large");
-            }
-            byte[] chunk = new byte[size];
-            int got = 0;
-            while (got < size) {
-                int n = in.read(chunk, got, size - got);
-                if (n < 0) {
-                    throw new EOFException("connection closed inside a chunk");
+            if (left == 0) {
+                String line = readLine(in);
+                int semi = line.indexOf(';');
+                try {
+                    left = Long.parseLong((semi >= 0 ? line.substring(0, semi) : line).trim(), 16);
+                } catch (NumberFormatException e) {
+                    throw new IOException("bad chunk size");
                 }
-                got += n;
+                if (left == 0) {
+                    done = true;
+                    return -1;
+                }
             }
-            b.write(chunk, 0, size);
-            readLine(in); // the CRLF after the chunk
+            int n = in.read(b, off, (int) Math.min(len, left));
+            if (n < 0) {
+                throw new EOFException("connection closed inside a chunk");
+            }
+            left -= n;
+            if (left == 0) {
+                readLine(in); // the CRLF after the chunk
+            }
+            return n;
         }
     }
 
