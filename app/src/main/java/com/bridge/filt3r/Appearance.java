@@ -50,9 +50,8 @@ final class Appearance {
                 generated = new SchemeTonalSpot(seed, dark, 0.0);
             }
             Map<Integer, Integer> colors = MaterialColorUtilitiesHelper.createColorResourcesIdsToColorValues(generated);
+            // This also applies ThemeOverlay.Material3.PersonalizedColors, which reads the colours just set.
             ColorResourcesOverride.getInstance().applyIfPossible(activity, colors);
-            activity.getTheme().applyStyle(
-                    com.google.android.material.R.style.ThemeOverlay_Material3_DynamicColors_DayNight, true);
             activity.getTheme().applyStyle(R.style.ThemeOverlay_Filt3r_Generated, true);
         }
         if (dark && settings.pureBlack()) {
