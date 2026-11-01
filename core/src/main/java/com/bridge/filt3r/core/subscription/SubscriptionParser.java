@@ -13,7 +13,8 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 /**
  * Reads a subscription body into nodes. Accepted: (a) a JSON array of
  * {server, server_port, password, method, plugin, remarks} (Shadowmere), (b) base64 text of
- * newline-separated ss:// URLs, (c) plain ss:// lines. Entries we cannot use (plugins, other
+ * newline-separated ss:// URLs, (c) plain ss:// lines, (d) a Clash YAML file (its type: ss
+ * proxies). Entries we cannot use (plugins, other
  * ciphers, malformed) are skipped and counted, never fatal.
  */
 public final class SubscriptionParser {
@@ -37,6 +38,9 @@ public final class SubscriptionParser {
         String text = body.trim();
         if (text.startsWith("[")) {
             return fromJson(text);
+        }
+        if (ClashParser.looksLikeClash(text)) {
+            return ClashParser.parse(text);
         }
         if (!text.contains("ss://")) {
             text = decodeBase64Text(text);
