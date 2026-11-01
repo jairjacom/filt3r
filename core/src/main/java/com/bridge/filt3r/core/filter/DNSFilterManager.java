@@ -831,7 +831,8 @@ public class DNSFilterManager extends ConfigurationAccess  {
 							if (skippedWildcard != 0)
 								Logger.getLogger().logLine("WARNING! - " + skippedWildcard + " skipped entrie(s) for " + urlStr + "! Wildcards are only supported in additionalHosts.txt!");
 						}
-					} catch (IOException eio) {
+					} catch (IOException | RuntimeException ex) {
+						IOException eio = ex instanceof IOException ? (IOException) ex : new IOException(ex);
 						// One bad list must not cost the others: report it and go on.
 						String msg = "ERROR loading filter: " + urlStr;
 						Logger.getLogger().message(msg);
@@ -962,10 +963,10 @@ public class DNSFilterManager extends ConfigurationAccess  {
 			}
 		}
 
-		if (r!= -1)
-			pos = pos-1; //skip linefeed
-		if (buf[pos] == 13)
-			pos = pos-1; // skip carriage return
+		if (r != -1)
+			pos = pos - 1; // skip linefeed
+		if (pos > 0 && buf[pos - 1] == 13)
+			pos = pos - 1; // skip carriage return
 		return new int[]{wildcard, pos};
 	}
 
@@ -1588,8 +1589,10 @@ public class DNSFilterManager extends ConfigurationAccess  {
 			}
 
 			this.notifyAll();
-			if (hostFilter != null)
+			if (hostFilter != null) {
 				hostFilter.clear();
+				hostFilter = null; // a rule edit after Stop only changes the file; applyOverruleLive must not touch the cleared filter
+			}
 
 			DNSResponsePatcher.init(null, null);
 

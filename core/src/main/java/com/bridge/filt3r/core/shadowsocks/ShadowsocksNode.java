@@ -7,6 +7,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.regex.Pattern;
 
+import com.bridge.filt3r.core.util.Text;
+
 /** One Shadowsocks server, parsed from an {@code ss://} URL. Never log or print this object's fields. */
 public final class ShadowsocksNode {
 
@@ -48,7 +50,7 @@ public final class ShadowsocksNode {
         if (s.contains("?")) {
             throw new IllegalArgumentException("plugins are not supported");
         }
-        s = s.replaceAll("/+$", "");
+        s = Text.trimTrailing(s, '/');
 
         String userinfo;
         String hostPort;
@@ -140,7 +142,7 @@ public final class ShadowsocksNode {
 
     private static String decodeBase64(String text) {
         try {
-            String t = text.replace('-', '+').replace('_', '/').replaceAll("=+$", "");
+            String t = Text.trimTrailing(text.replace('-', '+').replace('_', '/'), '=');
             return new String(Base64.getDecoder().decode(t), StandardCharsets.UTF_8);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("bad base64");

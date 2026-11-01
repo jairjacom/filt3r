@@ -241,35 +241,49 @@ public class DNSResponsePatcher {
 	}
 
 
+	private static final int MAX_NAME_POINTER_JUMPS = 16;
+	private static final int MAX_NAME_LENGTH = 255;
+
+	/**
+	 * Reads a DNS name. A compression pointer must point backwards, there are at most
+	 * {@link #MAX_NAME_POINTER_JUMPS} of them, and the name is at most {@link #MAX_NAME_LENGTH} long;
+	 * anything else is an {@link IOException}. This keeps a hostile packet from looping forever.
+	 */
 	protected static String readDomainName(ByteBuffer buf, int offs) throws IOException {
 
 		byte[] substr = new byte[64];
 
 		int count = -1;
-		String dot = "";
-		String result = "";
+		StringBuilder result = new StringBuilder();
 		int ptrJumpPos = -1;
+		int jumps = 0;
 
 		while (count != 0) {
 			count = buf.get();
 			if (count != 0) {
 				if ((count & 0xc0) == 0) {
+					if (result.length() + 1 + count > MAX_NAME_LENGTH)
+						throw new IOException("DNS name too long");
 					buf.get(substr, 0, count);
-					result = result + dot + new String(substr, 0, count);
-					dot = ".";
+					if (result.length() > 0)
+						result.append('.');
+					result.append(new String(substr, 0, count));
 				} else {// pointer
-					buf.position(buf.position() - 1);
+					int pointerStart = buf.position() - 1;
+					buf.position(pointerStart);
 					int pointer = offs + (buf.getShort() & 0x3fff);
+					if (++jumps > MAX_NAME_POINTER_JUMPS || pointer >= pointerStart || pointer < 0)
+						throw new IOException("Bad DNS name pointer");
 					if (ptrJumpPos == -1)
 						ptrJumpPos = buf.position();
 					buf.position(pointer);
 				}
 			} else {
-				if (count == 0 && ptrJumpPos != -1)
+				if (ptrJumpPos != -1)
 					buf.position(ptrJumpPos);
 			}
 		}
-		return result;
+		return result.toString();
 	}
 
 	public static String getReadableStringFromBinary(byte[] b, int offs, int r) {

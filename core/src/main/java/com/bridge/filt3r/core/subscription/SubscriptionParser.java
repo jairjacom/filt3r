@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
+import com.bridge.filt3r.core.util.Text;
 
 /**
  * Reads a subscription body into nodes. Accepted: (a) a JSON array of
@@ -115,7 +116,7 @@ public final class SubscriptionParser {
 
     private static String decodeBase64Text(String text) {
         try {
-            String t = text.replaceAll("\\s+", "").replace('-', '+').replace('_', '/').replaceAll("=+$", "");
+            String t = Text.trimTrailing(text.replaceAll("\\s+", "").replace('-', '+').replace('_', '/'), '=');
             return new String(Base64.getDecoder().decode(t), StandardCharsets.UTF_8);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("not JSON, base64 or ss:// lines");
