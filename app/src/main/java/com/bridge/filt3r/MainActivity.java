@@ -19,14 +19,19 @@ import android.widget.FrameLayout;
 
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
+import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.ui.FloatingToolbar;
 import com.bridge.filt3r.ui.NodesPanel;
+import com.bridge.filt3r.ui.SettingsPanel;
 import com.bridge.filt3r.ui.StatusView;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class MainActivity extends Activity
-        implements TunnelState.Listener, StatusView.Actions, NodesPanel.Backend {
+        implements TunnelState.Listener, StatusView.Actions, NodesPanel.Backend, SettingsPanel.Backend {
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
@@ -66,7 +71,11 @@ public class MainActivity extends Activity
         frame.addView(toolbar, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM));
-        toolbar.addItem(R.drawable.ic_nodes, "Nodes", this::openNodes);
+        toolbar.addItem(R.drawable.ic_nodes, "Nodes",
+                () -> openPanel(() -> new NodesPanel(this, this, this::closePanel)));
+        toolbar.addItem(R.drawable.ic_settings, "Settings",
+                () -> openPanel(() -> new SettingsPanel(this, this, this::closePanel)));
+        toolbar.setAutoHide(!settings.toolbarPinned());
         frame.setOnApplyWindowInsetsListener((v, insets) -> {
             Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
@@ -156,11 +165,11 @@ public class MainActivity extends Activity
         startForegroundService(new Intent(this, Filt3rVpnService.class));
     }
 
-    private void openNodes() {
+    private void openPanel(Supplier<View> factory) {
         if (panel != null) {
             return;
         }
-        panel = new NodesPanel(this, this, this::closePanel);
+        panel = factory.get();
         frame.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -204,5 +213,128 @@ public class MainActivity extends Activity
     @Override
     public void setSortBySpeed(boolean bySpeed) {
         settings.setNodeSortBySpeed(bySpeed);
+    }
+
+    // ---- SettingsPanel.Backend ----
+
+    @Override
+    public boolean running() {
+        TunnelState.State s = TunnelState.get();
+        return s == TunnelState.State.RUNNING || s == TunnelState.State.STARTING;
+    }
+
+    @Override
+    public int subscriptionSlots() {
+        return Settings.MAX_SUBSCRIPTIONS;
+    }
+
+    @Override
+    public String subscriptionUrl(int slot) {
+        for (Settings.Subscription s : settings.subscriptions()) {
+            if (s.slot == slot) {
+                return s.url;
+            }
+        }
+        return "";
+    }
+
+    @Override
+    public int subscriptionHours(int slot) {
+        for (Settings.Subscription s : settings.subscriptions()) {
+            if (s.slot == slot) {
+                return s.intervalHours;
+            }
+        }
+        return Settings.DEFAULT_INTERVAL_HOURS;
+    }
+
+    @Override
+    public void setSubscription(int slot, String url, int hours) {
+        settings.setSubscription(slot, url, hours);
+    }
+
+    @Override
+    public boolean failClosed() {
+        return settings.failureMode() == FailureMode.FAIL_CLOSED;
+    }
+
+    @Override
+    public void setFailClosed(boolean closed) {
+        settings.setFailureMode(closed ? FailureMode.FAIL_CLOSED : FailureMode.FAIL_OPEN);
+    }
+
+    @Override
+    public String resolverName() {
+        return settings.resolverName();
+    }
+
+    @Override
+    public List<SettingsPanel.Resolver> resolvers() {
+        List<SettingsPanel.Resolver> out = new ArrayList<>();
+        out.add(new SettingsPanel.Resolver(Settings.DEFAULT_RESOLVER_NAME, Settings.DEFAULT_RESOLVER_STAMP, -1));
+        for (ResolverStore.Info r : new ResolverStore(getFilesDir()).load()) {
+            out.add(new SettingsPanel.Resolver(r.name, r.stamp, r.millis));
+        }
+        return out;
+    }
+
+    @Override
+    public void setResolver(String name, String stamp) {
+        settings.setResolver(name, stamp);
+    }
+
+    @Override
+    public String checkResolver(String stamp) throws IOException {
+        return Filt3rVpnService.checkResolver(stamp);
+    }
+
+    @Override
+    public String filterListUrl() {
+        return settings.filterListUrl();
+    }
+
+    @Override
+    public String setFilterListUrl(String text) {
+        try {
+            settings.setFilterListUrl(Settings.normalizeFilterUrls(text));
+            return null;
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+    }
+
+    @Override
+    public boolean queryLogEnabled() {
+        return settings.queryLogEnabled();
+    }
+
+    @Override
+    public void setQueryLogEnabled(boolean on) {
+        settings.setQueryLogEnabled(on);
+    }
+
+    @Override
+    public void clearQueryLog() {
+        QueryLogs.get(this).clear();
+    }
+
+    @Override
+    public boolean toolbarPinned() {
+        return settings.toolbarPinned();
+    }
+
+    @Override
+    public void setToolbarPinned(boolean pinned) {
+        settings.setToolbarPinned(pinned);
+        toolbar.setAutoHide(!pinned);
+    }
+
+    @Override
+    public String version() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return "";
+        }
     }
 }
