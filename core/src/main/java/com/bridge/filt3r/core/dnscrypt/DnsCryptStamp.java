@@ -1,10 +1,10 @@
 package com.bridge.filt3r.core.dnscrypt;
 
 import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.regex.Pattern;
+
+import com.bridge.filt3r.core.util.IpLiteral;
 
 /**
  * A DNSCrypt resolver from an {@code sdns://} stamp: address, provider public key (Ed25519) and
@@ -12,7 +12,6 @@ import java.util.regex.Pattern;
  */
 public final class DnsCryptStamp {
 
-    private static final Pattern IPV4 = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
     private static final int PROTOCOL_DNSCRYPT = 0x01;
 
     public final InetAddress address;
@@ -87,15 +86,11 @@ public final class DnsCryptStamp {
             host = addr.substring(0, addr.indexOf(':'));
             port = port(addr.substring(addr.indexOf(':')));
         }
-        boolean v6 = host.indexOf(':') >= 0;
-        if (!v6 && !IPV4.matcher(host).matches()) {
+        InetAddress ip = IpLiteral.parse(host); // never a lookup, even for text that is almost an address
+        if (ip == null) {
             throw new IllegalArgumentException("stamp address must be an IP, not a name");
         }
-        try {
-            return new DnsCryptStamp(InetAddress.getByName(host), port, key, provider, props); // literal: no lookup
-        } catch (UnknownHostException e) {
-            throw new IllegalArgumentException("bad address");
-        }
+        return new DnsCryptStamp(ip, port, key, provider, props);
     }
 
     /** @param colonPort for example ":443" */

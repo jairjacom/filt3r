@@ -57,4 +57,9 @@ import java.util.Map;
 	 public synchronized int size() {
 		 return super.size();
 	 }
+
+	 @Override
+	 public synchronized V remove(Object key) {
+		 return super.remove(key);
+	 }
  }

@@ -49,7 +49,6 @@ import java.util.Vector;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 
@@ -660,47 +659,6 @@ public class DNSFilterManager extends ConfigurationAccess  {
 		}
 	}
 
-	private void restoreZipEntry (ZipEntry entry, ZipInputStream in) throws IOException {
-		Logger.getLogger().logLine("Restoring: "+entry.getName());
-		FileOutputStream out = new FileOutputStream(getPath()+entry.getName());
-		Utils.copyFully(in, out, false);
-		out.flush();
-		out.close();
-	}
-
-	@Override
-	public void doRestore(InputStream in) throws IOException {
-		try {
-			if (!canStop())
-				throw new IOException("Cannot stop! Pending operation!");
-			stop();
-			invalidate();
-			ZipInputStream zip = new ZipInputStream(in);
-			ZipEntry entry = zip.getNextEntry();
-			try {
-				while (entry != null) {
-					restoreZipEntry(entry, zip);
-					entry = zip.getNextEntry();
-				}
-				zip.close();
-			} catch (Exception e) {
-				Logger.getLogger().logException(e);
-				throw e;
-			}
-			getConfigMergedIfNeeded();
-
-			//cleanup hostsfile and index in order to force reload
-			String filterHostFile = null;
-			if (config != null && ((filterHostFile = config.getProperty("filterHostsFile")) != null)) {
-				new File(getPath() + filterHostFile).delete();
-			}
-			init();
-			ExecutionEnvironment.getEnvironment().onReload();
-		} catch (IOException e) {
-			throw new ConfigurationAccessException(e.getMessage(), e);
-		}
-	}
-
 	@Override
 	public void wakeLock()  {
 		ExecutionEnvironment.getEnvironment().wakeLock();
@@ -775,7 +733,7 @@ public class DNSFilterManager extends ConfigurationAccess  {
 					InputStream in = null;
 					try {
 						if (!urlStr.equals("")) {
-							Logger.getLogger().message("Connecting: " + urlStr);
+							Logger.getLogger().message("Connecting: " + hostOf(urlStr));
 
 							if (!urlStr.startsWith("file://")) {
 								// Lists are only fetched through the opener (the app sends them through the
@@ -829,12 +787,12 @@ public class DNSFilterManager extends ConfigurationAccess  {
 							}
 							FilterStatus.listRead(hostOf(urlStr), count - listStart);
 							if (skippedWildcard != 0)
-								Logger.getLogger().logLine("WARNING! - " + skippedWildcard + " skipped entrie(s) for " + urlStr + "! Wildcards are only supported in additionalHosts.txt!");
+								Logger.getLogger().logLine("WARNING! - " + skippedWildcard + " skipped entrie(s) for " + hostOf(urlStr) + "! Wildcards are only supported in additionalHosts.txt!");
 						}
 					} catch (IOException | RuntimeException ex) {
 						IOException eio = ex instanceof IOException ? (IOException) ex : new IOException(ex);
 						// One bad list must not cost the others: report it and go on.
-						String msg = "ERROR loading filter: " + urlStr;
+						String msg = "ERROR loading filter: " + hostOf(urlStr);
 						Logger.getLogger().message(msg);
 						Logger.getLogger().logLine(msg);
 						if (in != null) {

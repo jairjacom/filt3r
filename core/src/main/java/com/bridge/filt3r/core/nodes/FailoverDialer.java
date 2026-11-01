@@ -7,6 +7,7 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksDialer;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.Dialer;
 import com.bridge.filt3r.core.socks.Link;
+import com.bridge.filt3r.core.socks.NoNodeException;
 
 /** Dials through the manager's current node. A failed connection to the node counts against it. */
 public final class FailoverDialer implements Dialer {
@@ -25,7 +26,7 @@ public final class FailoverDialer implements Dialer {
     public Link dial(InetAddress address, int port, int timeoutMs) throws IOException {
         ShadowsocksNode node = manager.current();
         if (node == null) {
-            throw new IOException("no working node");
+            throw new NoNodeException();
         }
         try {
             return dialerFor(node).dial(address, port, timeoutMs);

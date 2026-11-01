@@ -19,6 +19,7 @@
         android:label="filt3r"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:theme="@style/Theme.Filt3r">
 
         <activity

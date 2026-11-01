@@ -114,7 +114,11 @@ public class DNSResponsePatcher {
 				short type = buf.getShort(); // type
 				short clss = buf.getShort(); // class
 				buf.getInt(); // TTL
-				int len = buf.getShort(); // len
+				int len = buf.getShort() & 0xFFFF; // len (unsigned)
+				if (len > buf.remaining())
+					throw new IOException("DNS record is longer than the message");
+				if ((type == 1 && len != 4) || (type == 28 && len != 16))
+					throw new IOException("DNS address record has a bad length");
 
 				boolean filtered = false;
 

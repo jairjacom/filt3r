@@ -32,8 +32,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.text.SimpleDateFormat;
@@ -252,25 +250,6 @@ public class Utils {
 			bytesOut.write(buf, 0, r);
 		return bytesOut.toByteArray();
 
-	}
-
-	public static byte[] serializeObject(Object obj) throws IOException {
-		ByteArrayOutputStream objOut = new ByteArrayOutputStream();
-		ObjectOutputStream dataOut = new ObjectOutputStream(objOut);
-		dataOut.writeObject(obj);
-		dataOut.flush();
-		dataOut.close();
-		return objOut.toByteArray();
-	}
-
-	public static Object deserializeObject(byte[] bytes) throws IOException {
-		ByteArrayInputStream bytesIn = new ByteArrayInputStream(bytes);
-		ObjectInputStream objIn = new ObjectInputStream (bytesIn);
-		try {
-			return objIn.readObject();
-		} catch (ClassNotFoundException e) {
-			throw new IOException(e);
-		}
 	}
 
 	public static String getServerTime() {

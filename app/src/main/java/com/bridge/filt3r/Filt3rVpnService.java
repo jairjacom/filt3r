@@ -764,9 +764,12 @@ public class Filt3rVpnService extends VpnService {
                 .setContentTitle("filt3r is running")
                 .setContentIntent(open)
                 .setOngoing(true)
+                .setVisibility(Notification.VISIBILITY_PRIVATE)
                 .addAction(new Notification.Action.Builder(
                         Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-                        "Stop", stop).build())
+                        "Stop", stop)
+                        .setAuthenticationRequired(true) // not usable from the lock screen
+                        .build())
                 .build();
     }
 

@@ -121,7 +121,7 @@ final class Settings {
     }
 
     boolean queryLogEnabled() {
-        return prefs.getBoolean(KEY_QUERY_LOG, true);
+        return prefs.getBoolean(KEY_QUERY_LOG, false); // off until the user turns it on: queried names are not recorded by default
     }
 
     void setQueryLogEnabled(boolean on) {

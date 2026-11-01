@@ -222,6 +222,12 @@ public class NodesPanel extends LinearLayout {
 
     private void reload() {
         List<NodeInfo> all = new ArrayList<>(backend.nodes());
+        if (all.isEmpty() && busy) {
+            // The tunnel stopped while a re-test was queued: its callback will never run.
+            busy = false;
+            retestButton.setEnabled(true);
+            retestButton.setAlpha(1f);
+        }
         NodeInfo current = null;
         for (NodeInfo n : all) {
             if (n.current) {

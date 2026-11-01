@@ -88,8 +88,6 @@ public abstract class ConfigurationAccess {
 
     abstract public void doRestoreDefaults() throws IOException;
 
-    abstract public void doRestore(InputStream in) throws IOException;
-
     abstract public void wakeLock() throws IOException;
 
     abstract public void releaseWakeLock() throws IOException;

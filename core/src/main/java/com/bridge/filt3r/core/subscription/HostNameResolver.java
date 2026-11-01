@@ -7,6 +7,7 @@ import java.util.List;
 
 import com.bridge.filt3r.core.dns.NameResolver;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
+import com.bridge.filt3r.core.util.IpLiteral;
 
 /** Replaces node host names with an IPv4 address (nodes are dialled by IP). Nodes that do not resolve are dropped. */
 public final class HostNameResolver {
@@ -17,7 +18,7 @@ public final class HostNameResolver {
     public static List<ShadowsocksNode> resolve(List<ShadowsocksNode> nodes, NameResolver resolver) {
         List<ShadowsocksNode> out = new ArrayList<>(nodes.size());
         for (ShadowsocksNode n : nodes) {
-            if (n.host.matches("\\d{1,3}(\\.\\d{1,3}){3}") || n.host.contains(":")) {
+            if (IpLiteral.parse(n.host) != null) {
                 out.add(n);
                 continue;
             }
