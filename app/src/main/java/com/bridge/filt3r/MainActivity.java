@@ -36,6 +36,7 @@ public class MainActivity extends Activity
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
+    private static final String KEY_SETTINGS_OPEN = "settings_open";
     private static final long STATS_INTERVAL_MS = 1000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -66,6 +67,7 @@ public class MainActivity extends Activity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         settings = new Settings(this);
+        Appearance.apply(this, settings);
         frame = new FrameLayout(this);
         status = new StatusView(this, this);
         frame.addView(status, new FrameLayout.LayoutParams(
@@ -85,8 +87,17 @@ public class MainActivity extends Activity
             return WindowInsets.CONSUMED;
         });
         setContentView(frame);
+        if (savedInstanceState != null && savedInstanceState.getBoolean(KEY_SETTINGS_OPEN)) {
+            openPanel(() -> new SettingsPanel(this, this, this::closePanel));
+        }
 
         requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putBoolean(KEY_SETTINGS_OPEN, panel instanceof SettingsPanel);
     }
 
     @Override
@@ -373,5 +384,52 @@ public class MainActivity extends Activity
     @Override
     public int sourceCount() {
         return NodeStore.sourceCount();
+    }
+
+    // ---- Appearance (SettingsPanel.Backend). Colour changes restart the activity; the panel reopens. ----
+
+    @Override
+    public int themeMode() {
+        return settings.themeMode();
+    }
+
+    @Override
+    public void setThemeMode(int mode) {
+        settings.setThemeMode(mode);
+        // The system restarts the activity itself when the night mode really changes.
+        getSystemService(android.app.UiModeManager.class).setApplicationNightMode(mode);
+    }
+
+    @Override
+    public boolean pureBlack() {
+        return settings.pureBlack();
+    }
+
+    @Override
+    public void setPureBlack(boolean on) {
+        settings.setPureBlack(on);
+        recreate();
+    }
+
+    @Override
+    public String colorScheme() {
+        return settings.colorScheme();
+    }
+
+    @Override
+    public void setColorScheme(String scheme) {
+        settings.setColorScheme(scheme);
+        recreate();
+    }
+
+    @Override
+    public int seedColor() {
+        return settings.seedColor();
+    }
+
+    @Override
+    public void setSeedColor(int argb) {
+        settings.setSeedColor(argb);
+        recreate();
     }
 }

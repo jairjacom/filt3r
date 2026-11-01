@@ -12,10 +12,15 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 
 import com.bridge.filt3r.R;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.color.DynamicColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
@@ -98,6 +103,25 @@ public class SettingsPanel extends LinearLayout {
         void setToolbarPinned(boolean pinned);
 
         String version();
+
+        /** 0 follow the system, 1 light, 2 dark. Applies at once. */
+        int themeMode();
+
+        void setThemeMode(int mode);
+
+        boolean pureBlack();
+
+        void setPureBlack(boolean on);
+
+        /** "default", "standard", "vibrant", "expressive" or "dynamic" (Material You). */
+        String colorScheme();
+
+        void setColorScheme(String scheme);
+
+        /** The colour the generated palette starts from, opaque ARGB. */
+        int seedColor();
+
+        void setSeedColor(int argb);
     }
 
     private static final int[] INTERVAL_HOURS = {1, 3, 6, 12, 24, 48, 168};
@@ -308,11 +332,116 @@ public class SettingsPanel extends LinearLayout {
         card.addView(clear, clearParams);
     }
 
+    private static final String[] SCHEME_KEYS = {"default", "standard", "vibrant", "expressive", "dynamic"};
+    private static final String[] SCHEME_LABELS = {"filt3r default", "Standard", "Vibrant",
+        "Expressive (accents shifted)", "Use Material You"};
+
     private void buildAppearance(Context context) {
         LinearLayout card = group("Appearance");
+
+        // Theme mode: follow the system, light or dark. Applies at once (the system restarts the screen).
+        TextView modeLabel = new TextView(context);
+        modeLabel.setText("Theme");
+        modeLabel.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+        modeLabel.setPadding(dp(20), dp(12), dp(20), dp(4));
+        card.addView(modeLabel);
+        MaterialButtonToggleGroup modes = new MaterialButtonToggleGroup(context);
+        modes.setSingleSelection(true);
+        modes.setSelectionRequired(true);
+        String[] modeNames = {"System", "Light", "Dark"};
+        int[] modeIds = new int[3];
+        for (int i = 0; i < 3; i++) {
+            MaterialButton b = new MaterialButton(context, null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            b.setText(modeNames[i]);
+            b.setId(View.generateViewId());
+            b.setCheckable(true);
+            modeIds[i] = b.getId();
+            modes.addView(b);
+        }
+        modes.check(modeIds[Math.max(0, Math.min(2, backend.themeMode()))]);
+        modes.addOnButtonCheckedListener((group, id, checked) -> {
+            if (checked) {
+                for (int i = 0; i < 3; i++) {
+                    if (modeIds[i] == id && i != backend.themeMode()) {
+                        backend.setThemeMode(i);
+                    }
+                }
+            }
+        });
+        LayoutParams modeParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        modeParams.setMargins(dp(16), 0, dp(16), dp(8));
+        card.addView(modes, modeParams);
+
+        card.addView(switchRow(context, "Pure black",
+                "A black background in the dark theme.", backend.pureBlack(), backend::setPureBlack));
+
+        Row scheme = valueRow(context, "Colour scheme", schemeLabel(backend.colorScheme()));
+        scheme.setOnClickListener(v -> chooseScheme());
+        card.addView(scheme);
+        if ("expressive".equals(backend.colorScheme())) {
+            card.addView(note(context, "Expressive keeps your colour in the background and shifts the buttons and"
+                    + " accents to other hues. Use Standard or Vibrant to colour the buttons with your choice."));
+        }
+
+        boolean dynamic = "dynamic".equals(backend.colorScheme());
+        Row colour = valueRow(context, "Select colour", "");
+        colour.setSummary(swatchText(backend.seedColor()));
+        if (dynamic) {
+            colour.setAlpha(0.4f); // the wallpaper picks the colours
+            colour.setClickable(false);
+        } else {
+            colour.setOnClickListener(v -> ColorPicker.show(context, backend.seedColor(), picked -> {
+                backend.setSeedColor(picked);
+                if ("default".equals(backend.colorScheme())) {
+                    backend.setColorScheme("standard"); // a chosen colour means a generated palette
+                }
+            }));
+        }
+        card.addView(colour);
+
         card.addView(switchRow(context, "Pin the toolbar",
                 "Keep the bottom toolbar visible instead of hiding it when idle.",
                 backend.toolbarPinned(), backend::setToolbarPinned));
+    }
+
+    private static String schemeLabel(String key) {
+        for (int i = 0; i < SCHEME_KEYS.length; i++) {
+            if (SCHEME_KEYS[i].equals(key)) {
+                return SCHEME_LABELS[i];
+            }
+        }
+        return SCHEME_LABELS[0];
+    }
+
+    /** "● Name" with the dot in the colour itself. */
+    private static CharSequence swatchText(int color) {
+        SpannableString s = new SpannableString("●  " + ColorPicker.nameOf(color));
+        s.setSpan(new ForegroundColorSpan(color | 0xFF000000), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return s;
+    }
+
+    private void chooseScheme() {
+        boolean dynamicOk = DynamicColors.isDynamicColorAvailable();
+        List<String> keys = new ArrayList<>();
+        List<CharSequence> labels = new ArrayList<>();
+        for (int i = 0; i < SCHEME_KEYS.length; i++) {
+            if (dynamicOk || !"dynamic".equals(SCHEME_KEYS[i])) {
+                keys.add(SCHEME_KEYS[i]);
+                labels.add(SCHEME_LABELS[i]);
+            }
+        }
+        new MaterialAlertDialogBuilder(getContext())
+                .setTitle("Colour scheme")
+                .setSingleChoiceItems(labels.toArray(new CharSequence[0]), keys.indexOf(backend.colorScheme()),
+                        (d, which) -> {
+                            d.dismiss();
+                            if (!keys.get(which).equals(backend.colorScheme())) {
+                                backend.setColorScheme(keys.get(which));
+                            }
+                        })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void buildAbout(Context context) {
@@ -546,7 +675,7 @@ public class SettingsPanel extends LinearLayout {
             setBackgroundResource(tv.resourceId);
         }
 
-        void setSummary(String value) {
+        void setSummary(CharSequence value) {
             summary.setText(value);
         }
     }
