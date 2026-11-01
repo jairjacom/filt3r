@@ -21,6 +21,7 @@ import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
+import com.bridge.filt3r.ui.ExemptAppsPanel;
 import com.bridge.filt3r.ui.FloatingToolbar;
 import com.bridge.filt3r.ui.NodesPanel;
 import com.bridge.filt3r.ui.QueryLogPanel;
@@ -30,11 +31,12 @@ import com.bridge.filt3r.ui.StatusView;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 
 public class MainActivity extends Activity
         implements TunnelState.Listener, StatusView.Actions, NodesPanel.Backend, SettingsPanel.Backend,
-        QueryLogPanel.Backend {
+        QueryLogPanel.Backend, ExemptAppsPanel.Backend {
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
@@ -80,6 +82,8 @@ public class MainActivity extends Activity
                 Gravity.BOTTOM));
         toolbar.addItem(R.drawable.ic_nodes, "Nodes",
                 () -> openPanel(() -> new NodesPanel(this, this, this::closePanel)));
+        toolbar.addItem(R.drawable.ic_apps, "Exempt apps",
+                () -> openPanel(() -> new ExemptAppsPanel(this, this, this::closePanel)));
         toolbar.addItem(R.drawable.ic_log, "Query log",
                 () -> openPanel(() -> new QueryLogPanel(this, this, this::closePanel)));
         toolbar.addItem(R.drawable.ic_settings, "Settings",
@@ -353,6 +357,16 @@ public class MainActivity extends Activity
     @Override
     public void clearQueryLog() {
         QueryLogs.get(this).clear();
+    }
+
+    @Override
+    public Set<String> exemptApps() {
+        return settings.exemptApps();
+    }
+
+    @Override
+    public void setExemptApps(Set<String> packages) {
+        settings.setExemptApps(packages);
     }
 
     @Override
