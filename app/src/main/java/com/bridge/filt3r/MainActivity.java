@@ -23,6 +23,7 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.ui.FloatingToolbar;
 import com.bridge.filt3r.ui.NodesPanel;
+import com.bridge.filt3r.ui.QueryLogPanel;
 import com.bridge.filt3r.ui.SettingsPanel;
 import com.bridge.filt3r.ui.StatusView;
 
@@ -32,7 +33,8 @@ import java.util.List;
 import java.util.function.Supplier;
 
 public class MainActivity extends Activity
-        implements TunnelState.Listener, StatusView.Actions, NodesPanel.Backend, SettingsPanel.Backend {
+        implements TunnelState.Listener, StatusView.Actions, NodesPanel.Backend, SettingsPanel.Backend,
+        QueryLogPanel.Backend {
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
@@ -78,6 +80,8 @@ public class MainActivity extends Activity
                 Gravity.BOTTOM));
         toolbar.addItem(R.drawable.ic_nodes, "Nodes",
                 () -> openPanel(() -> new NodesPanel(this, this, this::closePanel)));
+        toolbar.addItem(R.drawable.ic_log, "Query log",
+                () -> openPanel(() -> new QueryLogPanel(this, this, this::closePanel)));
         toolbar.addItem(R.drawable.ic_settings, "Settings",
                 () -> openPanel(() -> new SettingsPanel(this, this, this::closePanel)));
         toolbar.setAutoHide(!settings.toolbarPinned());
@@ -339,6 +343,11 @@ public class MainActivity extends Activity
     @Override
     public void setQueryLogEnabled(boolean on) {
         settings.setQueryLogEnabled(on);
+    }
+
+    @Override
+    public List<String> queryLines() {
+        return QueryLogs.get(this).lines();
     }
 
     @Override
