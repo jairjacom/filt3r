@@ -51,7 +51,7 @@ public class SettingsPanel extends LinearLayout {
     }
 
     /** What the panel needs from the app; implemented by the activity next to Settings. */
-    public interface Backend {
+    public interface Backend extends OverridesDialog.Backend {
         /** True while the tunnel is up or starting. */
         boolean running();
 
@@ -239,6 +239,11 @@ public class SettingsPanel extends LinearLayout {
         Row resolverRow = valueRow(context, "DNSCrypt resolver", backend.resolverName());
         resolverRow.setOnClickListener(v -> chooseResolver(resolverRow));
         card.addView(resolverRow);
+
+        Row rules = valueRow(context, "My rules", OverridesDialog.summary(backend));
+        rules.setOnClickListener(v -> OverridesDialog.show(context, backend,
+                () -> rules.setSummary(OverridesDialog.summary(backend))));
+        card.addView(rules);
 
         TextInputLayout custom = textField(context, "Custom sdns:// stamp", "");
         custom.getEditText().setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);

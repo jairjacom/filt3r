@@ -119,6 +119,17 @@ public class DNSFilterManager extends ConfigurationAccess  {
 		return INSTANCE;
 	}
 
+	/** Applies one user rule to the running filter at once. Before the index is loaded there is nothing to change: it reads additionalHosts.txt when it loads. */
+	static void applyOverruleLive(String host, boolean filter, boolean add) {
+		BlockedHosts current = hostFilter;
+		if (current == null)
+			return;
+		if (add)
+			current.addOverrule(host, filter);
+		else
+			current.removeOverrule(host, filter);
+	}
+
 	private DNSFilterManager() {
 		// read Configs etc
 	}

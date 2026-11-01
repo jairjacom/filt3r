@@ -15,8 +15,10 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.bridge.filt3r.R;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.color.MaterialColors;
@@ -24,6 +26,7 @@ import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -36,7 +39,7 @@ import java.util.Locale;
 public class QueryLogPanel extends LinearLayout {
 
     /** What the panel needs from the app; implemented by the activity. */
-    public interface Backend {
+    public interface Backend extends OverridesDialog.Backend {
         /** The kept lines, oldest first: "MM-dd HH:mm:ss ALLOWED|BLOCKED name". */
         List<String> queryLines();
 
@@ -183,6 +186,7 @@ public class QueryLogPanel extends LinearLayout {
         list.setAdapter(adapter);
         list.setClipToPadding(false);
         list.setPadding(0, 0, 0, dp(24));
+        list.setOnItemClickListener((p, v, pos, id) -> showRuleSheet(adapter.getItem(pos)));
         addView(list, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
         reload();
     }
@@ -260,6 +264,75 @@ public class QueryLogPanel extends LinearLayout {
                 com.google.android.material.R.attr.colorOnSurface)));
         b.setLayoutParams(new LayoutParams(dp(48), dp(48)));
         return b;
+    }
+
+    /** Bottom sheet for one query: allow a blocked name, block an allowed one, or drop the user's rule. */
+    private void showRuleSheet(Entry e) {
+        Context context = getContext();
+        Boolean rule;
+        try {
+            rule = backend.ruleFor(e.host);
+        } catch (IOException ex) {
+            Toast.makeText(context, "Could not read your rules", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        BottomSheetDialog sheet = new BottomSheetDialog(context);
+        LinearLayout content = new LinearLayout(context);
+        content.setOrientation(VERTICAL);
+        content.setPadding(dp(24), dp(20), dp(24), dp(24));
+
+        TextView name = new TextView(context);
+        name.setText(e.host);
+        name.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
+        TextView state = new TextView(context);
+        state.setText(rule == null ? (e.blocked ? "Blocked by the filter lists" : "Allowed")
+                : rule ? "You allowed this domain" : "You blocked this domain");
+        state.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        state.setAlpha(0.7f);
+        content.addView(name);
+        content.addView(state);
+
+        MaterialButton action = new MaterialButton(context);
+        if (rule == null) {
+            boolean allow = e.blocked;
+            action.setText(allow ? "Allow this domain" : "Block this domain");
+            action.setOnClickListener(v -> applyRule(sheet, () -> backend.setRule(e.host, allow),
+                    (allow ? "Allowed " : "Blocked ") + e.host));
+        } else {
+            action.setText("Remove my rule");
+            action.setOnClickListener(v -> applyRule(sheet, () -> {
+                backend.removeRule(e.host);
+                return e.host;
+            }, "Rule removed for " + e.host));
+        }
+        LayoutParams actionParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        actionParams.topMargin = dp(16);
+        content.addView(action, actionParams);
+
+        TextView note = new TextView(context);
+        note.setText("A rule covers this domain and its sub domains and applies at once."
+                + " Manage all rules in Settings > DNS and filtering > My rules.");
+        note.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        note.setAlpha(0.7f);
+        note.setPadding(0, dp(12), 0, 0);
+        content.addView(note);
+
+        sheet.setContentView(content);
+        sheet.show();
+    }
+
+    private interface RuleAction {
+        String run() throws IOException;
+    }
+
+    private void applyRule(BottomSheetDialog sheet, RuleAction action, String done) {
+        try {
+            action.run();
+            Toast.makeText(getContext(), done, Toast.LENGTH_SHORT).show();
+            sheet.dismiss();
+        } catch (IOException | IllegalArgumentException ex) {
+            Toast.makeText(getContext(), "Could not save the rule", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private int dp(int v) {
