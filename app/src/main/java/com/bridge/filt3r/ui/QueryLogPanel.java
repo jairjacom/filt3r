@@ -108,6 +108,9 @@ public class QueryLogPanel extends LinearLayout {
         });
         bar.addView(back);
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
+        ImageButton rules = iconButton(context, R.drawable.ic_rules, "My rules");
+        rules.setOnClickListener(v -> OverridesDialog.show(context, backend, () -> { }));
+        bar.addView(rules);
         bar.addView(clear);
         addView(bar);
 
@@ -311,7 +314,7 @@ public class QueryLogPanel extends LinearLayout {
 
         TextView note = new TextView(context);
         note.setText("A rule covers this domain and its sub domains and applies at once."
-                + " Manage all rules in Settings > DNS and filtering > My rules.");
+                + " Manage all rules with the rules icon at the top.");
         note.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
         note.setAlpha(0.7f);
         note.setPadding(0, dp(12), 0, 0);
