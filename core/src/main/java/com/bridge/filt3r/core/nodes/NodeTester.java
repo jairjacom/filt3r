@@ -147,4 +147,27 @@ public final class NodeTester implements NodeProbe {
             }
         }
     }
+
+    /**
+     * Probes the nodes for IPv6 egress in parallel and records each result. A node that cannot
+     * be probed counts as having no IPv6 (the safe side). Blocks until done or timed out.
+     */
+    public void ipv6AndRecord(NodeManager manager, List<ShadowsocksNode> nodes, int threads) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+        ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(threads, nodes.size())));
+        for (ShadowsocksNode n : nodes) {
+            pool.execute(() -> manager.setIpv6(n, hasIpv6(n)));
+        }
+        pool.shutdown();
+        try {
+            if (!pool.awaitTermination(ROUND_TIMEOUT_S, TimeUnit.SECONDS)) {
+                pool.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            pool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
 }

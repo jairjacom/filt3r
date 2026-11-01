@@ -366,6 +366,8 @@ public class Filt3rVpnService extends VpnService {
                 try {
                     r.testRound(ROUND_TOP, START_ROUND_NODES);
                     r.speedRound(ROUND_TOP);
+                    r.ipv6Round();
+                    s.applyIpv6();
                     s.probeIpv6();
                 } finally {
                     r.retesting.set(false);
@@ -503,6 +505,18 @@ public class Filt3rVpnService extends VpnService {
         void testRound(int top, int random) {
             tester.testAndRecord(manager, manager.pickForTest(top, random, RANDOM), TEST_THREADS);
             Log.i(TAG, "node round: " + manager.summary());
+        }
+
+        /** Probes every working node for IPv6 egress, so the Node list can show it on every row. */
+        void ipv6Round() {
+            List<ShadowsocksNode> working = new ArrayList<>();
+            for (NodeInfo n : manager.snapshot()) {
+                if (n.state == NodeInfo.State.WORKING) {
+                    working.add(n.node);
+                }
+            }
+            tester.ipv6AndRecord(manager, working, TEST_THREADS);
+            Log.i(TAG, "ipv6 round: " + working.size() + " nodes");
         }
 
         /** Speed-tests the best-ranked working nodes, one at a time. */
