@@ -72,6 +72,9 @@ public final class DnsWire {
                 int rtype = u16(m, pos);
                 int rdlen = u16(m, pos + 8);
                 pos += 10;
+                if (rdlen > m.length - pos) {
+                    throw new IOException("malformed DNS response"); // copyOfRange would pad with zeros
+                }
                 if (rtype == type) {
                     out.add(Arrays.copyOfRange(m, pos, pos + rdlen));
                 }
@@ -87,9 +90,15 @@ public final class DnsWire {
     public static List<InetAddress> addresses(byte[] m) throws IOException {
         List<InetAddress> out = new ArrayList<>();
         for (byte[] a : answers(m, TYPE_A)) {
+            if (a.length != 4) {
+                throw new IOException("malformed DNS response");
+            }
             out.add(InetAddress.getByAddress(a));
         }
         for (byte[] a : answers(m, TYPE_AAAA)) {
+            if (a.length != 16) {
+                throw new IOException("malformed DNS response");
+            }
             out.add(InetAddress.getByAddress(a));
         }
         return out;

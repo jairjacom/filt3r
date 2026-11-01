@@ -3,6 +3,7 @@ package com.bridge.filt3r;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Insets;
 import android.net.VpnService;
 import android.os.Bundle;
@@ -47,7 +48,6 @@ public class MainActivity extends Activity
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
-    private static final String KEY_SETTINGS_OPEN = "settings_open";
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
     private static final long SLIDE_MS = 200;
@@ -138,12 +138,17 @@ public class MainActivity extends Activity
         if (savedInstanceState != null) {
             if (docked) {
                 showSection(savedInstanceState.getInt(KEY_SECTION), 0);
-            } else if (savedInstanceState.getBoolean(KEY_SETTINGS_OPEN)) {
-                openPanel(() -> new SettingsPanel(this, this, this::closePanel));
+            } else if (savedInstanceState.getInt(KEY_SECTION) > 0) {
+                int index = savedInstanceState.getInt(KEY_SECTION);
+                openPanel(() -> sectionPanel(index));
             }
         }
 
-        requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+        // Ask on a fresh launch only, and only while the permission is missing (not again after every rotation).
+        if (savedInstanceState == null
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+        }
     }
 
     @Override
@@ -152,7 +157,10 @@ public class MainActivity extends Activity
         if (docked) {
             outState.putInt(KEY_SECTION, section);
         } else {
-            outState.putBoolean(KEY_SETTINGS_OPEN, panel instanceof SettingsPanel);
+            outState.putInt(KEY_SECTION, panel instanceof NodesPanel ? 1
+                    : panel instanceof ExemptAppsPanel ? 2
+                    : panel instanceof QueryLogPanel ? 3
+                    : panel instanceof SettingsPanel ? 4 : 0);
         }
     }
 

@@ -324,7 +324,9 @@ public final class Socks5Bridge {
             lastConnectError = e.getClass().getSimpleName();
             up = null;
             Dialer fb = fallback;
-            if (failureMode == FailureMode.FAIL_OPEN && fb != null) {
+            // "Connect directly" means: when no node works. One failed connection to a node that is
+            // otherwise fine stays a failure (the node is counted, and after 3 it is replaced).
+            if (failureMode == FailureMode.FAIL_OPEN && fb != null && e instanceof NoNodeException) {
                 try {
                     up = fb.dial(addr, port, CONNECT_TIMEOUT_MS);
                     failedOpen.incrementAndGet();
@@ -453,7 +455,6 @@ public final class Socks5Bridge {
 
     private final class UdpAssociation {
         private final DatagramSocket relay;
-        private volatile SocketAddress client; // pinned to the first sender
 
         UdpAssociation(DatagramSocket relay) {
             this.relay = relay;
@@ -466,18 +467,15 @@ public final class Socks5Bridge {
                 while (true) {
                     p.setLength(buf.length);
                     relay.receive(p);
-                    if (client == null) {
-                        client = p.getSocketAddress();
-                    } else if (!client.equals(p.getSocketAddress())) {
-                        udpDropped.incrementAndGet();
-                        continue;
-                    }
+                    // No pinning to the first sender: another local app that guessed the port could
+                    // otherwise take the association over and cut hev off. Every answer goes back to
+                    // the address its own query came from.
                     if (!isDnsQuery(buf, p.getLength())) {
                         udpDropped.incrementAndGet();
                         continue;
                     }
                     byte[] query = Arrays.copyOfRange(buf, UDP_HEADER, p.getLength());
-                    SocketAddress to = client;
+                    SocketAddress to = p.getSocketAddress();
                     try {
                         dnsPool.execute(() -> answer(query, to)); // full queue: rejected and counted as dropped; the client retries
                     } catch (RejectedExecutionException e) {

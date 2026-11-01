@@ -5,14 +5,12 @@ import java.net.InetAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.regex.Pattern;
 
+import com.bridge.filt3r.core.util.IpLiteral;
 import com.bridge.filt3r.core.util.Text;
 
 /** One Shadowsocks server, parsed from an {@code ss://} URL. Never log or print this object's fields. */
 public final class ShadowsocksNode {
-
-    private static final Pattern IPV4 = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
 
     public final AeadSuite suite;
     public final String password;
@@ -134,10 +132,11 @@ public final class ShadowsocksNode {
      * tunnel and reveal the node to the network. Name handling arrives with the bootstrap step.
      */
     public InetAddress address() throws IOException {
-        if (!IPV4.matcher(host).matches() && !host.contains(":")) {
+        InetAddress a = IpLiteral.parse(host);
+        if (a == null) {
             throw new IOException("node host must be an IP address");
         }
-        return InetAddress.getByName(host); // literal: no DNS lookup
+        return a;
     }
 
     private static String decodeBase64(String text) {
