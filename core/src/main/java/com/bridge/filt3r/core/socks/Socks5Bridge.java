@@ -20,11 +20,14 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -88,6 +91,9 @@ public final class Socks5Bridge {
 
     private ServerSocket server;
     private ExecutorService pool;
+    private ExecutorService dnsPool;
+    private static final int MAX_DNS_THREADS = 32;
+    private static final int DNS_QUEUE = 64;
 
     /**
      * @param dnsVirtual IPv4 address (4 bytes) that the tunnel advertises as its DNS server
@@ -123,6 +129,15 @@ public final class Socks5Bridge {
             t.setDaemon(true);
             return t;
         });
+        // Answering can block for tens of seconds, so a flood of queries must not mean a flood of threads.
+        ThreadPoolExecutor answers = new ThreadPoolExecutor(MAX_DNS_THREADS, MAX_DNS_THREADS,
+                30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(DNS_QUEUE), r -> {
+            Thread t = new Thread(r, "socks5-dns");
+            t.setDaemon(true);
+            return t;
+        });
+        answers.allowCoreThreadTimeOut(true);
+        dnsPool = answers;
         server = new ServerSocket(0, 128, InetAddress.getByAddress(LOOPBACK));
         ServerSocket s = server;
         pool.execute(() -> acceptLoop(s));
@@ -138,6 +153,7 @@ public final class Socks5Bridge {
         }
         open.clear();
         pool.shutdownNow();
+        dnsPool.shutdownNow();
         server = null;
     }
 
@@ -409,9 +425,9 @@ public final class Socks5Bridge {
                     byte[] query = Arrays.copyOfRange(buf, UDP_HEADER, p.getLength());
                     SocketAddress to = client;
                     try {
-                        pool.execute(() -> answer(query, to));
+                        dnsPool.execute(() -> answer(query, to)); // full queue: rejected and counted as dropped; the client retries
                     } catch (RejectedExecutionException e) {
-                        udpDropped.incrementAndGet(); // bridge is stopping
+                        udpDropped.incrementAndGet(); // bridge is stopping, or the DNS queue is full
                     }
                 }
             } catch (IOException e) {
