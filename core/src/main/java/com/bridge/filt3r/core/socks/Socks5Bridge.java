@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -48,6 +49,7 @@ public final class Socks5Bridge {
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int UDP_HEADER = 10; // RSV(2) FRAG(1) ATYP(1) IPv4(4) PORT(2)
     private static final int DNS_MAX = 4096;
+    private static final int DNS_TCP_IDLE_MS = 30_000;
     private static final String DNS_CLIENT = "tunnel"; // label in the query log; hev hides the app
     private static final byte[] LOOPBACK = {127, 0, 0, 1};
 
@@ -295,6 +297,18 @@ public final class Socks5Bridge {
             refusedDomain.incrementAndGet();
             return;
         }
+        if (ip.length == 4 && Arrays.equals(ip, dnsVirtual)) {
+            // The virtual DNS address exists only inside the tunnel. Sending it to a node would
+            // leak the query in plain text and skip the filter, so it is answered here or refused.
+            if (port != 53) {
+                reply(out, REP_NOT_ALLOWED, 0);
+                return;
+            }
+            reply(out, REP_OK, 0);
+            client.setSoTimeout(DNS_TCP_IDLE_MS);
+            dnsOverTcp(client, out);
+            return;
+        }
         if (ip.length == 16 && !allowIPv6) {
             // The node has no IPv6 exit: fail at once so the app falls back to IPv4 without waiting.
             reply(out, REP_NET_UNREACHABLE, 0);
@@ -332,6 +346,46 @@ public final class Socks5Bridge {
         } finally {
             open.remove(up);
             closeQuietly(up);
+        }
+    }
+
+    /** DNS over TCP (RFC 1035 4.2.2): 2-byte length, then the message; any number of queries per connection. */
+    private void dnsOverTcp(Socket client, OutputStream out) throws IOException {
+        DataInputStream in = new DataInputStream(client.getInputStream());
+        while (true) { // ends with an exception: EOF, idle timeout or a bad length
+            int len = in.readUnsignedShort();
+            if (len == 0 || len > DNS_MAX) {
+                throw new IOException("bad DNS length");
+            }
+            byte[] query = new byte[len];
+            in.readFully(query);
+            Future<byte[]> answer;
+            try {
+                answer = dnsPool.submit(() -> dns.handle(DNS_CLIENT, query)); // same bounded pool as UDP
+            } catch (RejectedExecutionException e) {
+                udpDropped.incrementAndGet();
+                throw new IOException("DNS busy");
+            }
+            byte[] response;
+            try {
+                response = answer.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("interrupted");
+            } catch (ExecutionException e) {
+                lastDnsError = e.getCause().getClass().getSimpleName() + ": " + e.getCause().getMessage();
+                throw new IOException("DNS failed");
+            }
+            if (response == null || response.length > 0xFFFF) {
+                throw new IOException("no DNS answer");
+            }
+            byte[] framed = new byte[2 + response.length];
+            framed[0] = (byte) (response.length >> 8);
+            framed[1] = (byte) response.length;
+            System.arraycopy(response, 0, framed, 2, response.length);
+            out.write(framed);
+            out.flush();
+            dnsForwarded.incrementAndGet();
         }
     }
 

@@ -783,9 +783,9 @@ public class DNSFilterManager extends ConfigurationAccess  {
 								UrlOpener opener = urlOpener;
 								if (opener == null)
 									throw new IOException("no download route for filter lists");
-								in = new BufferedInputStream(opener.open(urlStr), 2048);
+								in = new BufferedInputStream(new CappedInputStream(opener.open(urlStr), MAX_LIST_BYTES), 2048);
 							} else
-								in = new BufferedInputStream(new FileInputStream(urlStr.substring(7)),2048);
+								in = new BufferedInputStream(new CappedInputStream(new FileInputStream(urlStr.substring(7)), MAX_LIST_BYTES), 2048);
 
 							byte[] buf = new byte[2048];
 							int[] r;
@@ -848,6 +848,11 @@ public class DNSFilterManager extends ConfigurationAccess  {
 						FilterStatus.listFailed(hostOf(urlStr), reason);
 						if (firstFailure == null)
 							firstFailure = hostOf(urlStr) + ": " + reason;
+						if (aborted) { // stop() cut the connection: do not go on to the next list
+							out.close();
+							FilterStatus.aborted();
+							return false;
+						}
 					}
 
 				}
@@ -996,6 +1001,8 @@ public class DNSFilterManager extends ConfigurationAccess  {
 
 
 	private static boolean updatingFilter = false;
+	/** Upper bound for one downloaded list, so a hostile or broken server cannot fill the storage. */
+	private static final long MAX_LIST_BYTES = 64L * 1024 * 1024;
 
 	private void abortFilterUpdate() {
 		aborted = true;
@@ -1483,7 +1490,16 @@ public class DNSFilterManager extends ConfigurationAccess  {
 	}
 
 
+	/** init and stop never run at the same time: a stop that arrives during init waits for it, then undoes it. */
+	private final Object lifecycle = new Object();
+
 	public void init() throws IOException {
+		synchronized (lifecycle) {
+			initLocked();
+		}
+	}
+
+	private void initLocked() throws IOException {
 
 		try {
 			if (!serverStopped)
@@ -1576,6 +1592,12 @@ public class DNSFilterManager extends ConfigurationAccess  {
 
 	@Override
 	public void stop() throws IOException {
+		synchronized (lifecycle) {
+			stopLocked();
+		}
+	}
+
+	private void stopLocked() throws IOException {
 
 		if (serverStopped)
 			return;

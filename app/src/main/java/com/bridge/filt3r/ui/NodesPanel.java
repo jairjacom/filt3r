@@ -180,7 +180,7 @@ public class NodesPanel extends LinearLayout {
 
     private void onNodeTap(NodeInfo n) {
         if (n.state == NodeInfo.State.BLACKLISTED) {
-            Toast.makeText(getContext(), "This node failed 3 times in a row; it is skipped until the next subscription update.",
+            Toast.makeText(getContext(), "This node failed 3 times in a row; it is skipped for a while and tried again automatically.",
                     Toast.LENGTH_LONG).show();
             return;
         }

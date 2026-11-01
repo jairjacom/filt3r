@@ -27,6 +27,7 @@ final class ShadowsocksLink implements Link {
     private final Object writeLock = new Object();
 
     private byte[] pendingHeader;       // guarded by writeLock; null once sent
+    private volatile boolean headerSent; // set under writeLock; lets readers skip the lock once true
     private AeadSuite.Session writer;   // guarded by writeLock
     private AeadSuite.Session reader;   // used only by the reading thread
     private byte[] readBuf = new byte[0];
@@ -104,8 +105,10 @@ final class ShadowsocksLink implements Link {
 
     @Override
     public void shutdownOutput() throws IOException {
-        sendPending();
-        raw.shutdownOutput();
+        synchronized (writeLock) { // after any write in progress
+            sendPending();
+            raw.shutdownOutput();
+        }
     }
 
     @Override
@@ -114,6 +117,9 @@ final class ShadowsocksLink implements Link {
     }
 
     private void sendPending() throws IOException {
+        if (headerSent) {
+            return; // a read must not queue behind a write that is blocked on backpressure
+        }
         synchronized (writeLock) {
             if (pendingHeader != null) {
                 send(new byte[0], 0, 0);
@@ -135,6 +141,7 @@ final class ShadowsocksLink implements Link {
                 System.arraycopy(pendingHeader, 0, payload, 0, pendingHeader.length);
                 System.arraycopy(data, off, payload, pendingHeader.length, len);
                 pendingHeader = null;
+                headerSent = true;
                 off = 0;
                 len = payload.length;
             } else {
