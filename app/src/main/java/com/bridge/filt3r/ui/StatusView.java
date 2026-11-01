@@ -9,7 +9,6 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.button.MaterialButtonGroup;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.loadingindicator.LoadingIndicator;
@@ -76,7 +75,9 @@ public class StatusView extends ScrollView {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         FrameLayout buttonSlot = new FrameLayout(context);
-        MaterialButtonGroup group = new MaterialButtonGroup(context);
+        // A plain row, not MaterialButtonGroup: the group squashed the Connect button to an empty stub after a disconnect.
+        LinearLayout group = new LinearLayout(context);
+        group.setOrientation(LinearLayout.HORIZONTAL);
         connect = button(context, "Connect", false);
         disconnect = button(context, "Disconnect", false);
         restart = button(context, "Restart", true);
@@ -85,7 +86,10 @@ public class StatusView extends ScrollView {
         restart.setOnClickListener(v -> actions.restart());
         group.addView(connect);
         group.addView(disconnect);
-        group.addView(restart);
+        LinearLayout.LayoutParams restartParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        restartParams.setMarginStart(dp(8));
+        group.addView(restart, restartParams);
         buttonSlot.addView(group, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER));
