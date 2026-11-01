@@ -19,6 +19,7 @@ import android.widget.FrameLayout;
 
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.filter.FilterStatus;
+import com.bridge.filt3r.core.filter.UserOverrides;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.ui.ExemptAppsPanel;
@@ -28,6 +29,7 @@ import com.bridge.filt3r.ui.QueryLogPanel;
 import com.bridge.filt3r.ui.SettingsPanel;
 import com.bridge.filt3r.ui.StatusView;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +51,7 @@ public class MainActivity extends Activity
     private FrameLayout frame;
     private View panel;
     private Settings settings;
+    private UserOverrides overrides;
     private FilterStatus.State lastFilterState = FilterStatus.State.NONE;
     private String lastFilterError = "";
     private final OnBackInvokedCallback closePanelOnBack = this::closePanel;
@@ -71,6 +74,7 @@ public class MainActivity extends Activity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         settings = new Settings(this);
+        overrides = new UserOverrides(new File(getFilesDir(), "filter/additionalHosts.txt"));
         Appearance.apply(this, settings);
         frame = new FrameLayout(this);
         status = new StatusView(this, this);
@@ -367,6 +371,28 @@ public class MainActivity extends Activity
     @Override
     public void setExemptApps(Set<String> packages) {
         settings.setExemptApps(packages);
+    }
+
+    // ---- allow/block rules (OverridesDialog.Backend) ----
+
+    @Override
+    public List<UserOverrides.Entry> rules() throws IOException {
+        return overrides.list();
+    }
+
+    @Override
+    public Boolean ruleFor(String host) throws IOException {
+        return overrides.find(host);
+    }
+
+    @Override
+    public String setRule(String host, boolean allow) throws IOException {
+        return overrides.set(host, allow);
+    }
+
+    @Override
+    public void removeRule(String host) throws IOException {
+        overrides.remove(host);
     }
 
     @Override
