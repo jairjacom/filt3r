@@ -439,6 +439,19 @@ public class Filt3rVpnService extends VpnService {
         return notice.getAndSet(null);
     }
 
+    /**
+     * Starts a filter-list download now (the filter does it on its own thread).
+     *
+     * @return false if the tunnel is not running, so there is no node to download through
+     */
+    static boolean updateFilters() {
+        if (instance == null || TunnelState.get() != TunnelState.State.RUNNING) {
+            return false;
+        }
+        DNSFilterManager.getInstance().triggerUpdateFilter();
+        return true;
+    }
+
     /** What the hourly maintenance needs; created once the tunnel is up. */
     private final class NodeRuntime {
         final NodeManager manager;

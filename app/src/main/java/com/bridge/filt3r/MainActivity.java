@@ -18,6 +18,7 @@ import android.view.WindowInsets;
 import android.widget.FrameLayout;
 
 import com.bridge.filt3r.core.nodes.NodeInfo;
+import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.ui.FloatingToolbar;
@@ -43,6 +44,8 @@ public class MainActivity extends Activity
     private FrameLayout frame;
     private View panel;
     private Settings settings;
+    private FilterStatus.State lastFilterState = FilterStatus.State.NONE;
+    private String lastFilterError = "";
     private final OnBackInvokedCallback closePanelOnBack = this::closePanel;
 
     private final Runnable statsTick = new Runnable() {
@@ -112,6 +115,17 @@ public class MainActivity extends Activity
         if (notice != null) {
             Toast.makeText(this, notice, Toast.LENGTH_LONG).show();
         }
+        FilterStatus.Snapshot filter = FilterStatus.get();
+        if (lastFilterState == FilterStatus.State.DOWNLOADING && filter.state != lastFilterState) {
+            if (filter.state == FilterStatus.State.OK) {
+                Toast.makeText(this, String.format(java.util.Locale.US, "Filter lists updated: %,d blocked names",
+                        filter.entries), Toast.LENGTH_LONG).show();
+            } else if (filter.state == FilterStatus.State.FAILED && !filter.error.equals(lastFilterError)) {
+                lastFilterError = filter.error;
+                Toast.makeText(this, "Filter update failed: " + filter.error, Toast.LENGTH_LONG).show();
+            }
+        }
+        lastFilterState = filter.state;
         if (TunnelState.get() != TunnelState.State.RUNNING) {
             return;
         }
@@ -130,6 +144,7 @@ public class MainActivity extends Activity
             s.resolverName = resolver[0];
             s.resolverIp = resolver[1];
         }
+        s.filterText = FilterStatusText.describe(filter, true, System.currentTimeMillis());
         status.update(s);
     }
 
@@ -336,5 +351,15 @@ public class MainActivity extends Activity
         } catch (android.content.pm.PackageManager.NameNotFoundException e) {
             return "";
         }
+    }
+
+    @Override
+    public String filterStatus() {
+        return FilterStatusText.describe(FilterStatus.get(), running(), System.currentTimeMillis());
+    }
+
+    @Override
+    public boolean updateFilters() {
+        return Filt3rVpnService.updateFilters();
     }
 }
