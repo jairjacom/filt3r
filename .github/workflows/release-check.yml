@@ -1,0 +1,68 @@
+name: release-check
+
+# Builds the release APK with a throwaway key made inside the job and checks it: size, signature,
+# not debuggable. Nothing here touches a real key or a secret. Run by hand or on pushes to chore/release-* branches.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['chore/release-*']
+
+permissions:
+  contents: read
+
+jobs:
+  release-apk:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Fetch hev-socks5-tunnel (pinned tag and submodules)
+        run: scripts/fetch-hev.sh
+
+      - name: Make a throwaway test key (exists only in this job)
+        run: |
+          PW="$(openssl rand -hex 16)"
+          echo "::add-mask::$PW"
+          keytool -genkeypair -keystore "$RUNNER_TEMP/test.p12" -storetype PKCS12 -alias test \
+            -keyalg RSA -keysize 2048 -validity 2 -dname "CN=filt3r throwaway test key" \
+            -storepass "$PW" -keypass "$PW"
+          echo "RELEASE_STORE_FILE=$RUNNER_TEMP/test.p12" >> "$GITHUB_ENV"
+          echo "RELEASE_STORE_PASSWORD=$PW" >> "$GITHUB_ENV"
+          echo "RELEASE_KEY_ALIAS=test" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        run: gradle :app:assembleRelease --no-daemon
+
+      - name: Check the APK
+        run: |
+          APK="$(ls app/build/outputs/apk/release/*.apk)"
+          echo "APK: $APK"
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          SIZE="$(stat -c %s "$APK")"
+          echo "size: $SIZE bytes ($((SIZE / 1024)) KiB), cap 10 MiB = 10485760"
+          echo "--- biggest entries (compressed)"
+          unzip -lv "$APK" | sort -k3 -n -r | head -15
+          echo "--- signature"
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | head -12
+          echo "--- debuggable?"
+          if "$BT/aapt2" dump badging "$APK" | grep -q "application-debuggable"; then
+            echo "FAIL: the release APK is debuggable"; exit 1
+          fi
+          echo "not debuggable"
+          [ "$SIZE" -le 10485760 ] || { echo "FAIL: larger than 10 MiB"; exit 1; }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: filt3r-release-TESTKEY-apk
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 3
+          if-no-files-found: error
