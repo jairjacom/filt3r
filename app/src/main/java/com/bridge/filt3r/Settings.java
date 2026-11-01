@@ -58,6 +58,10 @@ final class Settings {
     private static final String KEY_NODE_SORT_SPEED = "node_sort_speed";
     private static final String KEY_FILTER_URL = "filter_url";
     private static final String KEY_TOOLBAR_PINNED = "toolbar_pinned";
+    private static final String KEY_THEME_MODE = "theme_mode";
+    private static final String KEY_PURE_BLACK = "pure_black";
+    private static final String KEY_COLOR_SCHEME = "color_scheme";
+    private static final String KEY_SEED_COLOR = "seed_color";
 
     private final SharedPreferences prefs;
 
@@ -192,5 +196,48 @@ final class Settings {
 
     void setToolbarPinned(boolean pinned) {
         prefs.edit().putBoolean(KEY_TOOLBAR_PINNED, pinned).apply();
+    }
+
+    static final String SCHEME_DEFAULT = "default";
+    static final String SCHEME_STANDARD = "standard";
+    static final String SCHEME_VIBRANT = "vibrant";
+    static final String SCHEME_EXPRESSIVE = "expressive";
+    static final String SCHEME_DYNAMIC = "dynamic";
+    static final int DEFAULT_SEED = 0xFFE5383B;
+
+    /** android.app.UiModeManager night mode: 0 follow the system, 1 light, 2 dark. */
+    int themeMode() {
+        return prefs.getInt(KEY_THEME_MODE, 0);
+    }
+
+    void setThemeMode(int mode) {
+        prefs.edit().putInt(KEY_THEME_MODE, mode).apply();
+    }
+
+    /** True for a pure black (#000000) canvas in the dark theme. */
+    boolean pureBlack() {
+        return prefs.getBoolean(KEY_PURE_BLACK, false);
+    }
+
+    void setPureBlack(boolean on) {
+        prefs.edit().putBoolean(KEY_PURE_BLACK, on).apply();
+    }
+
+    /** One of the SCHEME_ constants. SCHEME_DEFAULT is the fixed filt3r palette. */
+    String colorScheme() {
+        return prefs.getString(KEY_COLOR_SCHEME, SCHEME_DEFAULT);
+    }
+
+    void setColorScheme(String scheme) {
+        prefs.edit().putString(KEY_COLOR_SCHEME, scheme).apply();
+    }
+
+    /** The colour the generated palette starts from (opaque ARGB). */
+    int seedColor() {
+        return prefs.getInt(KEY_SEED_COLOR, DEFAULT_SEED);
+    }
+
+    void setSeedColor(int argb) {
+        prefs.edit().putInt(KEY_SEED_COLOR, argb | 0xFF000000).apply();
     }
 }

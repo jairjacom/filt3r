@@ -15,4 +15,16 @@
         <item name="android:windowSplashScreenBackground">@color/canvas_dark</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_shield</item>
     </style>
+
+    <!-- Applied after a generated palette (or Material You): the window follows the palette's background colour. -->
+    <style name="ThemeOverlay.Filt3r.Generated" parent="">
+        <item name="android:windowBackground">?android:attr/colorBackground</item>
+    </style>
+
+    <!-- Pure black canvas, applied last in the dark theme. -->
+    <style name="ThemeOverlay.Filt3r.PureBlack" parent="">
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="colorSurface">@android:color/black</item>
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
 </resources>
