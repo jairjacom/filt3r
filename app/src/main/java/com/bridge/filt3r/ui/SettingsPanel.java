@@ -17,6 +17,7 @@ import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 
 import com.bridge.filt3r.R;
+import com.bridge.filt3r.core.filter.FilterCatalog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.color.MaterialColors;
@@ -31,7 +32,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Full-screen settings in card groups: Connection, DNS and filtering, Privacy, Appearance, About.
+ * Full-screen settings in card groups: Connection, DNS and filtering, Block lists, Privacy,
+ * Appearance, About.
  * Every change is saved at once. Those that only apply at the next (re)start show a "Restart to
  * apply" banner while the tunnel is up.
  */
@@ -85,6 +87,18 @@ public class SettingsPanel extends LinearLayout {
 
         /** Saves the text. @return an error message to show, or null if it was saved */
         String setFilterListUrl(String text);
+
+        /** The downloadable block lists in dnsfilter.conf order. */
+        List<FilterCatalog.Entry> filterCatalog();
+
+        /** Whether the list is on: the user's choice, or the list's default if none was made. */
+        boolean filterListEnabled(String id);
+
+        void setFilterListEnabled(String id, boolean on);
+
+        boolean ipBlockEnabled();
+
+        void setIpBlockEnabled(boolean on);
 
         /** The filter-list status, one or two lines; read every second while the panel is open. */
         String filterStatus();
@@ -199,6 +213,7 @@ public class SettingsPanel extends LinearLayout {
 
         buildConnection(context);
         buildDns(context);
+        buildBlockLists(context);
         buildPrivacy(context);
         buildAppearance(context);
         buildAbout(context);
@@ -311,7 +326,7 @@ public class SettingsPanel extends LinearLayout {
         });
         card.addView(lists, fieldParams());
         card.addView(note(context, "Host lists that block ads and trackers (https:// only; separate several with"
-                + " spaces). Empty: the lists the app ships with."));
+                + " spaces). They are used in addition to the lists switched on under Block lists."));
         filterStatus = note(context, backend.filterStatus());
         card.addView(filterStatus);
         MaterialButton update = new MaterialButton(context, null,
@@ -323,6 +338,25 @@ public class SettingsPanel extends LinearLayout {
         LayoutParams updateParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         updateParams.setMargins(dp(16), 0, dp(16), dp(8));
         card.addView(update, updateParams);
+    }
+
+    private void buildBlockLists(Context context) {
+        LinearLayout card = group("Block lists");
+        for (FilterCatalog.Entry entry : backend.filterCatalog()) {
+            card.addView(switchRow(context, entry.id, entry.category,
+                    backend.filterListEnabled(entry.id), on -> {
+                        backend.setFilterListEnabled(entry.id, on);
+                        markChanged();
+                    }));
+        }
+        card.addView(switchRow(context, "IP blocklist (Hagezi TIF)",
+                "Blocks connections to known threat IP addresses.",
+                backend.ipBlockEnabled(), on -> {
+                    backend.setIpBlockEnabled(on);
+                    markChanged();
+                }));
+        card.addView(note(context, "Changes apply the next time you connect. Filter-list URLs above are used in"
+                + " addition to these lists."));
     }
 
     private void buildPrivacy(Context context) {

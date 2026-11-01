@@ -43,6 +43,7 @@ public class DNSResponsePatcher {
 	private static long filterCnt=0;
 	private static boolean checkIP = false;
 	private static boolean checkCNAME = true;
+	private static volatile IpBlockList ipBlock;
 
 
 	static {
@@ -66,6 +67,11 @@ public class DNSResponsePatcher {
 		} catch (IOException e) {
 			Logger.getLogger().logException(e);
 		}
+	}
+
+	/** Answers that resolve to an address on this list are rewritten to the blocked address; null disables it. */
+	public static void setIpBlockList(IpBlockList list) {
+		ipBlock = list;
 	}
 
 	public static long getFilterCount() {
@@ -134,19 +140,20 @@ public class DNSResponsePatcher {
 							buf.put(ipv4_blocked);
 						else if (type == 28) // IPV6
 							buf.put(ipv6_blocked);
-					} else if (checkIP){ //check if resolved IP is filtered
-						byte[] answer = new byte[len];
-						buf.get(answer);
-						buf.position(buf.position() - len);
-						String ip = InetAddress.getByAddress(answer).getHostAddress();
-						if (filterIP(ip)) {
-							filtered = true;
-							if (type == 1) // IPV4
-								buf.put(ipv4_blocked);
-							else if (type == 28) // IPV6
-								buf.put(ipv6_blocked);
-						}
+				} else if (checkIP || (ipBlock != null && (len == 4 || len == 16))) { //check if resolved IP is filtered or on the IP blocklist
+					byte[] answer = new byte[len];
+					buf.get(answer);
+					buf.position(buf.position() - len);
+					InetAddress resolved = InetAddress.getByAddress(answer);
+					IpBlockList list = ipBlock;
+					if ((checkIP && filterIP(resolved.getHostAddress())) || (list != null && list.isBlocked(resolved))) {
+						filtered = true;
+						if (type == 1) // IPV4
+							buf.put(ipv4_blocked);
+						else if (type == 28) // IPV6
+							buf.put(ipv6_blocked);
 					}
+				}
 				}
 				if (!filtered)
 					buf.position(buf.position() + len); // go ahead

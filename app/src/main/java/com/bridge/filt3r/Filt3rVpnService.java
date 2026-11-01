@@ -26,6 +26,7 @@ import com.bridge.filt3r.core.dnscrypt.ResolverTester;
 import com.bridge.filt3r.core.filter.DNSFilterManager;
 import com.bridge.filt3r.core.filter.DNSResolver;
 import com.bridge.filt3r.core.filter.DNSResponsePatcher;
+import com.bridge.filt3r.core.filter.IpBlockList;
 import com.bridge.filt3r.core.http.HttpsFetcher;
 import com.bridge.filt3r.core.nodes.FailoverDialer;
 import com.bridge.filt3r.core.nodes.FailoverUpstream;
@@ -80,6 +81,7 @@ public class Filt3rVpnService extends VpnService {
     private static final long FIRST_MAINTENANCE_MIN = 2;
     private static final int MTU = 1500;
     private static final long CONFIG_BACKSTOP_MS = 5000;
+    private static final long IP_BLOCK_MAX_AGE_MS = TimeUnit.DAYS.toMillis(7);
     static final String ACTION_STOP = "com.bridge.filt3r.STOP";
     static final String ACTION_RESTART = "com.bridge.filt3r.RESTART";
     private static final String CHANNEL_ID = "tunnel";
@@ -283,6 +285,7 @@ public class Filt3rVpnService extends VpnService {
                 // now, because its first run downloads the lists and needs a working node.
                 DNSFilterManager.setUrlOpener(listFetcher::stream);
                 DNSFilterManager.setFilterListOverride(settings.filterListUrl());
+                DNSFilterManager.setEnabledLists(settings.enabledFilterLists());
                 filterFetcher = listFetcher;
                 startFilter();
                 resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
@@ -331,6 +334,9 @@ public class Filt3rVpnService extends VpnService {
                 }
                 Log.i(TAG, "hev started, bridge on loopback");
                 startMaintenance(manager, tester, store, viaNode, testStamp);
+                if (settings.ipBlockEnabled()) {
+                    startIpBlock(gen, listFetcher);
+                }
                 starting = false;
                 TunnelState.set(TunnelState.State.RUNNING);
             }
@@ -747,6 +753,31 @@ public class Filt3rVpnService extends VpnService {
         }, FIRST_MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
     }
 
+    /**
+     * Loads the IP blocklist on the refresher thread: from its cache file if that is fresh, else
+     * through the node. A failure only means the tunnel runs without it. Call under {@code lock}
+     * after {@link #startMaintenance}, which creates the refresher.
+     */
+    private void startIpBlock(int gen, HttpsFetcher fetcher) {
+        File cache = new File(getFilesDir(), "ipblock.txt");
+        refresher.execute(() -> {
+            try {
+                IpBlockList list = IpBlockList.refresh(cache, IpBlockList.DEFAULT_URL, fetcher::stream,
+                        IP_BLOCK_MAX_AGE_MS);
+                synchronized (lock) {
+                    if (gen != generation.get()) {
+                        return; // stopped or restarted meanwhile: this list belongs to a bridge that is gone
+                    }
+                    bridge.setIpBlockList(list);
+                    DNSResponsePatcher.setIpBlockList(list);
+                }
+                Log.i(TAG, "IP blocklist loaded: " + list.size() + " entries");
+            } catch (IOException | RuntimeException e) {
+                Log.w(TAG, "IP blocklist not loaded: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
+        });
+    }
+
     @Override
     public void onDestroy() {
         worker.shutdownNow();
@@ -993,6 +1024,7 @@ public class Filt3rVpnService extends VpnService {
             dnsResolver = null;
             runtime = null;
             DNSResponsePatcher.setObserver(null);
+            DNSResponsePatcher.setIpBlockList(null);
             resolverInfo = null;
             DNSFilterManager.setUrlOpener(null);
             handler.removeCallbacksAndMessages(null);
@@ -1001,6 +1033,7 @@ public class Filt3rVpnService extends VpnService {
             Socks5Bridge b = bridge;
             bridge = null;
             if (b != null) {
+                b.setIpBlockList(null);
                 Log.i(TAG, "bridge stats: " + b.stats());
                 b.stop();
             }

@@ -44,6 +44,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.Properties;
+import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.Vector;
 import java.util.zip.GZIPInputStream;
@@ -109,6 +110,15 @@ public class DNSFilterManager extends ConfigurationAccess  {
 	/** URLs separated by ';'. Null or empty: use the lists from dnsfilter.conf. Call before init(). */
 	public static void setFilterListOverride(String urls) {
 		filterListOverride = urls;
+	}
+
+	// Catalog IDs the user switched on in Settings. Null keeps the switches from dnsfilter.conf.
+	// Ignored while a custom URL override is set (the override replaces all lists).
+	private static volatile Set<String> enabledLists;
+
+	/** Catalog IDs to enable for this run; null keeps dnsfilter.conf. Call before init(). */
+	public static void setEnabledLists(Set<String> ids) {
+		enabledLists = ids == null ? null : new HashSet<>(ids);
 	}
 
 	protected Properties config = null;
@@ -741,7 +751,10 @@ public class DNSFilterManager extends ConfigurationAccess  {
 								UrlOpener opener = urlOpener;
 								if (opener == null)
 									throw new IOException("no download route for filter lists");
-								in = new BufferedInputStream(new CappedInputStream(opener.open(urlStr), MAX_LIST_BYTES), 2048);
+								{
+									InputStream raw = new CappedInputStream(opener.open(urlStr), MAX_LIST_BYTES);
+									in = new BufferedInputStream(AdblockDomainRules.isAdblockList(urlStr) ? AdblockDomainRules.convert(raw) : raw, 2048);
+								}
 							} else
 								in = new BufferedInputStream(new CappedInputStream(new FileInputStream(urlStr.substring(7)), MAX_LIST_BYTES), 2048);
 
@@ -1483,12 +1496,12 @@ public class DNSFilterManager extends ConfigurationAccess  {
 			config = new Properties();
 			config.load(new ByteArrayInputStream(configBytes));
 			String custom = filterListOverride;
-			if (custom != null && !custom.trim().isEmpty()) {
-				config.setProperty("filterAutoUpdateURL", custom.trim());
-				config.setProperty("filterAutoUpdateURL_IDs", "custom");
-				config.setProperty("filterAutoUpdateURL_categories", "custom");
-				config.setProperty("filterAutoUpdateURL_switchs", "true");
+			if (enabledLists != null) {
+				FilterCatalog.copyListKeys(getDefaultConfig(), config);
+				FilterCatalog.applyEnabled(config, enabledLists);
 			}
+			if (custom != null && !custom.trim().isEmpty())
+				FilterCatalog.addCustom(config, custom);
 
 			serverStopped = false;
 
