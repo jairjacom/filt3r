@@ -7,17 +7,22 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.function.LongSupplier;
 
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 
 /**
  * Keeps the node list, ranks nodes by the median of their recent test times, blacklists a node
- * after {@value #FAILURES_TO_BLACKLIST} failures in a row (until the next subscription update), and
- * keeps using the current node until it dies. All methods are thread safe.
+ * after {@value #FAILURES_TO_BLACKLIST} failures in a row, and keeps using the current node until
+ * it dies. A blacklisted node is tried again after a while (5 minutes, doubling per repeat up to
+ * an hour), and failures are not counted while the device has no network, so a short outage never
+ * leaves the list empty. All methods are thread safe.
  */
 public final class NodeManager {
 
     public static final int FAILURES_TO_BLACKLIST = 3;
+    static final long BLACKLIST_BASE_MS = 5 * 60_000L;
+    static final long BLACKLIST_MAX_MS = 60 * 60_000L;
     private static final int SAMPLES = 5;
 
     /** Called when a pin is dropped by the manager (not by {@link #unpin}); outside the lock. */
@@ -37,7 +42,8 @@ public final class NodeManager {
         int count;      // samples stored so far (at most SAMPLES)
         int next;       // ring position
         int failures;   // consecutive
-        boolean blacklisted;
+        int strikes;    // blacklistings since the last working test
+        long blacklistedUntil; // clock time (ms); 0 = never blacklisted
         Boolean ipv6;   // null until probed: does the node reach IPv6 destinations?
         long speedBps = -1; // download speed through the node, -1 if never measured
 
@@ -64,13 +70,50 @@ public final class NodeManager {
 
     private final Map<String, Entry> entries = new HashMap<>();
     private final List<String> order = new ArrayList<>();
+    private final LongSupplier clock;
+    private boolean online = true; // false while the device has no network
     private final Listener listener;
     private PinListener pinListener;
     private Entry current;
     private String pinned; // key of the pinned node, or null
 
     public NodeManager(Listener listener) {
+        this(listener, System::currentTimeMillis);
+    }
+
+    NodeManager(Listener listener, LongSupplier clock) {
         this.listener = listener;
+        this.clock = clock;
+    }
+
+    private boolean blacklisted(Entry e) {
+        return clock.getAsLong() < e.blacklistedUntil;
+    }
+
+    /** False while {@link #setOnline} was last told the device has no network. */
+    public synchronized boolean isOnline() {
+        return online;
+    }
+
+    /**
+     * Tells the manager whether the device has a network. Nothing is counted against a node while
+     * it has none. Whenever the network comes back (or changes) every failure count and blacklisting
+     * is cleared, because an outage looks exactly like every node dying.
+     */
+    public void setOnline(boolean value) {
+        boolean changed = false;
+        synchronized (this) {
+            online = value;
+            if (value) {
+                for (Entry e : entries.values()) {
+                    e.failures = 0;
+                    e.strikes = 0;
+                    e.blacklistedUntil = 0;
+                }
+                changed = reselect(current);
+            }
+        }
+        notifyChange(changed);
     }
 
     private static String key(ShadowsocksNode n) {
@@ -141,7 +184,7 @@ public final class NodeManager {
     public synchronized int blacklistedCount() {
         int n = 0;
         for (Entry e : entries.values()) {
-            if (e.blacklisted) {
+            if (blacklisted(e)) {
                 n++;
             }
         }
@@ -153,7 +196,7 @@ public final class NodeManager {
         List<NodeInfo> out = new ArrayList<>(order.size());
         for (String k : order) {
             Entry e = entries.get(k);
-            NodeInfo.State state = e.blacklisted ? NodeInfo.State.BLACKLISTED
+            NodeInfo.State state = blacklisted(e) ? NodeInfo.State.BLACKLISTED
                     : e.count > 0 ? NodeInfo.State.WORKING : NodeInfo.State.UNTESTED;
             out.add(new NodeInfo(e.node, state, e.count > 0 ? e.median() : -1, e.failures, e == current, e.ipv6,
                     k.equals(pinned), e.speedBps));
@@ -192,7 +235,7 @@ public final class NodeManager {
         boolean changed;
         synchronized (this) {
             Entry e = entries.get(key(node));
-            if (e == null || e.blacklisted || e.count == 0) {
+            if (e == null || blacklisted(e) || e.count == 0) {
                 return false;
             }
             pinned = key(node);
@@ -241,11 +284,12 @@ public final class NodeManager {
         boolean changed = false;
         synchronized (this) {
             Entry e = entries.get(key(node));
-            if (e == null || e.blacklisted) {
+            if (e == null || blacklisted(e)) {
                 return;
             }
             e.addSample(ms);
             e.failures = 0;
+            e.strikes = 0;
             if (current == null || key(node).equals(pinned)) {
                 changed = reselect(current);
             }
@@ -261,17 +305,23 @@ public final class NodeManager {
         }
     }
 
-    /** A connection or test through this node failed; the third one in a row blacklists it. */
+    /**
+     * A connection or test through this node failed; the third one in a row blacklists it. Ignored
+     * while the device has no network. A node that fails again right after its blacklisting ended
+     * is blacklisted again for twice as long.
+     */
     public void recordFailure(ShadowsocksNode node) {
         boolean changed = false;
         ShadowsocksNode unpinned = null;
         synchronized (this) {
             Entry e = entries.get(key(node));
-            if (e == null || e.blacklisted) {
+            if (!online || e == null || blacklisted(e)) {
                 return;
             }
             if (++e.failures >= FAILURES_TO_BLACKLIST) {
-                e.blacklisted = true;
+                long span = Math.min(BLACKLIST_BASE_MS << Math.min(e.strikes, 10), BLACKLIST_MAX_MS);
+                e.strikes++;
+                e.blacklistedUntil = clock.getAsLong() + span;
                 if (key(node).equals(pinned)) {
                     pinned = null;
                     unpinned = e.node;
@@ -295,7 +345,7 @@ public final class NodeManager {
         List<Entry> usable = new ArrayList<>();
         for (String k : order) {
             Entry e = entries.get(k);
-            if (!e.blacklisted) {
+            if (!blacklisted(e)) {
                 usable.add(e);
             }
         }
@@ -315,7 +365,7 @@ public final class NodeManager {
             out.add(rest.get(i).node);
         }
         Entry p = pinned == null ? null : entries.get(pinned);
-        if (p != null && !p.blacklisted && !out.contains(p.node)) {
+        if (p != null && !blacklisted(p) && !out.contains(p.node)) {
             out.add(p.node);
         }
         return out;
@@ -340,10 +390,10 @@ public final class NodeManager {
     private boolean reselect(Entry keep) {
         Entry before = current;
         Entry p = pinned == null ? null : entries.get(pinned);
-        if (p != null && !p.blacklisted && p.count > 0) {
+        if (p != null && !blacklisted(p) && p.count > 0) {
             current = p;
         } else {
-            current = keep != null && !keep.blacklisted ? keep : best();
+            current = keep != null && !blacklisted(keep) ? keep : best();
         }
         return current != before;
     }
@@ -352,7 +402,7 @@ public final class NodeManager {
         Entry best = null;
         for (String k : order) {
             Entry e = entries.get(k);
-            if (!e.blacklisted && e.count > 0 && (best == null || e.median() < best.median())) {
+            if (!blacklisted(e) && e.count > 0 && (best == null || e.median() < best.median())) {
                 best = e;
             }
         }

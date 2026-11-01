@@ -1,6 +1,7 @@
 package com.bridge.filt3r.core.http;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.EOFException;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -12,6 +13,11 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
@@ -34,13 +40,42 @@ public final class HttpsFetcher {
     private static final int MAX_TEXT_BODY = 8 * 1024 * 1024;
     private static final int MAX_HEADER = 16 * 1024;
     private static final int MAX_REDIRECTS = 3;
+    /** One request (connect, headers and body, with its redirect hops counted separately) may take this long in all. */
+    private static final long TOTAL_MS = 5 * 60_000L;
+    private static final ScheduledThreadPoolExecutor WATCHDOG = new ScheduledThreadPoolExecutor(1, r -> {
+        Thread t = new Thread(r, "fetch-watchdog");
+        t.setDaemon(true);
+        return t;
+    });
+
+    static {
+        WATCHDOG.setRemoveOnCancelPolicy(true);
+    }
 
     private final Dialer dialer;
     private final NameResolver resolver;
+    private final Set<Closeable> active = ConcurrentHashMap.newKeySet();
+    private volatile boolean cancelled;
 
     public HttpsFetcher(Dialer dialer, NameResolver resolver) {
         this.dialer = dialer;
         this.resolver = resolver;
+    }
+
+    /** Closes every connection of this fetcher that is open now and refuses new ones; a blocked read ends with an IOException. */
+    public void cancel() {
+        cancelled = true;
+        for (Closeable c : active) {
+            closeQuietly(c);
+        }
+    }
+
+    private static void closeQuietly(Closeable c) {
+        try {
+            c.close();
+        } catch (IOException ignored) {
+            // nothing to do
+        }
     }
 
     /** Downloads a small text document (at most 8 MB) as UTF-8. @throws IOException on any failure or a non-200 answer */
@@ -100,6 +135,9 @@ public final class HttpsFetcher {
     }
 
     private Opened open(URI uri) throws IOException {
+        if (cancelled) {
+            throw new IOException("cancelled");
+        }
         String host = uri.getHost();
         int port = uri.getPort() > 0 ? uri.getPort() : 443;
         List<InetAddress> addresses = resolver.resolve(host);
@@ -113,7 +151,17 @@ public final class HttpsFetcher {
                 continue;
             }
             LinkSocket plain = new LinkSocket(link, a, port);
+            // From here on a slow or stalled server is cut off at the deadline, and cancel() reaches the connection.
+            active.add(plain);
+            ScheduledFuture<?> watchdog = WATCHDOG.schedule(() -> closeQuietly(plain), TOTAL_MS, TimeUnit.MILLISECONDS);
+            Runnable release = () -> {
+                active.remove(plain);
+                watchdog.cancel(false);
+            };
             try {
+                if (cancelled) {
+                    throw new IOException("cancelled");
+                }
                 plain.setSoTimeout(READ_TIMEOUT_MS);
                 SSLSocket tls = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault())
                         .createSocket(plain, host, port, true);
@@ -121,20 +169,20 @@ public final class HttpsFetcher {
                 p.setEndpointIdentificationAlgorithm("HTTPS"); // verify the certificate against the host
                 tls.setSSLParameters(p);
                 tls.startHandshake();
-                return request(tls, uri);
+                return request(tls, uri, release);
             } catch (IOException e) {
                 last = e;
-                try {
-                    plain.close();
-                } catch (IOException ignored) {
-                    // nothing to do
+                release.run();
+                closeQuietly(plain);
+                if (cancelled) {
+                    break;
                 }
             }
         }
         throw last != null ? last : new IOException("no address to connect to");
     }
 
-    private static Opened request(SSLSocket tls, URI uri) throws IOException {
+    private static Opened request(SSLSocket tls, URI uri, Runnable release) throws IOException {
         String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         if (uri.getRawQuery() != null) {
             path += "?" + uri.getRawQuery();
@@ -184,6 +232,7 @@ public final class HttpsFetcher {
         o.body = new FilterInputStream(body) {
             @Override
             public void close() throws IOException {
+                release.run();
                 tls.close(); // also closes the carried connection
             }
         };

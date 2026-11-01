@@ -7,6 +7,8 @@ import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.net.VpnService;
 import android.os.FileObserver;
 import android.os.Handler;
@@ -90,6 +92,8 @@ public class Filt3rVpnService extends VpnService {
     private static final long MAINTENANCE_MIN = 60;
     private static final Random RANDOM = new Random();
     private static final long FILTER_WAIT_S = 30;
+    private static final long RECOVERY_FIRST_S = 30;   // no node: wait before the second search
+    private static final long RECOVERY_MAX_S = 600;
 
     private final SocketProtector protector = new SocketProtector() {
         @Override
@@ -99,12 +103,18 @@ public class Filt3rVpnService extends VpnService {
     };
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private ParcelFileDescriptor tun;
-    private Socks5Bridge bridge;
+    private volatile ParcelFileDescriptor tun;
+    private volatile ParcelFileDescriptor heldTun; // the previous interface, kept (with nobody reading it, so traffic is dropped) until a restart has a new one
+    private volatile Socks5Bridge bridge;
     private File config;
     private FileObserver configObserver;
-    private volatile CountDownLatch filterReady = new CountDownLatch(0);
-    private volatile boolean filterOk;
+    /** One filter start: DNS waits on {@code ready}, and {@code ok} is set only by that start's own init. */
+    private static final class FilterGate {
+        final CountDownLatch ready = new CountDownLatch(1);
+        volatile boolean ok;
+    }
+
+    private volatile FilterGate filterGate = new FilterGate(); // never opened: DNS fails closed until a start opens one
     private static volatile Filt3rVpnService instance;
     private static final AtomicLong dnsBlocked = new AtomicLong();
     private static final AtomicLong dnsAllowed = new AtomicLong();
@@ -112,11 +122,23 @@ public class Filt3rVpnService extends VpnService {
     private static volatile String[] resolverInfo; // {name, ip} of the DNS resolver in use, null while down
 
     private final AtomicInteger generation = new AtomicInteger(); // bumped by every stop
+    /** Guards the hand-over of every resource a start creates, against stopEverything. */
+    private final Object lock = new Object();
+    /** Filter init and stop, one at a time and in order, off the main thread; shared by every service instance. */
+    private static final ExecutorService FILTER_LIFE = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "filter-life");
+        t.setDaemon(true);
+        return t;
+    });
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private volatile ScheduledExecutorService refresher; // subscription and resolver-list downloads
+    private volatile HttpsFetcher bootstrapFetcher;      // first-run subscription download, direct
+    private volatile HttpsFetcher filterFetcher;         // filter-list downloads through the node
     private volatile boolean starting;
     private volatile ScheduledExecutorService maintenance;
     private volatile NodeManager nodes;
     private volatile NodeTester nodeTester;
+    private ConnectivityManager.NetworkCallback networkCallback; // guarded by this
     private volatile DNSResolver dnsResolver;
     private volatile NodeRuntime runtime;
 
@@ -137,14 +159,18 @@ public class Filt3rVpnService extends VpnService {
         }
         if (ACTION_REFRESH_RESOLVERS.equals(action)) {
             NodeRuntime r = runtime;
-            ScheduledExecutorService maint = maintenance;
-            if (r != null && maint != null) {
-                maint.execute(() -> r.refreshResolvers(true));
+            ScheduledExecutorService ref = refresher;
+            if (r != null && ref != null) {
+                try {
+                    ref.execute(() -> r.refreshResolvers(true));
+                } catch (RejectedExecutionException e) {
+                    // stopped just now
+                }
             }
             return tun != null ? START_STICKY : START_NOT_STICKY;
         }
         if (ACTION_RESTART.equals(action)) {
-            stopEverything();
+            stopEverything(true); // keep the old interface so nothing leaks while the new one is prepared
         }
         // Touching the class loads libhev-socks5-tunnel.so; JNI_OnLoad then
         // registers the natives, so this call proves the library is usable.
@@ -171,16 +197,9 @@ public class Filt3rVpnService extends VpnService {
             DirectDialer direct = new DirectDialer(protector);
             DnsCryptStamp testStamp = DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
             Settings settings = new Settings(this);
-            dnsBlocked.set(0);
-            dnsAllowed.set(0);
             QueryLog queryLog = QueryLogs.get(this);
-            DNSResponsePatcher.setObserver((host, blocked) -> {
-                (blocked ? dnsBlocked : dnsAllowed).incrementAndGet();
-                queryLog.add(host, blocked);
-            });
             NodeStore store = new NodeStore(getFilesDir(), settings.subscriptions());
             NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
-            nodes = manager;
             manager.setPinListener((gone, dead) -> {
                 settings.setPinnedNode(null);
                 if (dead) {
@@ -188,12 +207,29 @@ public class Filt3rVpnService extends VpnService {
                 }
             });
             manager.restorePin(settings.pinnedNode());
+            // Everything a start creates is handed over under the lock, and only if no stop came
+            // meanwhile; otherwise it would outlive the stop (see stopEverything).
+            synchronized (lock) {
+                if (gen != generation.get()) {
+                    return;
+                }
+                dnsBlocked.set(0);
+                dnsAllowed.set(0);
+                DNSResponsePatcher.setObserver((host, blocked) -> {
+                    (blocked ? dnsBlocked : dnsAllowed).incrementAndGet();
+                    queryLog.add(host, blocked);
+                });
+                nodes = manager;
+                watchNetwork(manager);
+            }
 
             List<ShadowsocksNode> list = store.load();
             if (list.isEmpty() && store.hasSubscriptions()) {
                 // First run: no node is up, so this download goes out directly (the bootstrap cost).
                 DohBootstrapResolver doh = new DohBootstrapResolver(BOOTSTRAP_DOH);
-                store.update(new HttpsFetcher(direct, doh), doh, false);
+                HttpsFetcher first = new HttpsFetcher(direct, doh);
+                bootstrapFetcher = first; // stopEverything cancels it
+                store.update(first, doh, false);
                 list = store.load();
             }
             if (list.isEmpty()) {
@@ -202,7 +238,12 @@ public class Filt3rVpnService extends VpnService {
             manager.setNodes(list);
             settings.setPinnedNode(manager.pinnedKey()); // forget a pin whose node left the list
             NodeTester tester = new NodeTester(direct, testStamp, DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP_V6));
-            nodeTester = tester; // before the rounds: the first current node triggers an IPv6 probe
+            synchronized (lock) {
+                if (gen != generation.get()) {
+                    return;
+                }
+                nodeTester = tester; // before the rounds: the first current node triggers an IPv6 probe
+            }
             for (int round = 0; round < START_ROUNDS && manager.current() == null; round++) {
                 tester.testAndRecord(manager, manager.pickForTest(0, START_ROUND_NODES, RANDOM), TEST_THREADS);
                 manager.selectBest();
@@ -216,26 +257,33 @@ public class Filt3rVpnService extends VpnService {
             Log.i(TAG, "start round done: " + manager.summary());
 
             FailoverDialer viaNode = new FailoverDialer(manager, direct);
-            // Filter lists are downloaded through the node, never directly. The filter starts only
-            // now, because its first run downloads the lists and needs a working node.
             HttpsFetcher listFetcher = new HttpsFetcher(viaNode,
                     new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode)));
-            DNSFilterManager.setUrlOpener(listFetcher::stream);
-            DNSFilterManager.setFilterListOverride(settings.filterListUrl());
-            startFilter();
             DnsCryptStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
-            resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
             FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp, viaNode, tester);
             // DNS always goes through the node: it is never sent direct, whatever the failure mode.
             DNSResolver resolver = new DNSResolver(upstream);
-            dnsResolver = resolver;
-            bridge = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
+            Socks5Bridge b = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
                 return resolver.resolve(client, query);
             }, viaNode, direct);
-            bridge.setFailureMode(settings.failureMode());
-            applyIpv6();
-            bridge.start();
+            b.setFailureMode(settings.failureMode());
+            synchronized (lock) {
+                if (gen != generation.get()) {
+                    return;
+                }
+                // Filter lists are downloaded through the node, never directly. The filter starts only
+                // now, because its first run downloads the lists and needs a working node.
+                DNSFilterManager.setUrlOpener(listFetcher::stream);
+                DNSFilterManager.setFilterListOverride(settings.filterListUrl());
+                filterFetcher = listFetcher;
+                startFilter();
+                resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
+                dnsResolver = resolver;
+                bridge = b;
+                applyIpv6();
+                b.start();
+            }
 
             Builder builder = new Builder()
                     .setSession("filt3r")
@@ -255,27 +303,44 @@ public class Filt3rVpnService extends VpnService {
                     Log.w(TAG, "exempt app is not installed, skipped");
                 }
             }
-            tun = builder.establish();
-            if (tun == null) {
+            // On a restart the old interface is still open; establish() replaces it without a gap.
+            ParcelFileDescriptor established = builder.establish();
+            if (established == null) {
                 throw new IOException("establish() returned null: VPN consent revoked");
             }
-            Log.i(TAG, "tunnel established, fd=" + tun.getFd());
+            synchronized (lock) {
+                if (gen != generation.get()) {
+                    closeQuietly(established);
+                    return;
+                }
+                tun = established;
+                closeQuietly(heldTun);
+                heldTun = null;
+                Log.i(TAG, "tunnel established, fd=" + established.getFd());
 
-            writeConfig();
-            if (!TProxyService.TProxyStartService(config.getAbsolutePath(), tun.getFd())) {
-                throw new IOException("TProxyStartService failed");
+                writeConfig();
+                if (!TProxyService.TProxyStartService(config.getAbsolutePath(), established.getFd())) {
+                    throw new IOException("TProxyStartService failed");
+                }
+                Log.i(TAG, "hev started, bridge on loopback");
+                startMaintenance(manager, tester, store, viaNode, testStamp);
+                starting = false;
+                TunnelState.set(TunnelState.State.RUNNING);
             }
-            Log.i(TAG, "hev started, bridge on loopback");
-            if (gen != generation.get()) {
-                return; // stopped while starting: stopEverything has already cleaned up
-            }
-            startMaintenance(manager, tester, store, viaNode, testStamp);
-            starting = false;
-            TunnelState.set(TunnelState.State.RUNNING);
         } catch (IOException | android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
             if (gen == generation.get()) {
                 Log.e(TAG, "start failed: " + e.getMessage());
                 handler.post(() -> shutdown(TunnelState.State.FAILED));
+            }
+        }
+    }
+
+    private static void closeQuietly(ParcelFileDescriptor fd) {
+        if (fd != null) {
+            try {
+                fd.close();
+            } catch (IOException e) {
+                Log.w(TAG, "close failed", e);
             }
         }
     }
@@ -290,6 +355,54 @@ public class Filt3rVpnService extends VpnService {
         }
     }
 
+    /**
+     * Tells the manager when the device loses or regains its network, so an outage is not counted
+     * as every node failing. Our own app is excluded from the VPN, so the default network seen
+     * here is the real one.
+     */
+    private synchronized void watchNetwork(NodeManager manager) {
+        unwatchNetwork();
+        ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+        if (cm == null) {
+            return;
+        }
+        AtomicReference<Network> last = new AtomicReference<>();
+        ConnectivityManager.NetworkCallback cb = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network n) {
+                last.set(n);
+                manager.setOnline(true);
+                NodeRuntime r = runtime;
+                if (r != null && nodes == manager && manager.current() == null) {
+                    r.recoverNodes();
+                }
+            }
+
+            @Override
+            public void onLost(Network n) {
+                if (last.compareAndSet(n, null)) { // a replacement network has already reported itself
+                    manager.setOnline(false);
+                }
+            }
+        };
+        cm.registerDefaultNetworkCallback(cb);
+        networkCallback = cb;
+    }
+
+    private synchronized void unwatchNetwork() {
+        if (networkCallback != null) {
+            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            if (cm != null) {
+                try {
+                    cm.unregisterNetworkCallback(networkCallback);
+                } catch (IllegalArgumentException e) {
+                    // already unregistered
+                }
+            }
+            networkCallback = null;
+        }
+    }
+
     private void onCurrentNodeChanged(ShadowsocksNode node) {
         NodeManager m = nodes;
         Log.i(TAG, "current node changed: " + (node == null ? "none" : "ok") + (m == null ? "" : ", " + m.summary()));
@@ -298,9 +411,8 @@ public class Filt3rVpnService extends VpnService {
             probeIpv6();
         }
         NodeRuntime r = runtime;
-        ScheduledExecutorService maint = maintenance;
-        if (node == null && r != null && maint != null) {
-            maint.execute(() -> r.testRound(0, START_ROUND_NODES)); // nothing usable: look for a node now
+        if (node == null && r != null) {
+            r.recoverNodes(); // nothing usable: look for a node now, and keep looking
         }
     }
 
@@ -459,6 +571,9 @@ public class Filt3rVpnService extends VpnService {
         final NodeStore store;
         final FailoverDialer viaNode;
         final AtomicBoolean retesting = new AtomicBoolean();
+        /** One fetcher for the subscription and resolver-list downloads, so stopEverything can cut them off. */
+        final HttpsFetcher fetcher;
+        final AtomicBoolean recovering = new AtomicBoolean();
         /** Looks names up through the node with the built-in resolver, so a bad user choice cannot block downloads. */
         final UpstreamNameResolver names;
 
@@ -469,6 +584,7 @@ public class Filt3rVpnService extends VpnService {
             this.store = store;
             this.viaNode = viaNode;
             this.names = new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode));
+            this.fetcher = new HttpsFetcher(viaNode, names);
         }
 
         /** Re-reads the subscriptions through the node when a subscription is due. */
@@ -477,7 +593,7 @@ public class Filt3rVpnService extends VpnService {
                 return;
             }
             try {
-                store.update(new HttpsFetcher(viaNode, names), names, true);
+                store.update(fetcher, names, true);
                 manager.setNodes(store.load());
                 Log.i(TAG, "subscriptions updated: " + manager.summary());
             } catch (IOException e) {
@@ -497,7 +613,6 @@ public class Filt3rVpnService extends VpnService {
                 return;
             }
             try {
-                HttpsFetcher fetcher = new HttpsFetcher(viaNode, names);
                 String list = fetcher.get(RESOLVER_LIST_URL);
                 String signature = fetcher.get(RESOLVER_LIST_URL + ".minisig");
                 if (!MinisignVerifier.verify(list.getBytes(StandardCharsets.UTF_8), signature, RESOLVER_LIST_KEY)) {
@@ -512,6 +627,49 @@ public class Filt3rVpnService extends VpnService {
                 Log.i(TAG, "resolver list updated: " + working.size() + " working");
             } catch (IOException e) {
                 Log.w(TAG, "resolver list update failed: " + e.getMessage());
+            }
+        }
+
+        /**
+         * Looks for a working node until there is one: tests at once, then again after 30 s,
+         * doubling up to 10 minutes. Nothing is tested while the device has no network (the
+         * manager is told by the network callback). Does nothing if a search is already under way.
+         */
+        void recoverNodes() {
+            ScheduledExecutorService maint = maintenance;
+            if (maint == null || !recovering.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                maint.execute(() -> recoveryStep(maint, RECOVERY_FIRST_S));
+            } catch (RejectedExecutionException e) { // the tunnel was stopped just now
+                recovering.set(false);
+            }
+        }
+
+        private void recoveryStep(ScheduledExecutorService maint, long nextDelayS) {
+            boolean again = false;
+            try {
+                if (manager.current() == null) {
+                    if (manager.isOnline()) {
+                        testRound(0, START_ROUND_NODES);
+                    }
+                    again = manager.current() == null;
+                }
+            } catch (RuntimeException e) {
+                Log.w(TAG, "node search failed: " + e);
+                again = manager.current() == null;
+            } finally {
+                if (again) {
+                    try {
+                        maint.schedule(() -> recoveryStep(maint, Math.min(nextDelayS * 2, RECOVERY_MAX_S)),
+                                nextDelayS, TimeUnit.SECONDS);
+                    } catch (RejectedExecutionException e) { // stopped
+                        recovering.set(false);
+                    }
+                } else {
+                    recovering.set(false);
+                }
             }
         }
 
@@ -552,14 +710,23 @@ public class Filt3rVpnService extends VpnService {
         runtime = r;
         ScheduledExecutorService maint = Executors.newSingleThreadScheduledExecutor();
         maintenance = maint;
+        // Downloads run on their own thread: a slow server must not hold up node tests and failover.
+        ScheduledExecutorService ref = Executors.newSingleThreadScheduledExecutor();
+        refresher = ref;
         maint.scheduleWithFixedDelay(() -> {
+            try {
+                r.testRound(ROUND_TOP, ROUND_RANDOM);
+                probeIpv6();
+            } catch (RuntimeException | Error e) {
+                Log.w(TAG, "maintenance failed: " + e);
+            }
+        }, FIRST_MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
+        ref.scheduleWithFixedDelay(() -> {
             try {
                 r.updateSubscriptions();
                 r.refreshResolvers(false);
-                r.testRound(ROUND_TOP, ROUND_RANDOM);
-                probeIpv6();
-            } catch (RuntimeException e) {
-                Log.w(TAG, "maintenance failed: " + e);
+            } catch (RuntimeException | Error e) {
+                Log.w(TAG, "refresh failed: " + e);
             }
         }, FIRST_MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
     }
@@ -712,27 +879,29 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private void startFilter() {
-        CountDownLatch ready = new CountDownLatch(1);
-        filterReady = ready;
-        filterOk = false;
-        Thread t = new Thread(() -> {
+        FilterGate gate = new FilterGate();
+        filterGate = gate;
+        int gen = generation.get();
+        FILTER_LIFE.execute(() -> {
             try {
+                if (gen != generation.get()) {
+                    return; // stopped before it began: nothing to start
+                }
                 DNSFilterManager.getInstance().init();
-                filterOk = true;
+                gate.ok = true;
             } catch (IOException | RuntimeException e) {
                 Log.e(TAG, "filter init failed: " + e);
             } finally {
-                ready.countDown();
+                gate.ready.countDown();
             }
-        }, "filter-init");
-        t.setDaemon(true);
-        t.start();
+        });
     }
 
     /** DNS waits here until the filter lists are loaded. A failed filter blocks DNS (fail closed). */
     private void awaitFilter() throws IOException {
+        FilterGate gate = filterGate;
         try {
-            if (!filterReady.await(FILTER_WAIT_S, TimeUnit.SECONDS) || !filterOk) {
+            if (!gate.ready.await(FILTER_WAIT_S, TimeUnit.SECONDS) || !gate.ok) {
                 throw new IOException("filter not ready");
             }
         } catch (InterruptedException e) {
@@ -742,40 +911,80 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private void stopEverything() {
-        generation.incrementAndGet(); // a start still running in the worker will notice and stop
-        starting = false;
-        ScheduledExecutorService m = maintenance;
-        maintenance = null;
-        if (m != null) {
-            m.shutdownNow();
-        }
-        nodes = null;
-        nodeTester = null;
-        dnsResolver = null;
-        runtime = null;
-        DNSResponsePatcher.setObserver(null);
-        resolverInfo = null;
-        DNSFilterManager.setUrlOpener(null);
-        handler.removeCallbacksAndMessages(null);
-        TProxyService.TProxyStopService();
-        deleteConfig();
-        if (bridge != null) {
-            Log.i(TAG, "bridge stats: " + bridge.stats());
-            bridge.stop();
-            bridge = null;
-        }
-        try {
-            DNSFilterManager.getInstance().stop();
-        } catch (IOException e) {
-            Log.w(TAG, "filter stop failed: " + e.getMessage());
-        }
-        if (tun != null) {
-            try {
-                tun.close();
-            } catch (IOException e) {
-                Log.w(TAG, "close failed", e);
+        stopEverything(false);
+    }
+
+    /**
+     * Stops the tunnel and everything it owns. Takes the lock so that a start running on the worker
+     * either handed its resources over before this (and they are closed here) or sees the new
+     * generation afterwards and discards them. The filter is stopped on its own thread, in order
+     * with its init, because stopping can wait for a download.
+     *
+     * @param keepInterface true for a restart: the VPN interface stays open with nobody reading it
+     *                      (traffic is dropped, not sent in the clear) until the new one replaces it
+     */
+    private void stopEverything(boolean keepInterface) {
+        synchronized (lock) {
+            generation.incrementAndGet(); // a start still running in the worker will notice and stop
+            unwatchNetwork();
+            starting = false;
+            ScheduledExecutorService m = maintenance;
+            maintenance = null;
+            if (m != null) {
+                m.shutdownNow();
             }
+            ScheduledExecutorService ref = refresher;
+            refresher = null;
+            if (ref != null) {
+                ref.shutdownNow();
+            }
+            NodeRuntime r = runtime;
+            if (r != null) {
+                r.fetcher.cancel();
+            }
+            HttpsFetcher first = bootstrapFetcher;
+            bootstrapFetcher = null;
+            if (first != null) {
+                first.cancel();
+            }
+            HttpsFetcher lists = filterFetcher;
+            filterFetcher = null;
+            if (lists != null) {
+                lists.cancel(); // a list download blocked on the network ends now, so the filter can stop
+            }
+            nodes = null;
+            nodeTester = null;
+            dnsResolver = null;
+            runtime = null;
+            DNSResponsePatcher.setObserver(null);
+            resolverInfo = null;
+            DNSFilterManager.setUrlOpener(null);
+            handler.removeCallbacksAndMessages(null);
+            TProxyService.TProxyStopService();
+            deleteConfig();
+            Socks5Bridge b = bridge;
+            bridge = null;
+            if (b != null) {
+                Log.i(TAG, "bridge stats: " + b.stats());
+                b.stop();
+            }
+            FILTER_LIFE.execute(() -> {
+                try {
+                    DNSFilterManager.getInstance().stop();
+                } catch (IOException | RuntimeException e) {
+                    Log.w(TAG, "filter stop failed: " + e.getMessage());
+                }
+            });
+            ParcelFileDescriptor old = tun;
             tun = null;
+            if (keepInterface && old != null) {
+                closeQuietly(heldTun);
+                heldTun = old;
+            } else if (!keepInterface) {
+                closeQuietly(old);
+                closeQuietly(heldTun);
+                heldTun = null;
+            }
         }
     }
 }
