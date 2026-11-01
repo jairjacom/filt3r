@@ -2,14 +2,13 @@ package com.bridge.filt3r.ui;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
-
-import com.google.android.material.color.MaterialColors;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,8 +34,8 @@ public class DockedToolbar extends LinearLayout {
         setGravity(Gravity.CENTER);
         setPadding(dp(8), dp(6), dp(8), dp(6));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(MaterialColors.getColor(this,
-                com.google.android.material.R.attr.colorSurfaceContainer));
+        bg.setColor(Color.BLACK);
+        bg.setCornerRadius(dp(40));
         setBackground(bg);
     }
 
@@ -48,8 +47,7 @@ public class DockedToolbar extends LinearLayout {
         View highlight = new View(getContext());
         GradientDrawable hl = new GradientDrawable();
         hl.setShape(GradientDrawable.OVAL);
-        hl.setColor(MaterialColors.getColor(this,
-                com.google.android.material.R.attr.colorSecondaryContainer));
+        hl.setColor(Color.WHITE);
         highlight.setBackground(hl);
         highlight.setVisibility(View.INVISIBLE);
         slot.addView(highlight, new FrameLayout.LayoutParams(dp(48), dp(40), Gravity.CENTER));
@@ -58,8 +56,7 @@ public class DockedToolbar extends LinearLayout {
         b.setImageResource(iconRes);
         b.setContentDescription(label);
         b.setBackground(null);
-        b.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(
-                this, com.google.android.material.R.attr.colorOnSurface)));
+        b.setImageTintList(ColorStateList.valueOf(Color.WHITE));
         b.setOnClickListener(v -> onPick.accept(index));
         slot.addView(b, new FrameLayout.LayoutParams(dp(56), dp(48), Gravity.CENTER));
 
@@ -72,10 +69,12 @@ public class DockedToolbar extends LinearLayout {
     public void select(int index) {
         if (selected >= 0 && selected < highlights.size()) {
             highlights.get(selected).setVisibility(View.INVISIBLE);
+            buttons.get(selected).setImageTintList(ColorStateList.valueOf(Color.WHITE));
         }
         selected = index;
         if (index >= 0 && index < highlights.size()) {
             highlights.get(index).setVisibility(View.VISIBLE);
+            buttons.get(index).setImageTintList(ColorStateList.valueOf(Color.BLACK));
         }
     }
 

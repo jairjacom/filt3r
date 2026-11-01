@@ -113,8 +113,12 @@ public class MainActivity extends Activity
             dock.addItem(R.drawable.ic_apps, "Exempt apps");
             dock.addItem(R.drawable.ic_log, "Query log");
             dock.addItem(R.drawable.ic_settings, "Settings");
-            column.addView(dock, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            dock.select(0);
+            LinearLayout.LayoutParams dockParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            int m = (int) (16 * getResources().getDisplayMetrics().density);
+            dockParams.setMargins(m, m / 2, m, m);
+            column.addView(dock, dockParams);
             root = column;
         } else {
             toolbar = new FloatingToolbar(this);
@@ -277,6 +281,7 @@ public class MainActivity extends Activity
 
     private void selectSection(int index) {
         if (index != section) {
+            dock.performHapticFeedback(HapticFeedbackConstants.SEGMENT_TICK);
             showSection(index, Integer.signum(index - section));
         }
     }
