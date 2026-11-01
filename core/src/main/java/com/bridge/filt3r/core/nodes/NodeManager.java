@@ -78,7 +78,7 @@ public final class NodeManager {
     private String pinned; // key of the pinned node, or null
 
     public NodeManager(Listener listener) {
-        this(listener, System::currentTimeMillis);
+        this(listener, () -> System.nanoTime() / 1_000_000); // monotonic: a clock change must not stretch a blacklisting
     }
 
     NodeManager(Listener listener, LongSupplier clock) {
@@ -279,17 +279,18 @@ public final class NodeManager {
         return current != null && current.ipv6 == null;
     }
 
-    /** A test round finished for this node: a working time in ms resets its failure count. */
+    /** A test round finished for this node: a working time in ms resets its failure count and lifts a blacklisting. */
     public void recordTest(ShadowsocksNode node, long ms) {
         boolean changed = false;
         synchronized (this) {
             Entry e = entries.get(key(node));
-            if (e == null || blacklisted(e)) {
+            if (e == null) {
                 return;
             }
             e.addSample(ms);
             e.failures = 0;
             e.strikes = 0;
+            e.blacklistedUntil = 0;
             if (current == null || key(node).equals(pinned)) {
                 changed = reselect(current);
             }
@@ -347,6 +348,13 @@ public final class NodeManager {
             Entry e = entries.get(k);
             if (!blacklisted(e)) {
                 usable.add(e);
+            }
+        }
+        if (usable.isEmpty()) {
+            // Every node is blacklisted (a long outage, a captive portal): test them anyway.
+            // A working answer lifts the blacklisting; waiting it out could take an hour.
+            for (String k : order) {
+                usable.add(entries.get(k));
             }
         }
         List<Entry> ranked = new ArrayList<>(usable);

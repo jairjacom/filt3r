@@ -962,6 +962,15 @@ public class DNSFilterManager extends ConfigurationAccess  {
 	/** Upper bound for one downloaded list, so a hostile or broken server cannot fill the storage. */
 	private static final long MAX_LIST_BYTES = 64L * 1024 * 1024;
 
+	/**
+	 * Makes a running list download stop now and keep the lists already on disk. Call it before the
+	 * download's connections are cut: otherwise the cut looks like an ordinary failed list, and the
+	 * lists that were read before it could replace the full set on disk.
+	 */
+	public static void requestAbort() {
+		aborted = true;
+	}
+
 	private void abortFilterUpdate() {
 		aborted = true;
 		synchronized (INSTANCE) {
@@ -1462,6 +1471,8 @@ public class DNSFilterManager extends ConfigurationAccess  {
 		try {
 			if (!serverStopped)
 				throw new IllegalStateException("Cannot start! Already running!");
+
+			aborted = false; // a request to stop an earlier run's download must not cancel this run's
 
 			initEnv();
 
