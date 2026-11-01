@@ -416,7 +416,7 @@ public class SettingsPanel extends LinearLayout {
         TextView label = new TextView(context);
         label.setText(title);
         label.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge);
-        label.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary));
+        label.setTextColor(MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary));
         LayoutParams labelParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         labelParams.setMargins(dp(28), dp(16), dp(16), dp(8));
         content.addView(label, labelParams);
