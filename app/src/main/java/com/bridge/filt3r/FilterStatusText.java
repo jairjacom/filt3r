@@ -10,26 +10,54 @@ final class FilterStatusText {
     private FilterStatusText() {
     }
 
-    /** One or two lines; the second (only after a failure) says what is still in use. */
+    /** A short status for the Status card: a summary line, and a second line after a failure. */
     static String describe(FilterStatus.Snapshot s, boolean running, long now) {
+        return describe(s, running, now, false);
+    }
+
+    /** As {@link #describe(FilterStatus.Snapshot, boolean, long)}; {@code detail} adds one line per list. */
+    static String describe(FilterStatus.Snapshot s, boolean running, long now, boolean detail) {
+        StringBuilder sb = new StringBuilder();
         switch (s.state) {
             case DOWNLOADING:
-                return "Downloading filter lists (" + Math.min(s.done + 1, s.total) + " of " + s.total + ")...";
+                sb.append("Downloading filter lists (").append(Math.min(s.done + 1, s.total)).append(" of ")
+                        .append(s.total).append(")...");
+                break;
             case OK:
-                return String.format(Locale.US, "%,d blocked names  ·  updated %s", s.entries, ago(s.updatedMs, now));
-            case FAILED:
-                StringBuilder sb = new StringBuilder("Filter update failed: ").append(s.error);
-                if (s.retryAtMs > now) {
-                    sb.append("  ·  retry in ").append(Math.max(1, (s.retryAtMs - now + 59_999) / 60_000)).append(" min");
+                sb.append(String.format(Locale.US, "%,d blocked names  ·  updated %s",
+                        s.unique >= 0 ? s.unique : s.entries, ago(s.updatedMs, now)));
+                if (s.unique >= 0 && s.entries > s.unique) {
+                    sb.append(String.format(Locale.US, "\n%,d duplicates removed", s.entries - s.unique));
                 }
+                if (s.failedLists > 0) {
+                    sb.append("\n").append(s.failedLists).append(s.failedLists == 1 ? " list" : " lists")
+                            .append(" failed: ").append(s.error).append(retryIn(s, now));
+                }
+                break;
+            case FAILED:
+                sb.append("Filter update failed: ").append(s.error).append(retryIn(s, now));
                 if (s.updatedMs > 0) {
                     sb.append(String.format(Locale.US, "\nStill using the lists from %s (%,d names)",
-                            ago(s.updatedMs, now), s.entries));
+                            ago(s.updatedMs, now), s.unique >= 0 ? s.unique : s.entries));
                 }
-                return sb.toString();
+                break;
             default:
-                return running ? "Loading filter lists..." : "Filter lists are loaded when the VPN starts.";
+                sb.append(running ? "Loading filter lists..." : "Filter lists are loaded when the VPN starts.");
         }
+        if (detail && s.state == FilterStatus.State.OK) {
+            for (String line : s.listLines) {
+                sb.append("\n·  ").append(line);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String retryIn(FilterStatus.Snapshot s, long now) {
+        if (s.retryAtMs <= now) {
+            return "";
+        }
+        long min = Math.max(1, (s.retryAtMs - now + 59_999) / 60_000);
+        return "  ·  retry in " + min + " min";
     }
 
     static String ago(long thenMs, long nowMs) {

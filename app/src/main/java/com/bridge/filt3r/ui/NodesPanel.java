@@ -49,6 +49,12 @@ public class NodesPanel extends LinearLayout {
         boolean sortBySpeed();
 
         void setSortBySpeed(boolean bySpeed);
+
+        /** The subscription slot (0-2) the node came from, or -1 if unknown. */
+        int source(ShadowsocksNode node);
+
+        /** How many subscriptions supply nodes; the tag is shown only when this is above 1. */
+        int sourceCount();
     }
 
     private static final long REFRESH_MS = 2000;
@@ -387,6 +393,10 @@ public class NodesPanel extends LinearLayout {
                 sub.append(loc.flag).append(' ').append(loc.countryCode).append("  ·  ");
             }
             sub.append(bySpeed ? ms : speed);
+            int source = backend.sourceCount() > 1 ? backend.source(n.node) : -1;
+            if (source >= 0) {
+                sub.append("  ·  Sub ").append(source + 1);
+            }
             subtitle.setText(sub.toString());
             latency.setText(bySpeed ? speed : ms);
             ipv6.setVisibility(Boolean.TRUE.equals(n.ipv6) ? VISIBLE : GONE);
