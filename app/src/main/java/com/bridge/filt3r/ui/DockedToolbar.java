@@ -32,7 +32,7 @@ public class DockedToolbar extends LinearLayout {
         this.onPick = onPick;
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER);
-        setPadding(dp(8), dp(6), dp(8), dp(6));
+        setPadding(dp(6), dp(6), dp(6), dp(6));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.BLACK);
         bg.setCornerRadius(dp(40));
@@ -50,7 +50,7 @@ public class DockedToolbar extends LinearLayout {
         hl.setColor(Color.WHITE);
         highlight.setBackground(hl);
         highlight.setVisibility(View.INVISIBLE);
-        slot.addView(highlight, new FrameLayout.LayoutParams(dp(48), dp(40), Gravity.CENTER));
+        slot.addView(highlight, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER));
 
         ImageButton b = new ImageButton(getContext());
         b.setImageResource(iconRes);
@@ -58,9 +58,10 @@ public class DockedToolbar extends LinearLayout {
         b.setBackground(null);
         b.setImageTintList(ColorStateList.valueOf(Color.WHITE));
         b.setOnClickListener(v -> onPick.accept(index));
-        slot.addView(b, new FrameLayout.LayoutParams(dp(56), dp(48), Gravity.CENTER));
+        b.setPadding(dp(12), dp(12), dp(12), dp(12));
+        slot.addView(b, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
 
-        addView(slot, new LayoutParams(0, dp(56), 1f));
+        addView(slot, new LayoutParams(dp(48), dp(48)));
         buttons.add(b);
         highlights.add(highlight);
     }

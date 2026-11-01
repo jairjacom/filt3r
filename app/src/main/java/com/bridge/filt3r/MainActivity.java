@@ -108,16 +108,17 @@ public class MainActivity extends Activity
             column.addView(frame, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
             dock = new DockedToolbar(this, this::selectSection);
-            dock.addItem(R.drawable.ic_shield, "Status");
+            dock.addItem(R.drawable.ic_status, "Status");
             dock.addItem(R.drawable.ic_nodes, "Nodes");
             dock.addItem(R.drawable.ic_apps, "Exempt apps");
             dock.addItem(R.drawable.ic_log, "Query log");
             dock.addItem(R.drawable.ic_settings, "Settings");
             dock.select(0);
             LinearLayout.LayoutParams dockParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             int m = (int) (16 * getResources().getDisplayMetrics().density);
             dockParams.setMargins(m, m / 2, m, m);
+            dockParams.gravity = Gravity.CENTER_HORIZONTAL;
             column.addView(dock, dockParams);
             root = column;
         } else {
