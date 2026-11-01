@@ -119,7 +119,9 @@ public class MainActivity extends Activity
         if (lastFilterState == FilterStatus.State.DOWNLOADING && filter.state != lastFilterState) {
             if (filter.state == FilterStatus.State.OK) {
                 Toast.makeText(this, String.format(java.util.Locale.US, "Filter lists updated: %,d blocked names",
-                        filter.entries), Toast.LENGTH_LONG).show();
+                        filter.unique >= 0 ? filter.unique : filter.entries)
+                        + (filter.failedLists > 0 ? "; " + filter.failedLists + " list(s) failed: " + filter.error : ""),
+                        Toast.LENGTH_LONG).show();
             } else if (filter.state == FilterStatus.State.FAILED && !filter.error.equals(lastFilterError)) {
                 lastFilterError = filter.error;
                 Toast.makeText(this, "Filter update failed: " + filter.error, Toast.LENGTH_LONG).show();
@@ -355,11 +357,21 @@ public class MainActivity extends Activity
 
     @Override
     public String filterStatus() {
-        return FilterStatusText.describe(FilterStatus.get(), running(), System.currentTimeMillis());
+        return FilterStatusText.describe(FilterStatus.get(), running(), System.currentTimeMillis(), true);
     }
 
     @Override
     public boolean updateFilters() {
         return Filt3rVpnService.updateFilters();
+    }
+
+    @Override
+    public int source(ShadowsocksNode node) {
+        return NodeStore.sourceOf(node);
+    }
+
+    @Override
+    public int sourceCount() {
+        return NodeStore.sourceCount();
     }
 }

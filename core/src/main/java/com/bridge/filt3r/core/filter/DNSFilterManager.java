@@ -214,6 +214,11 @@ public class DNSFilterManager extends ConfigurationAccess  {
 							waitTime = filterReloadIntervalDays * 24 * 60 * 60 * 1000;
 							nextReload = System.currentTimeMillis() + waitTime;
 							retry = 0;
+							if (FilterStatus.get().failedLists > 0) {
+								// some lists could not be read: try them again in an hour
+								nextReload = System.currentTimeMillis() + 3600000;
+								FilterStatus.retryAt(nextReload);
+							}
 
 						} catch (Exception e) {
 							//Logger.getLogger().logException(e);
@@ -714,16 +719,18 @@ public class DNSFilterManager extends ConfigurationAccess  {
 	}
 
 
-	/** "host: reason" for the status line. The full URL is left out: it may carry a token. */
-	private static String describeFailure(String urlStr, IOException e) {
-		String host = urlStr;
+	/** The host of a list URL for status lines. The full URL is left out: it may carry a token. */
+	private static String hostOf(String urlStr) {
 		try {
-			host = new java.net.URL(urlStr).getHost();
+			String host = new java.net.URL(urlStr).getHost();
+			return host.isEmpty() ? urlStr : host;
 		} catch (java.net.MalformedURLException m) {
-			// keep the raw text
+			return urlStr;
 		}
-		String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-		return host + ": " + reason;
+	}
+
+	private static String reasonOf(IOException e) {
+		return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
 	}
 
 	private void writeDownloadInfoFile(int count, long lastModified) throws IOException{
@@ -749,14 +756,16 @@ public class DNSFilterManager extends ConfigurationAccess  {
 				int urlCnt = urlTokens.countTokens();
 				FilterStatus.downloading(urlCnt);
 				int count = 0;
+				String firstFailure = null;
 				for (int i = 0; i < urlCnt; i++) {
 					String urlStr = urlTokens.nextToken().trim();
 					int skippedWildcard = 0;
+					long listStart = count;
+					InputStream in = null;
 					try {
 						if (!urlStr.equals("")) {
 							Logger.getLogger().message("Connecting: " + urlStr);
 
-							InputStream in;
 							if (!urlStr.startsWith("file://")) {
 								// Lists are only fetched through the opener (the app sends them through the
 								// node). There is no direct fallback: that would show the lists to the ISP.
@@ -787,8 +796,8 @@ public class DNSFilterManager extends ConfigurationAccess  {
 											} else skippedWildcard++;
 										}
 										else {
-											out.write((host + "\n").getBytes());
-											count++;
+										out.write((host + "\n").getBytes());
+										count++;
 										}
 									}
 									received = received + r[1];
@@ -807,19 +816,33 @@ public class DNSFilterManager extends ConfigurationAccess  {
 								FilterStatus.aborted();
 								return false;
 							}
-							FilterStatus.listDone();
+							FilterStatus.listRead(hostOf(urlStr), count - listStart);
 							if (skippedWildcard != 0)
 								Logger.getLogger().logLine("WARNING! - " + skippedWildcard + " skipped entrie(s) for " + urlStr + "! Wildcards are only supported in additionalHosts.txt!");
 						}
 					} catch (IOException eio) {
+						// One bad list must not cost the others: report it and go on.
 						String msg = "ERROR loading filter: " + urlStr;
 						Logger.getLogger().message(msg);
 						Logger.getLogger().logLine(msg);
-						out.close();
-						FilterStatus.failed(describeFailure(urlStr, eio));
-						throw eio;
+						if (in != null) {
+							try {
+								in.close();
+							} catch (IOException ignored) {
+								// already failing
+							}
+						}
+						String reason = reasonOf(eio);
+						FilterStatus.listFailed(hostOf(urlStr), reason);
+						if (firstFailure == null)
+							firstFailure = hostOf(urlStr) + ": " + reason;
 					}
 
+				}
+				if (urlCnt > 0 && FilterStatus.failedInThisDownload() == urlCnt) {
+					out.close();
+					FilterStatus.failed(firstFailure);
+					throw new IOException(firstFailure); // nothing was read: keep the lists already on disk
 				}
 
 				// invalidate index in order to force rebuild
@@ -1101,6 +1124,8 @@ public class DNSFilterManager extends ConfigurationAccess  {
 					}
 				}
 				ffileCount = uniqueEntries;
+				if (!aborted)
+					FilterStatus.setUnique(uniqueEntries);
 				Logger.getLogger().message("Building index for " + processed + "/" + size + " entries completed!");
 				fin.close();
 				if (aborted) {

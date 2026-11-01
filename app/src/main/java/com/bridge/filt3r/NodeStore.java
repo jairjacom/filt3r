@@ -3,6 +3,7 @@ package com.bridge.filt3r;
 import com.bridge.filt3r.core.dns.NameResolver;
 import com.bridge.filt3r.core.http.HttpsFetcher;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
+import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.subscription.HostNameResolver;
 import com.bridge.filt3r.core.subscription.SubscriptionParser;
 
@@ -13,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -38,20 +40,39 @@ final class NodeStore {
         return !subscriptions.isEmpty();
     }
 
-    /** The cached nodes of all subscriptions, without duplicates. */
+    /** The cached nodes of all subscriptions, without duplicates; the first subscription to list a node owns it. */
     List<ShadowsocksNode> load() {
         Map<String, ShadowsocksNode> all = new LinkedHashMap<>();
+        Map<String, Integer> owner = new HashMap<>();
         for (Settings.Subscription s : subscriptions) {
             for (String line : cachedLines(s)) {
                 try {
                     ShadowsocksNode n = ShadowsocksNode.parse(line);
-                    all.putIfAbsent(n.host + ":" + n.port, n);
+                    if (all.putIfAbsent(n.host + ":" + n.port, n) == null) {
+                        owner.put(NodeManager.keyOf(n), s.slot);
+                    }
                 } catch (IllegalArgumentException e) {
                     // a bad line is skipped
                 }
             }
         }
+        sources = owner;
+        sourceKinds = new java.util.HashSet<>(owner.values()).size();
         return new ArrayList<>(all.values());
+    }
+
+    private static volatile Map<String, Integer> sources = new HashMap<>();
+    private static volatile int sourceKinds;
+
+    /** The subscription slot (0-2) that supplied the node, or -1 if unknown. */
+    static int sourceOf(ShadowsocksNode n) {
+        Integer slot = sources.get(NodeManager.keyOf(n));
+        return slot == null ? -1 : slot;
+    }
+
+    /** How many different subscriptions supply a node in the current list. */
+    static int sourceCount() {
+        return sourceKinds;
     }
 
     /** True if a subscription has no cache yet or its cache is older than its update interval. */
