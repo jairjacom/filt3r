@@ -188,7 +188,7 @@ public class QueryLogPanel extends LinearLayout {
         list.setDivider(null);
         list.setAdapter(adapter);
         list.setClipToPadding(false);
-        list.setPadding(0, 0, 0, dp(24));
+        list.setPadding(0, 0, 0, dp(96)); // the toolbar overlays the bottom
         list.setOnItemClickListener((p, v, pos, id) -> showRuleSheet(adapter.getItem(pos)));
         addView(list, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
         reload();

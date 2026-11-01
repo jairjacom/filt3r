@@ -19,7 +19,6 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.widget.FrameLayout;
 import android.widget.EditText;
-import android.widget.LinearLayout;
 
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.filter.FilterStatus;
@@ -103,10 +102,6 @@ public class MainActivity extends Activity
         docked = Settings.TOOLBAR_DOCKED.equals(settings.toolbarStyle());
         View root = frame;
         if (docked) {
-            LinearLayout column = new LinearLayout(this);
-            column.setOrientation(LinearLayout.VERTICAL);
-            column.addView(frame, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
             dock = new DockedToolbar(this, this::selectSection);
             dock.addItem(R.drawable.ic_status, "Status");
             dock.addItem(R.drawable.ic_nodes, "Nodes");
@@ -114,13 +109,11 @@ public class MainActivity extends Activity
             dock.addItem(R.drawable.ic_log, "Query log");
             dock.addItem(R.drawable.ic_settings, "Settings");
             dock.select(0);
-            LinearLayout.LayoutParams dockParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            int m = (int) (16 * getResources().getDisplayMetrics().density);
-            dockParams.setMargins(m, m / 2, m, m);
-            dockParams.gravity = Gravity.CENTER_HORIZONTAL;
-            column.addView(dock, dockParams);
-            root = column;
+            FrameLayout.LayoutParams dockParams = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            dockParams.bottomMargin = (int) (8 * getResources().getDisplayMetrics().density);
+            frame.addView(dock, dockParams);
         } else {
             toolbar = new FloatingToolbar(this);
             frame.addView(toolbar, new FrameLayout.LayoutParams(
@@ -296,7 +289,7 @@ public class MainActivity extends Activity
             return;
         }
         panel = sectionPanel(index);
-        frame.addView(panel, new FrameLayout.LayoutParams(
+        frame.addView(panel, frame.indexOfChild(dock), new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);

@@ -156,7 +156,7 @@ public class NodesPanel extends LinearLayout {
         list.setDivider(null);
         list.setAdapter(adapter);
         list.setClipToPadding(false);
-        list.setPadding(0, 0, 0, dp(24));
+        list.setPadding(0, 0, 0, dp(96)); // the toolbar overlays the bottom
         list.setOnItemClickListener((p, v, pos, id) -> onNodeTap(adapter.getItem(pos)));
         list.setOnItemLongClickListener((p, v, pos, id) -> {
             ShadowsocksNode n = adapter.getItem(pos).node;
