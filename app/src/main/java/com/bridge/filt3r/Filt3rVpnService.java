@@ -34,6 +34,7 @@ import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.DirectDialer;
+import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
@@ -153,6 +154,12 @@ public class Filt3rVpnService extends VpnService {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
+        if (intent == null && prepare(this) != null) {
+            // Restarted by the system after the process died, but VPN consent has gone (another VPN
+            // app took over): there is nothing to start, and trying would fail again and again.
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         if (ACTION_STOP.equals(action)) {
             shutdown(TunnelState.State.STOPPED);
             return START_NOT_STICKY;
@@ -330,7 +337,16 @@ public class Filt3rVpnService extends VpnService {
         } catch (IOException | android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
             if (gen == generation.get()) {
                 Log.e(TAG, "start failed: " + e.getMessage());
-                handler.post(() -> shutdown(TunnelState.State.FAILED));
+                handler.post(() -> {
+                    if (gen != generation.get()) {
+                        return; // a restart began meanwhile: this failure belongs to the start it replaced
+                    }
+                    if (heldTun != null && new Settings(this).failureMode() == FailureMode.FAIL_CLOSED) {
+                        blockAfterFailedRestart();
+                    } else {
+                        shutdown(TunnelState.State.FAILED);
+                    }
+                });
             }
         }
     }
@@ -753,7 +769,23 @@ public class Filt3rVpnService extends VpnService {
         stopSelf();
     }
 
+    /**
+     * A restart failed while the old interface is still held and the user chose to block traffic
+     * when no node works: keep the interface (nobody reads it, so traffic is dropped), show that in
+     * the notification and the app, and leave the way out to Connect or Stop.
+     */
+    private void blockAfterFailedRestart() {
+        stopEverything(true);
+        TunnelState.set(TunnelState.State.FAILED);
+        getSystemService(NotificationManager.class).notify(NOTIFICATION_ID,
+                buildNotification("Restart failed: traffic is blocked"));
+    }
+
     private Notification buildNotification() {
+        return buildNotification("filt3r is running");
+    }
+
+    private Notification buildNotification(String title) {
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop = PendingIntent.getService(this, 1,
@@ -761,7 +793,7 @@ public class Filt3rVpnService extends VpnService {
                 PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_lock_lock)
-                .setContentTitle("filt3r is running")
+                .setContentTitle(title)
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setVisibility(Notification.VISIBILITY_PRIVATE)
@@ -953,6 +985,7 @@ public class Filt3rVpnService extends VpnService {
             HttpsFetcher lists = filterFetcher;
             filterFetcher = null;
             if (lists != null) {
+                DNSFilterManager.requestAbort(); // first: the cut below must read as an abort, not as a failed list
                 lists.cancel(); // a list download blocked on the network ends now, so the filter can stop
             }
             nodes = null;

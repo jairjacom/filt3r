@@ -438,7 +438,18 @@ public class MainActivity extends Activity
 
     @Override
     public void setSubscription(int slot, String url, int hours) {
+        String old = null;
+        for (Settings.Subscription s : settings.subscriptions()) {
+            if (s.slot == slot) {
+                old = s.url;
+            }
+        }
         settings.setSubscription(slot, url, hours);
+        if (old != null && !old.equals(url.trim())) {
+            // The old subscription's node list holds its URL (often a token) and every node password.
+            new File(getFilesDir(), "nodes_" + slot + ".txt").delete();
+            new File(getFilesDir(), "nodes_" + slot + ".tmp").delete();
+        }
     }
 
     @Override
