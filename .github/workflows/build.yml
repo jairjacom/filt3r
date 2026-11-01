@@ -11,16 +11,16 @@ jobs:
   debug-apk:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: '9.6.0'
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
 
       - name: Fetch hev-socks5-tunnel (pinned tag and submodules)
         run: scripts/fetch-hev.sh
@@ -33,12 +33,12 @@ jobs:
           echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon
+        run: ./gradlew :app:assembleDebug --no-daemon
 
       - name: List APK output
         run: ls -l app/build/outputs/apk/debug/
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: filt3r-debug-apk
           path: app/build/outputs/apk/debug/*.apk
