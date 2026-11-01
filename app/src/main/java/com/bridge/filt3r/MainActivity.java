@@ -12,22 +12,27 @@ import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 import android.widget.Toast;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.FrameLayout;
+import android.widget.EditText;
 
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.filter.UserOverrides;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
+import com.bridge.filt3r.ui.DockedToolbar;
 import com.bridge.filt3r.ui.ExemptAppsPanel;
 import com.bridge.filt3r.ui.FloatingToolbar;
 import com.bridge.filt3r.ui.NodesPanel;
 import com.bridge.filt3r.ui.QueryLogPanel;
 import com.bridge.filt3r.ui.SettingsPanel;
 import com.bridge.filt3r.ui.StatusView;
+import com.bridge.filt3r.ui.SwipeRule;
 
 import java.io.File;
 import java.io.IOException;
@@ -43,11 +48,21 @@ public class MainActivity extends Activity
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
     private static final String KEY_SETTINGS_OPEN = "settings_open";
+    private static final String KEY_SECTION = "section";
+    private static final int SECTION_COUNT = 5;
+    private static final long SLIDE_MS = 200;
     private static final long STATS_INTERVAL_MS = 1000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private StatusView status;
     private FloatingToolbar toolbar;
+    private DockedToolbar dock;
+    private boolean docked;
+    private int section;
+    private VelocityTracker velocity;
+    private float downX;
+    private float downY;
+    private boolean swipeAllowed;
     private FrameLayout frame;
     private View panel;
     private Settings settings;
@@ -66,7 +81,11 @@ public class MainActivity extends Activity
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        toolbar.poke();
+        if (docked) {
+            trackSwipe(ev);
+        } else {
+            toolbar.poke();
+        }
         return super.dispatchTouchEvent(ev);
     }
 
@@ -80,27 +99,48 @@ public class MainActivity extends Activity
         status = new StatusView(this, this);
         frame.addView(status, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        toolbar = new FloatingToolbar(this);
-        frame.addView(toolbar, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM));
-        toolbar.addItem(R.drawable.ic_nodes, "Nodes",
-                () -> openPanel(() -> new NodesPanel(this, this, this::closePanel)));
-        toolbar.addItem(R.drawable.ic_apps, "Exempt apps",
-                () -> openPanel(() -> new ExemptAppsPanel(this, this, this::closePanel)));
-        toolbar.addItem(R.drawable.ic_log, "Query log",
-                () -> openPanel(() -> new QueryLogPanel(this, this, this::closePanel)));
-        toolbar.addItem(R.drawable.ic_settings, "Settings",
-                () -> openPanel(() -> new SettingsPanel(this, this, this::closePanel)));
-        toolbar.setAutoHide(!settings.toolbarPinned());
-        frame.setOnApplyWindowInsetsListener((v, insets) -> {
+        docked = Settings.TOOLBAR_DOCKED.equals(settings.toolbarStyle());
+        View root = frame;
+        if (docked) {
+            dock = new DockedToolbar(this, this::selectSection);
+            dock.addItem(R.drawable.ic_status, "Status");
+            dock.addItem(R.drawable.ic_nodes, "Nodes");
+            dock.addItem(R.drawable.ic_apps, "Exempt apps");
+            dock.addItem(R.drawable.ic_log, "Query log");
+            dock.addItem(R.drawable.ic_settings, "Settings");
+            dock.select(0);
+            FrameLayout.LayoutParams dockParams = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            dockParams.bottomMargin = (int) (8 * getResources().getDisplayMetrics().density);
+            frame.addView(dock, dockParams);
+        } else {
+            toolbar = new FloatingToolbar(this);
+            frame.addView(toolbar, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM));
+            toolbar.addItem(R.drawable.ic_nodes, "Nodes",
+                    () -> openPanel(() -> new NodesPanel(this, this, this::closePanel)));
+            toolbar.addItem(R.drawable.ic_apps, "Exempt apps",
+                    () -> openPanel(() -> new ExemptAppsPanel(this, this, this::closePanel)));
+            toolbar.addItem(R.drawable.ic_log, "Query log",
+                    () -> openPanel(() -> new QueryLogPanel(this, this, this::closePanel)));
+            toolbar.addItem(R.drawable.ic_settings, "Settings",
+                    () -> openPanel(() -> new SettingsPanel(this, this, this::closePanel)));
+            toolbar.setAutoHide(!settings.toolbarPinned());
+        }
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
             Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
             return WindowInsets.CONSUMED;
         });
-        setContentView(frame);
-        if (savedInstanceState != null && savedInstanceState.getBoolean(KEY_SETTINGS_OPEN)) {
-            openPanel(() -> new SettingsPanel(this, this, this::closePanel));
+        setContentView(root);
+        if (savedInstanceState != null) {
+            if (docked) {
+                showSection(savedInstanceState.getInt(KEY_SECTION), 0);
+            } else if (savedInstanceState.getBoolean(KEY_SETTINGS_OPEN)) {
+                openPanel(() -> new SettingsPanel(this, this, this::closePanel));
+            }
         }
 
         requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
@@ -109,7 +149,11 @@ public class MainActivity extends Activity
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        outState.putBoolean(KEY_SETTINGS_OPEN, panel instanceof SettingsPanel);
+        if (docked) {
+            outState.putInt(KEY_SECTION, section);
+        } else {
+            outState.putBoolean(KEY_SETTINGS_OPEN, panel instanceof SettingsPanel);
+        }
     }
 
     @Override
@@ -123,7 +167,7 @@ public class MainActivity extends Activity
     @Override
     protected void onStop() {
         handler.removeCallbacks(statsTick);
-        toolbar.pause();
+        if (toolbar != null) toolbar.pause();
         TunnelState.unregister(this);
         super.onStop();
     }
@@ -223,6 +267,102 @@ public class MainActivity extends Activity
         frame.removeView(panel);
         panel = null;
         getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(closePanelOnBack);
+        if (docked) {
+            section = 0;
+            dock.select(0);
+        }
+    }
+
+    private void selectSection(int index) {
+        if (index != section) {
+            dock.performHapticFeedback(HapticFeedbackConstants.SEGMENT_TICK);
+            showSection(index, Integer.signum(index - section));
+        }
+    }
+
+    /** Shows section {@code index} (0 = status, no panel). {@code dir} is +1, -1 or 0 for no slide. */
+    private void showSection(int index, int dir) {
+        closePanel();
+        section = index;
+        dock.select(index);
+        if (index == 0) {
+            return;
+        }
+        panel = sectionPanel(index);
+        frame.addView(panel, frame.indexOfChild(dock), new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
+        if (dir != 0) {
+            panel.setTranslationX(dir * frame.getWidth());
+            panel.animate().translationX(0).setDuration(SLIDE_MS).start();
+        }
+    }
+
+    private View sectionPanel(int index) {
+        switch (index) {
+            case 1:
+                return new NodesPanel(this, this, this::closePanel);
+            case 2:
+                return new ExemptAppsPanel(this, this, this::closePanel);
+            case 3:
+                return new QueryLogPanel(this, this, this::closePanel);
+            default:
+                return new SettingsPanel(this, this, this::closePanel);
+        }
+    }
+
+    private void changeSection(int target) {
+        if (target < 0 || target >= SECTION_COUNT || target == section) {
+            return;
+        }
+        frame.performHapticFeedback(HapticFeedbackConstants.SEGMENT_TICK);
+        showSection(target, Integer.signum(target - section));
+    }
+
+    /** Observes touches for horizontal swipes between sections. Never consumes the event. */
+    private void trackSwipe(MotionEvent ev) {
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                downX = ev.getX();
+                downY = ev.getY();
+                swipeAllowed = !(getCurrentFocus() instanceof EditText);
+                if (velocity == null) {
+                    velocity = VelocityTracker.obtain();
+                } else {
+                    velocity.clear();
+                }
+                velocity.addMovement(ev);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                if (velocity != null) {
+                    velocity.addMovement(ev);
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+                if (velocity != null && swipeAllowed) {
+                    velocity.addMovement(ev);
+                    velocity.computeCurrentVelocity(1000);
+                    int dir = SwipeRule.direction(ev.getX() - downX, ev.getY() - downY, velocity.getXVelocity());
+                    if (dir != 0) {
+                        changeSection(section + dir);
+                    }
+                }
+                releaseVelocity();
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                releaseVelocity();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void releaseVelocity() {
+        if (velocity != null) {
+            velocity.recycle();
+            velocity = null;
+        }
     }
 
     @Override
@@ -403,7 +543,18 @@ public class MainActivity extends Activity
     @Override
     public void setToolbarPinned(boolean pinned) {
         settings.setToolbarPinned(pinned);
-        toolbar.setAutoHide(!pinned);
+        if (toolbar != null) toolbar.setAutoHide(!pinned);
+    }
+
+    @Override
+    public String toolbarStyle() {
+        return settings.toolbarStyle();
+    }
+
+    @Override
+    public void setToolbarStyle(String style) {
+        settings.setToolbarStyle(style);
+        recreate();
     }
 
     @Override

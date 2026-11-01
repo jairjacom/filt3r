@@ -102,6 +102,11 @@ public class SettingsPanel extends LinearLayout {
 
         void setToolbarPinned(boolean pinned);
 
+        /** "floating" or "docked". Changing it restarts the screen. */
+        String toolbarStyle();
+
+        void setToolbarStyle(String style);
+
         String version();
 
         /** 0 follow the system, 1 light, 2 dark. Applies at once. */
@@ -405,9 +410,51 @@ public class SettingsPanel extends LinearLayout {
         }
         card.addView(colour);
 
-        card.addView(switchRow(context, "Pin the toolbar",
-                "Keep the bottom toolbar visible instead of hiding it when idle.",
-                backend.toolbarPinned(), backend::setToolbarPinned));
+        // Toolbar style: a floating pill that can hide, or a docked bar with swipe between sections.
+        TextView toolbarLabel = new TextView(context);
+        toolbarLabel.setText("Toolbar");
+        toolbarLabel.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+        toolbarLabel.setPadding(dp(20), dp(12), dp(20), dp(4));
+        card.addView(toolbarLabel);
+        MaterialButtonToggleGroup styles = new MaterialButtonToggleGroup(context);
+        styles.setSingleSelection(true);
+        styles.setSelectionRequired(true);
+        String[] styleKeys = {"floating", "docked"};
+        String[] styleNames = {"Floating", "Docked"};
+        int[] styleIds = new int[2];
+        for (int i = 0; i < 2; i++) {
+            MaterialButton b = new MaterialButton(context, null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            b.setText(styleNames[i]);
+            b.setId(View.generateViewId());
+            b.setCheckable(true);
+            styleIds[i] = b.getId();
+            styles.addView(b);
+        }
+        boolean dockedStyle = "docked".equals(backend.toolbarStyle());
+        styles.check(styleIds[dockedStyle ? 1 : 0]);
+        styles.addOnButtonCheckedListener((group, id, checked) -> {
+            if (checked) {
+                for (int i = 0; i < 2; i++) {
+                    if (styleIds[i] == id && !styleKeys[i].equals(backend.toolbarStyle())) {
+                        backend.setToolbarStyle(styleKeys[i]);
+                    }
+                }
+            }
+        });
+        LayoutParams styleParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        styleParams.setMargins(dp(16), 0, dp(16), dp(4));
+        card.addView(styles, styleParams);
+        card.addView(note(context, dockedStyle
+                ? "Docked: the toolbar stays on screen. Swipe left or right to move between Status, Nodes,"
+                + " Exempt apps, Query log and Settings."
+                : "Floating: the toolbar hides when idle and opens each section over the Status screen."));
+
+        if (!dockedStyle) {
+            card.addView(switchRow(context, "Pin the toolbar",
+                    "Keep the bottom toolbar visible instead of hiding it when idle.",
+                    backend.toolbarPinned(), backend::setToolbarPinned));
+        }
     }
 
     private static String schemeLabel(String key) {
