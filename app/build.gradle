@@ -35,10 +35,25 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            // Filled only when the release job provides a keystore; a plain local build stays unsigned.
+            if (System.getenv('RELEASE_STORE_FILE')) {
+                storeFile file(System.getenv('RELEASE_STORE_FILE'))
+                storePassword System.getenv('RELEASE_STORE_PASSWORD')
+                keyAlias System.getenv('RELEASE_KEY_ALIAS')
+                keyPassword System.getenv('RELEASE_STORE_PASSWORD') // PKCS12: key and store share one password
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (System.getenv('RELEASE_STORE_FILE')) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
