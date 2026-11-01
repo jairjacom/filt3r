@@ -407,6 +407,17 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public String toolbarStyle() {
+        return settings.toolbarStyle();
+    }
+
+    @Override
+    public void setToolbarStyle(String style) {
+        settings.setToolbarStyle(style);
+        recreate();
+    }
+
+    @Override
     public String version() {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;

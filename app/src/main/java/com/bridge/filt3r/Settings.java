@@ -58,6 +58,7 @@ final class Settings {
     private static final String KEY_NODE_SORT_SPEED = "node_sort_speed";
     private static final String KEY_FILTER_URL = "filter_url";
     private static final String KEY_TOOLBAR_PINNED = "toolbar_pinned";
+    private static final String KEY_TOOLBAR_STYLE = "toolbar_style";
     private static final String KEY_THEME_MODE = "theme_mode";
     private static final String KEY_PURE_BLACK = "pure_black";
     private static final String KEY_COLOR_SCHEME = "color_scheme";
@@ -196,6 +197,19 @@ final class Settings {
 
     void setToolbarPinned(boolean pinned) {
         prefs.edit().putBoolean(KEY_TOOLBAR_PINNED, pinned).apply();
+    }
+
+    static final String TOOLBAR_FLOATING = "floating";
+    static final String TOOLBAR_DOCKED = "docked";
+
+    /** TOOLBAR_FLOATING (a pill that can hide) or TOOLBAR_DOCKED (always shown, swipe between sections). */
+    String toolbarStyle() {
+        return TOOLBAR_DOCKED.equals(prefs.getString(KEY_TOOLBAR_STYLE, TOOLBAR_FLOATING))
+                ? TOOLBAR_DOCKED : TOOLBAR_FLOATING;
+    }
+
+    void setToolbarStyle(String style) {
+        prefs.edit().putString(KEY_TOOLBAR_STYLE, style).apply();
     }
 
     static final String SCHEME_DEFAULT = "default";
