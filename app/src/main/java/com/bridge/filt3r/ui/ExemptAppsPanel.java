@@ -84,6 +84,7 @@ public class ExemptAppsPanel extends LinearLayout {
     private final TextView empty;
     private final LinearLayout banner;
     private List<App> apps = new ArrayList<>();
+    private boolean detached;
 
     public ExemptAppsPanel(Context context, Backend backend, Runnable onClose) {
         super(context);
