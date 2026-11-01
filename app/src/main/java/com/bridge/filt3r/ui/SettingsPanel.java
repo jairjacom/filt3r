@@ -333,8 +333,8 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private static final String[] SCHEME_KEYS = {"default", "standard", "vibrant", "expressive", "dynamic"};
-    private static final String[] SCHEME_LABELS = {"filt3r default", "Standard", "Vibrant", "Expressive",
-        "Use Material You"};
+    private static final String[] SCHEME_LABELS = {"filt3r default", "Standard", "Vibrant",
+        "Expressive (accents shifted)", "Use Material You"};
 
     private void buildAppearance(Context context) {
         LinearLayout card = group("Appearance");
@@ -379,6 +379,10 @@ public class SettingsPanel extends LinearLayout {
         Row scheme = valueRow(context, "Colour scheme", schemeLabel(backend.colorScheme()));
         scheme.setOnClickListener(v -> chooseScheme());
         card.addView(scheme);
+        if ("expressive".equals(backend.colorScheme())) {
+            card.addView(note(context, "Expressive keeps your colour in the background and shifts the buttons and"
+                    + " accents to other hues. Use Standard or Vibrant to colour the buttons with your choice."));
+        }
 
         boolean dynamic = "dynamic".equals(backend.colorScheme());
         Row colour = valueRow(context, "Select colour", "");
