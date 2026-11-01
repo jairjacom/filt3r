@@ -81,6 +81,12 @@ public class SettingsPanel extends LinearLayout {
         /** Saves the text. @return an error message to show, or null if it was saved */
         String setFilterListUrl(String text);
 
+        /** The filter-list status, one or two lines; read every second while the panel is open. */
+        String filterStatus();
+
+        /** Starts a download now. @return false if the tunnel is down */
+        boolean updateFilters();
+
         boolean queryLogEnabled();
 
         void setQueryLogEnabled(boolean on);
@@ -105,6 +111,7 @@ public class SettingsPanel extends LinearLayout {
     private final LinearLayout content;
     private final LinearLayout banner;
     private boolean changed;
+    private TextView filterStatus;
 
     public SettingsPanel(Context context, Backend backend, Runnable onClose) {
         super(context);
@@ -271,6 +278,17 @@ public class SettingsPanel extends LinearLayout {
         card.addView(lists, fieldParams());
         card.addView(note(context, "Host lists that block ads and trackers (https:// only; separate several with"
                 + " spaces). Empty: the lists the app ships with."));
+        filterStatus = note(context, backend.filterStatus());
+        card.addView(filterStatus);
+        MaterialButton update = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        update.setText("Update lists now");
+        update.setOnClickListener(v -> Toast.makeText(context, backend.updateFilters()
+                ? "Updating the filter lists..." : "Connect first: the lists are downloaded through a node.",
+                Toast.LENGTH_SHORT).show());
+        LayoutParams updateParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        updateParams.setMargins(dp(16), 0, dp(16), dp(8));
+        card.addView(update, updateParams);
     }
 
     private void buildPrivacy(Context context) {
@@ -307,6 +325,26 @@ public class SettingsPanel extends LinearLayout {
                 + " The APK is conveyed under GPL version 3 because it includes Material Components (Apache"
                 + " License 2.0). It also includes hev-socks5-tunnel (MIT), lwIP (BSD 3-clause) and libyaml"
                 + " (MIT)."));
+    }
+
+    private final Runnable statusTick = new Runnable() {
+        @Override
+        public void run() {
+            filterStatus.setText(backend.filterStatus());
+            postDelayed(this, 1000);
+        }
+    };
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        post(statusTick);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        removeCallbacks(statusTick);
+        super.onDetachedFromWindow();
     }
 
     // ---- behaviour ----

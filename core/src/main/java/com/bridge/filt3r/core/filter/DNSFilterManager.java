@@ -218,6 +218,8 @@ public class DNSFilterManager extends ConfigurationAccess  {
 						} catch (Exception e) {
 							//Logger.getLogger().logException(e);
 							Logger.getLogger().logLine("Cannot update hosts filter file!");
+							if (!FilterStatus.isFailed())
+								FilterStatus.failed(e.toString());
 							Logger.getLogger().logLine(e.toString());
 							if (retry < 10) {
 								if (retry < 5)
@@ -236,6 +238,8 @@ public class DNSFilterManager extends ConfigurationAccess  {
 							}
 						} finally {
 							reloading_filter = false;
+							if (FilterStatus.isFailed())
+								FilterStatus.retryAt(nextReload);
 						}
 					}
 					Logger.getLogger().logLine("DNS filter: AutoFilterUpdater stopped!");
@@ -710,6 +714,18 @@ public class DNSFilterManager extends ConfigurationAccess  {
 	}
 
 
+	/** "host: reason" for the status line. The full URL is left out: it may carry a token. */
+	private static String describeFailure(String urlStr, IOException e) {
+		String host = urlStr;
+		try {
+			host = new java.net.URL(urlStr).getHost();
+		} catch (java.net.MalformedURLException m) {
+			// keep the raw text
+		}
+		String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+		return host + ": " + reason;
+	}
+
 	private void writeDownloadInfoFile(int count, long lastModified) throws IOException{
 		FileOutputStream entryCountOut = new FileOutputStream(getPath() +filterhostfile+".DLD_CNT");
 		entryCountOut.write((count + "\n").getBytes());
@@ -731,6 +747,7 @@ public class DNSFilterManager extends ConfigurationAccess  {
 				StringTokenizer urlTokens = new StringTokenizer(filterReloadURL, ";");
 
 				int urlCnt = urlTokens.countTokens();
+				FilterStatus.downloading(urlCnt);
 				int count = 0;
 				for (int i = 0; i < urlCnt; i++) {
 					String urlStr = urlTokens.nextToken().trim();
@@ -787,8 +804,10 @@ public class DNSFilterManager extends ConfigurationAccess  {
 								Logger.getLogger().message("Filter update aborted!");
 								out.flush();
 								out.close();
+								FilterStatus.aborted();
 								return false;
 							}
+							FilterStatus.listDone();
 							if (skippedWildcard != 0)
 								Logger.getLogger().logLine("WARNING! - " + skippedWildcard + " skipped entrie(s) for " + urlStr + "! Wildcards are only supported in additionalHosts.txt!");
 						}
@@ -797,6 +816,7 @@ public class DNSFilterManager extends ConfigurationAccess  {
 						Logger.getLogger().message(msg);
 						Logger.getLogger().logLine(msg);
 						out.close();
+						FilterStatus.failed(describeFailure(urlStr, eio));
 						throw eio;
 					}
 
@@ -817,7 +837,9 @@ public class DNSFilterManager extends ConfigurationAccess  {
 				if (!ffile.exists() || ffile.delete()) {
 
 					new File(getPath() + filterhostfile + ".tmp").renameTo(new File(getPath() + filterhostfile));
-					writeDownloadInfoFile(count, new File(getPath() + filterhostfile).lastModified());
+					long modified = new File(getPath() + filterhostfile).lastModified();
+					writeDownloadInfoFile(count, modified);
+					FilterStatus.ok(count, modified);
 				} else
 					throw new IOException("Renaming downloaded .tmp file to filter file failed!");
 
@@ -1186,6 +1208,7 @@ public class DNSFilterManager extends ConfigurationAccess  {
 			if (!additionalHosts.exists())
 				additionalHosts.createNewFile();
 
+			FilterStatus.loadedFromDisk(downloadInfoFile);
 			if (filterfile.exists() && downloadInfoFile.exists() && !reloadUrlChanged) {
 				nextReload = filterReloadIntervalDays * 24 * 60 * 60 * 1000 + downloadInfoFile.lastModified();
 			} else

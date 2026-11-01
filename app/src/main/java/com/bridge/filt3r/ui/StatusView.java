@@ -34,6 +34,7 @@ public class StatusView extends ScrollView {
         public String resolverIp;
         public long[] trafficBytes;   // {up, down} since start
         public long[] dnsCounts;      // {blocked, allowed}
+        public String filterText;     // filter-list status, may be several lines
     }
 
     public interface Actions {
@@ -171,7 +172,9 @@ public class StatusView extends ScrollView {
             String pct = total == 0 ? "" : String.format(Locale.US, "  (%.0f%%)", 100.0 * blocked / total);
             String resolver = s.resolverName == null ? ""
                     : "Resolver " + s.resolverName + (s.resolverIp == null ? "" : "  ·  " + s.resolverIp);
-            dnsCard.set("Blocked " + blocked + pct, "Allowed " + s.dnsCounts[1], resolver);
+            String lists = s.filterText == null ? "" : s.filterText;
+            String more = resolver.isEmpty() || lists.isEmpty() ? resolver + lists : resolver + "\n" + lists;
+            dnsCard.set("Blocked " + blocked + pct, "Allowed " + s.dnsCounts[1], more);
         }
     }
 
