@@ -56,6 +56,8 @@ final class Settings {
     private static final String KEY_RESOLVER_STAMP = "resolver_stamp";
     private static final String KEY_PINNED_NODE = "pinned_node";
     private static final String KEY_NODE_SORT_SPEED = "node_sort_speed";
+    private static final String KEY_FILTER_URL = "filter_url";
+    private static final String KEY_TOOLBAR_PINNED = "toolbar_pinned";
 
     private final SharedPreferences prefs;
 
@@ -146,5 +148,49 @@ final class Settings {
 
     void setExemptApps(Set<String> packages) {
         prefs.edit().putStringSet(KEY_EXEMPT_APPS, new HashSet<>(packages)).apply();
+    }
+
+    /**
+     * The user's filter-list URL(s), "; "-separated, or "" to use the lists configured in
+     * dnsfilter.conf. Applies at the next (re)start.
+     */
+    String filterListUrl() {
+        return prefs.getString(KEY_FILTER_URL, "");
+    }
+
+    /** @param urls already checked with {@link #normalizeFilterUrls}; "" clears */
+    void setFilterListUrl(String urls) {
+        prefs.edit().putString(KEY_FILTER_URL, urls).apply();
+    }
+
+    /**
+     * Splits on whitespace, commas and semicolons, requires https, and joins with "; ".
+     *
+     * @throws IllegalArgumentException naming the first bad entry
+     */
+    static String normalizeFilterUrls(String text) {
+        StringBuilder out = new StringBuilder();
+        for (String url : text.trim().split("[\\s,;]+")) {
+            if (url.isEmpty()) {
+                continue;
+            }
+            if (!url.regionMatches(true, 0, "https://", 0, 8) || url.length() == 8) {
+                throw new IllegalArgumentException("Only https:// addresses work: " + url);
+            }
+            if (out.length() > 0) {
+                out.append("; ");
+            }
+            out.append(url);
+        }
+        return out.toString();
+    }
+
+    /** True to keep the floating toolbar always visible instead of hiding when idle. */
+    boolean toolbarPinned() {
+        return prefs.getBoolean(KEY_TOOLBAR_PINNED, false);
+    }
+
+    void setToolbarPinned(boolean pinned) {
+        prefs.edit().putBoolean(KEY_TOOLBAR_PINNED, pinned).apply();
     }
 }

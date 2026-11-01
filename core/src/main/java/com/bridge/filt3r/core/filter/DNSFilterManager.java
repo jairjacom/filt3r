@@ -102,6 +102,16 @@ public class DNSFilterManager extends ConfigurationAccess  {
 	private static String DOWNLOADED_FF_PREFIX= "# Downloaded by personalDNSFilter at: ";
 
 
+	// The user's own filter-list URL(s) from Settings. When set, they replace the configured lists
+	// for this run (in memory only; dnsfilter.conf is not touched), so clearing the field returns
+	// to the configured lists and the changed URL makes the filter download again.
+	private static volatile String filterListOverride;
+
+	/** URLs separated by ';'. Null or empty: use the lists from dnsfilter.conf. Call before init(). */
+	public static void setFilterListOverride(String urls) {
+		filterListOverride = urls;
+	}
+
 	protected Properties config = null;
 
 
@@ -1427,6 +1437,13 @@ public class DNSFilterManager extends ConfigurationAccess  {
 			byte[] configBytes = readConfig();
 			config = new Properties();
 			config.load(new ByteArrayInputStream(configBytes));
+			String custom = filterListOverride;
+			if (custom != null && !custom.trim().isEmpty()) {
+				config.setProperty("filterAutoUpdateURL", custom.trim());
+				config.setProperty("filterAutoUpdateURL_IDs", "custom");
+				config.setProperty("filterAutoUpdateURL_categories", "custom");
+				config.setProperty("filterAutoUpdateURL_switchs", "true");
+			}
 
 			serverStopped = false;
 

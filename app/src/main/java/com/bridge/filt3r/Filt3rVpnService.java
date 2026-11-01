@@ -221,6 +221,7 @@ public class Filt3rVpnService extends VpnService {
             HttpsFetcher listFetcher = new HttpsFetcher(viaNode,
                     new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode)));
             DNSFilterManager.setUrlOpener(listFetcher::stream);
+            DNSFilterManager.setFilterListOverride(settings.filterListUrl());
             startFilter();
             DnsCryptStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
             resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
