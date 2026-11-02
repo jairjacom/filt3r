@@ -103,6 +103,9 @@ public class SettingsPanel extends LinearLayout {
         /** The filter-list status, one or two lines; read every second while the panel is open. */
         String filterStatus();
 
+        /** One line about the IP blocklist (downloading, loaded, or why not); empty when there is nothing to say. */
+        String ipBlockStatus();
+
         /** Starts a download now. @return false if the tunnel is down */
         boolean updateFilters();
 
@@ -155,6 +158,7 @@ public class SettingsPanel extends LinearLayout {
     private final LinearLayout banner;
     private boolean changed;
     private TextView filterStatus;
+    private TextView ipBlockStatus;
 
     public SettingsPanel(Context context, Backend backend, Runnable onClose) {
         super(context);
@@ -355,8 +359,17 @@ public class SettingsPanel extends LinearLayout {
                     backend.setIpBlockEnabled(on);
                     markChanged();
                 }));
+        ipBlockStatus = note(context, "");
+        showIpBlockStatus();
+        card.addView(ipBlockStatus);
         card.addView(note(context, "Changes apply the next time you connect. Filter-list URLs above are used in"
                 + " addition to these lists."));
+    }
+
+    private void showIpBlockStatus() {
+        String s = backend.ipBlockStatus();
+        ipBlockStatus.setText("IP blocklist: " + s);
+        ipBlockStatus.setVisibility(s.isEmpty() ? GONE : VISIBLE);
     }
 
     /** The text under a list name: a readable description for the lists added with this card, else the category. */
@@ -558,6 +571,7 @@ public class SettingsPanel extends LinearLayout {
         @Override
         public void run() {
             filterStatus.setText(backend.filterStatus());
+            showIpBlockStatus();
             postDelayed(this, 1000);
         }
     };

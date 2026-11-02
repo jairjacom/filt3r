@@ -649,6 +649,11 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public String ipBlockStatus() {
+        return Filt3rVpnService.ipBlockStatus();
+    }
+
+    @Override
     public boolean updateFilters() {
         return Filt3rVpnService.updateFilters();
     }

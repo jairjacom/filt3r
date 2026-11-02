@@ -122,6 +122,7 @@ public class Filt3rVpnService extends VpnService {
     private static final AtomicLong dnsBlocked = new AtomicLong();
     private static final AtomicLong dnsAllowed = new AtomicLong();
     private static final AtomicReference<String> notice = new AtomicReference<>();
+    private static volatile String ipBlockStatus = "";
     private static volatile String[] resolverInfo; // {name, ip} of the DNS resolver in use, null while down
 
     private final AtomicInteger generation = new AtomicInteger(); // bumped by every stop
@@ -335,7 +336,10 @@ public class Filt3rVpnService extends VpnService {
                 Log.i(TAG, "hev started, bridge on loopback");
                 startMaintenance(manager, tester, store, viaNode, testStamp);
                 if (settings.ipBlockEnabled()) {
+                    ipBlockStatus = "Downloading...";
                     startIpBlock(gen, listFetcher);
+                } else {
+                    ipBlockStatus = "";
                 }
                 starting = false;
                 TunnelState.set(TunnelState.State.RUNNING);
@@ -573,6 +577,11 @@ public class Filt3rVpnService extends VpnService {
         return notice.getAndSet(null);
     }
 
+    /** One line for Settings about the IP blocklist: empty when it is off or the tunnel is down. */
+    static String ipBlockStatus() {
+        return ipBlockStatus;
+    }
+
     /**
      * Starts a filter-list download now (the filter does it on its own thread).
      *
@@ -771,8 +780,12 @@ public class Filt3rVpnService extends VpnService {
                     bridge.setIpBlockList(list);
                     DNSResponsePatcher.setIpBlockList(list);
                 }
+                ipBlockStatus = "Loaded: " + list.size() + " addresses";
                 Log.i(TAG, "IP blocklist loaded: " + list.size() + " entries");
-            } catch (IOException | RuntimeException e) {
+            } catch (IOException | RuntimeException | Error e) {
+                String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                ipBlockStatus = "Not loaded: " + reason;
+                notice.set("IP blocklist not loaded: " + reason);
                 Log.w(TAG, "IP blocklist not loaded: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             }
         });
@@ -1025,6 +1038,7 @@ public class Filt3rVpnService extends VpnService {
             runtime = null;
             DNSResponsePatcher.setObserver(null);
             DNSResponsePatcher.setIpBlockList(null);
+            ipBlockStatus = "";
             resolverInfo = null;
             DNSFilterManager.setUrlOpener(null);
             handler.removeCallbacksAndMessages(null);
