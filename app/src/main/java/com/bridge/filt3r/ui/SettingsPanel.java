@@ -400,8 +400,8 @@ public class SettingsPanel extends LinearLayout {
         switch (entry.id) {
             case "HageziProMini":
                 return "Hagezi Domain Blocklist";
-            case "EasyPrivacy-trackers":
-                return "EasyList Tracking Servers";
+            case "EasyPrivacy":
+                return "EasyList trackers, about 47,000 domains";
             default:
                 return entry.category;
         }
