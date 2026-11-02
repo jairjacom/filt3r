@@ -1,0 +1,137 @@
+name: release
+
+# Runs when a tag like v0.0.1 is pushed. Three jobs, so the signing key only ever meets apksigner:
+#   build   - compiles the unsigned release APK. No secrets.
+#   sign    - signs it with the release key (environment "release"), verifies it, prints the SHA-256 values.
+#   publish - makes a GitHub release with the signed APK and its checksum. No secrets, only a release token.
+# The tag must match `appVersion` in app/build.gradle.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Tag must match the app version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="$(sed -n "s/^def appVersion = '\(.*\)'$/\1/p" app/build.gradle)"
+          [ -n "$VERSION" ] || { echo "appVersion not found in app/build.gradle"; exit 1; }
+          [ "$TAG" = "v$VERSION" ] || { echo "tag $TAG does not match appVersion $VERSION"; exit 1; }
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+
+      - name: Fetch hev-socks5-tunnel (pinned tag and submodules)
+        run: scripts/fetch-hev.sh
+
+      - name: Build the unsigned release APK
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Keep exactly one APK, and refuse a debuggable one
+        run: |
+          set -eu
+          [ "$(ls app/build/outputs/apk/release/*.apk | wc -l)" = 1 ] || { echo "expected one APK"; ls app/build/outputs/apk/release; exit 1; }
+          cp app/build/outputs/apk/release/*.apk "$RUNNER_TEMP/unsigned.apk"
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          if "$BT/aapt2" dump badging "$RUNNER_TEMP/unsigned.apk" | grep -q "application-debuggable"; then
+            echo "FAIL: the release APK is debuggable"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: unsigned-apk
+          path: ${{ runner.temp }}/unsigned.apk
+          retention-days: 1
+          if-no-files-found: error
+
+  sign:
+    needs: build
+    runs-on: ubuntu-24.04
+    # Secrets live in this environment. Protect it in the repository settings: required reviewer,
+    # and deployments only from tags v*.
+    environment: release
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: unsigned-apk
+          path: unsigned
+
+      - name: Sign, verify and fingerprint
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          EXPECTED_CERT_SHA256: ${{ vars.RELEASE_CERT_SHA256 }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          umask 077
+          KS="$RUNNER_TEMP/release.p12"
+          trap 'rm -f "$KS"' EXIT
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$KS"
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          OUT="filt3r-${TAG#v}.apk"
+          # PKCS12: the key and the store share one password.
+          "$BT/apksigner" sign --ks "$KS" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STORE_PASSWORD --key-pass env:STORE_PASSWORD \
+            --out "$OUT" unsigned/unsigned.apk
+          "$BT/apksigner" verify --verbose --print-certs "$OUT" > verify.txt
+          sed -n '1,12p' verify.txt
+          CERT="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' verify.txt)"
+          [ -n "$CERT" ] || { echo "no signer certificate found"; exit 1; }
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d ': ' | tr 'A-F' 'a-f')"
+          if [ -n "$EXPECTED" ] && [ "$CERT" != "$EXPECTED" ]; then
+            echo "FAIL: the APK is signed by $CERT, expected $EXPECTED"; exit 1
+          fi
+          SIZE="$(stat -c %s "$OUT")"
+          [ "$SIZE" -le 10485760 ] || { echo "FAIL: larger than 10 MiB ($SIZE)"; exit 1; }
+          sha256sum "$OUT" > "$OUT.sha256"
+          echo "$CERT" > cert-sha256.txt
+          echo "size: $SIZE bytes"; cat "$OUT.sha256"; echo "signing certificate SHA-256: $CERT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: signed-apk
+          path: |
+            filt3r-*.apk
+            filt3r-*.apk.sha256
+            cert-sha256.txt
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: sign
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: signed-apk
+          path: signed
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          cd signed
+          CERT="$(cat cert-sha256.txt)"
+          gh release create "$TAG" filt3r-*.apk filt3r-*.apk.sha256 --verify-tag --title "$TAG" \
+            --notes "Signing certificate SHA-256: \`$CERT\`. Check it with: apksigner verify --print-certs <apk>"
