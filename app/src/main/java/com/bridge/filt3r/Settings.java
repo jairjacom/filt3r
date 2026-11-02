@@ -59,6 +59,7 @@ final class Settings {
     private static final String KEY_FILTER_URL = "filter_url";
     private static final String KEY_ENABLED_LISTS = "enabled_lists";
     private static final String KEY_IP_BLOCK = "ip_block";
+    private static final String KEY_LIST_DAYS = "list_refresh_days";
     private static final String KEY_TOOLBAR_PINNED = "toolbar_pinned";
     private static final String KEY_TOOLBAR_STYLE = "toolbar_style";
     private static final String KEY_THEME_MODE = "theme_mode";
@@ -191,6 +192,15 @@ final class Settings {
 
     void setIpBlockEnabled(boolean on) {
         prefs.edit().putBoolean(KEY_IP_BLOCK, on).apply();
+    }
+
+    /** Days between updates of the block lists and the IP blocklist. Applies at the next (re)start. */
+    int listRefreshDays() {
+        return Math.min(Math.max(prefs.getInt(KEY_LIST_DAYS, 7), 1), 30);
+    }
+
+    void setListRefreshDays(int days) {
+        prefs.edit().putInt(KEY_LIST_DAYS, days).apply();
     }
 
     /**
