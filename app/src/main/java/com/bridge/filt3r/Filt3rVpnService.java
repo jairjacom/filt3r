@@ -337,7 +337,7 @@ public class Filt3rVpnService extends VpnService {
                 startMaintenance(manager, tester, store, viaNode, testStamp);
                 if (settings.ipBlockEnabled()) {
                     ipBlockStatus = "Downloading...";
-                    startIpBlock(gen, listFetcher);
+                    startIpBlock(gen, listFetcher, TimeUnit.DAYS.toMillis(settings.listRefreshDays()));
                 } else {
                     ipBlockStatus = "";
                 }
@@ -770,8 +770,7 @@ public class Filt3rVpnService extends VpnService {
      * maintenance period whether the cache is older than the refresh interval. Call under
      * {@code lock} after {@link #startMaintenance}, which creates the refresher.
      */
-    private void startIpBlock(int gen, HttpsFetcher fetcher) {
-        long maxAgeMs = TimeUnit.DAYS.toMillis(settings.listRefreshDays());
+    private void startIpBlock(int gen, HttpsFetcher fetcher, long maxAgeMs) {
         File cache = new File(getFilesDir(), "ipblock.txt");
         refresher.execute(() -> loadIpBlock(gen, fetcher, maxAgeMs));
         refresher.scheduleWithFixedDelay(() -> {
@@ -785,7 +784,7 @@ public class Filt3rVpnService extends VpnService {
     private void refreshIpBlockNow() {
         HttpsFetcher fetcher = filterFetcher;
         ScheduledExecutorService ref = refresher;
-        if (fetcher == null || ref == null || !settings.ipBlockEnabled()) {
+        if (fetcher == null || ref == null || ipBlockStatus.isEmpty()) { // empty: the IP list is off in this run
             return;
         }
         int gen = generation.get();
