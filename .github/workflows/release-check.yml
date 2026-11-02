@@ -1,11 +1,11 @@
 name: release-check
 
 # Builds the release APK with a throwaway key made inside the job and checks it: size, signature,
-# not debuggable. Nothing here touches a real key or a secret. Run by hand or on pushes to chore/release-* branches.
+# not debuggable. Nothing here touches a real key or a secret. Runs on every push (the per-branch build gate)
+# and by hand. This is the required check on main; it never uses the real signing key.
 on:
   workflow_dispatch:
   push:
-    branches: ['chore/release-*']
 
 permissions:
   contents: read
