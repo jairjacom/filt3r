@@ -572,7 +572,36 @@ public class SettingsPanel extends LinearLayout {
         card.addView(note(context, "filt3r is free software, GPL version 2 or later, built on PersonalDNSFilter."
                 + " The APK is conveyed under GPL version 3 because it includes Material Components (Apache"
                 + " License 2.0). It also includes hev-socks5-tunnel (MIT), lwIP (BSD 3-clause) and libyaml"
-                + " (MIT)."));
+                + " (MIT). Source code: https://github.com/jairjacom/filt3r"));
+        Row notices = valueRow(context, "Licences and credits", "Third-party notices");
+        notices.setOnClickListener(v -> showAsset("Licences and credits", "THIRD_PARTY_NOTICES.md"));
+        card.addView(notices);
+        Row gpl = valueRow(context, "GNU General Public License", "Version 3, full text");
+        gpl.setOnClickListener(v -> showAsset("GNU General Public License v3", "LICENSE.txt"));
+        card.addView(gpl);
+    }
+
+    /** Shows a text file from the APK's assets in a scrollable dialog. */
+    private void showAsset(String title, String asset) {
+        String text;
+        try (java.io.InputStream in = getContext().getAssets().open(asset)) {
+            text = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            text = "Could not read " + asset;
+        }
+        TextView body = new TextView(getContext());
+        body.setText(text);
+        body.setTextIsSelectable(true);
+        body.setTypeface(android.graphics.Typeface.MONOSPACE);
+        body.setTextSize(12);
+        body.setPadding(dp(20), dp(8), dp(20), dp(8));
+        ScrollView scroll = new ScrollView(getContext());
+        scroll.addView(body);
+        new MaterialAlertDialogBuilder(getContext())
+                .setTitle(title)
+                .setView(scroll)
+                .setPositiveButton("Close", null)
+                .show();
     }
 
     private final Runnable statusTick = new Runnable() {

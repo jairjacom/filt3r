@@ -10,3 +10,5 @@ app/src/main/jni/hev-socks5-tunnel/
 AGENTS.md
 NOTES.md
 local/
+*.p12
+*.pfx
