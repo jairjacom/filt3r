@@ -29,11 +29,12 @@ wrapper are pinned by checksum.
 Our code is GPL-2.0-or-later, inherited from PersonalDNSFilter. The APK includes Apache-2.0 components
 (Material Components, AndroidX), so it is conveyed under GPL-3.0. The full text is in `LICENSE`.
 
-Third-party licences and credits are in `THIRD_PARTY_NOTICES.md`: PersonalDNSFilter (Ingo Zenz),
-hev-socks5-tunnel, lwIP, libyaml and Material Components.
+Third-party licences and credits are in `app/src/main/assets/THIRD_PARTY_NOTICES.md`: PersonalDNSFilter
+(Ingo Zenz), hev-socks5-tunnel, lwIP, libyaml and Material Components. The app shows both texts under
+Settings > About.
 
 ## Privacy
 
 filt3r sends no data to its author. It talks to your Shadowsocks nodes, your DNS resolver, and the
-subscription and block-list URLs you configure. The default list sources are public mirrors (GitHub,
-jsDelivr, GitLab) that see your IP address when lists update.
+subscription and block-list URLs you configure. Block lists are downloaded through your node, so the
+servers hosting them see the node's address, not yours. All block lists start switched off.
