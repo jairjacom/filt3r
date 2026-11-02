@@ -57,6 +57,8 @@ final class Settings {
     private static final String KEY_PINNED_NODE = "pinned_node";
     private static final String KEY_NODE_SORT_SPEED = "node_sort_speed";
     private static final String KEY_FILTER_URL = "filter_url";
+    private static final String KEY_ENABLED_LISTS = "enabled_lists";
+    private static final String KEY_IP_BLOCK = "ip_block";
     private static final String KEY_TOOLBAR_PINNED = "toolbar_pinned";
     private static final String KEY_TOOLBAR_STYLE = "toolbar_style";
     private static final String KEY_THEME_MODE = "theme_mode";
@@ -166,6 +168,29 @@ final class Settings {
     /** @param urls already checked with {@link #normalizeFilterUrls}; "" clears */
     void setFilterListUrl(String urls) {
         prefs.edit().putString(KEY_FILTER_URL, urls).apply();
+    }
+
+    /**
+     * Ids of the downloadable block lists the user switched on, or null if they never chose: then
+     * the defaults in dnsfilter.conf apply. Custom filter-list URLs are used in addition to these.
+     * Applies at the next (re)start.
+     */
+    Set<String> enabledFilterLists() {
+        Set<String> ids = prefs.getStringSet(KEY_ENABLED_LISTS, null);
+        return ids == null ? null : new HashSet<>(ids);
+    }
+
+    void setEnabledFilterLists(Set<String> ids) {
+        prefs.edit().putStringSet(KEY_ENABLED_LISTS, new HashSet<>(ids)).apply();
+    }
+
+    /** True to also block connections to the IP addresses on the Hagezi TIF list. Off by default. */
+    boolean ipBlockEnabled() {
+        return prefs.getBoolean(KEY_IP_BLOCK, false);
+    }
+
+    void setIpBlockEnabled(boolean on) {
+        prefs.edit().putBoolean(KEY_IP_BLOCK, on).apply();
     }
 
     /**

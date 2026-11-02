@@ -21,6 +21,7 @@ import android.view.WindowInsets;
 import android.widget.FrameLayout;
 import android.widget.EditText;
 
+import com.bridge.filt3r.core.filter.FilterCatalog;
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.filter.UserOverrides;
@@ -37,7 +38,10 @@ import com.bridge.filt3r.ui.SwipeRule;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -67,6 +71,7 @@ public class MainActivity extends Activity
     private View panel;
     private Settings settings;
     private UserOverrides overrides;
+    private List<FilterCatalog.Entry> filterCatalog; // read from dnsfilter.conf on first use
     private FilterStatus.State lastFilterState = FilterStatus.State.NONE;
     private String lastFilterError = "";
     private final OnBackInvokedCallback closePanelOnBack = this::closePanel;
@@ -503,6 +508,59 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public List<FilterCatalog.Entry> filterCatalog() {
+        if (filterCatalog == null) {
+            try (InputStream in = getAssets().open("dnsfilter.conf")) {
+                filterCatalog = FilterCatalog.fromConf(in);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e); // the file ships in the APK: this is a broken build
+            }
+        }
+        return filterCatalog;
+    }
+
+    @Override
+    public boolean filterListEnabled(String id) {
+        return enabledFilterLists().contains(id);
+    }
+
+    @Override
+    public void setFilterListEnabled(String id, boolean on) {
+        Set<String> ids = enabledFilterLists();
+        if (on) {
+            ids.add(id);
+        } else {
+            ids.remove(id);
+        }
+        settings.setEnabledFilterLists(ids);
+    }
+
+    /** The user's choice, or the lists dnsfilter.conf switches on if none was made. */
+    private Set<String> enabledFilterLists() {
+        Set<String> chosen = settings.enabledFilterLists();
+        if (chosen != null) {
+            return chosen;
+        }
+        Set<String> defaults = new HashSet<>();
+        for (FilterCatalog.Entry entry : filterCatalog()) {
+            if (entry.onByDefault) {
+                defaults.add(entry.id);
+            }
+        }
+        return defaults;
+    }
+
+    @Override
+    public boolean ipBlockEnabled() {
+        return settings.ipBlockEnabled();
+    }
+
+    @Override
+    public void setIpBlockEnabled(boolean on) {
+        settings.setIpBlockEnabled(on);
+    }
+
+    @Override
     public boolean queryLogEnabled() {
         return settings.queryLogEnabled();
     }
@@ -588,6 +646,11 @@ public class MainActivity extends Activity
     @Override
     public String filterStatus() {
         return FilterStatusText.describe(FilterStatus.get(), running(), System.currentTimeMillis(), true);
+    }
+
+    @Override
+    public String ipBlockStatus() {
+        return Filt3rVpnService.ipBlockStatus();
     }
 
     @Override

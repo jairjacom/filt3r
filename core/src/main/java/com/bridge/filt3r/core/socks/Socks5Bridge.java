@@ -1,5 +1,6 @@
 package com.bridge.filt3r.core.socks;
 
+import com.bridge.filt3r.core.filter.IpBlockList;
 import java.io.Closeable;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -82,6 +83,7 @@ public final class Socks5Bridge {
     private final AtomicLong connectOk = new AtomicLong();
     private final AtomicLong connectFailed = new AtomicLong();
     private final AtomicLong refusedDomain = new AtomicLong();
+    private final AtomicLong refusedIpBlock = new AtomicLong();
     private final AtomicLong refusedIPv6 = new AtomicLong();
     private volatile boolean allowIPv6 = true;
     private final AtomicLong failedOpen = new AtomicLong();
@@ -111,6 +113,13 @@ public final class Socks5Bridge {
         SecureRandom random = new SecureRandom();
         this.username = randomHex(random);
         this.password = randomHex(random);
+    }
+
+    /** Destinations on this list are refused before any node is dialled. Null = off. */
+    private volatile IpBlockList ipBlock;
+
+    public void setIpBlockList(IpBlockList list) {
+        this.ipBlock = list;
     }
 
     public void setFailureMode(FailureMode mode) {
@@ -175,7 +184,7 @@ public final class Socks5Bridge {
     public String stats() {
         return "authFailed=" + authFailed + " connectOk=" + connectOk + " connectFailed=" + connectFailed
                 + " failedOpen=" + failedOpen + " mode=" + failureMode + " refusedDomain=" + refusedDomain
-                + " refusedIPv6=" + refusedIPv6
+                + " refusedIPv6=" + refusedIPv6 + " refusedIpBlock=" + refusedIpBlock
                 + " lastConnectError=" + lastConnectError
                 + " lastDnsError=" + lastDnsError
                 + " dnsForwarded=" + dnsForwarded + " udpDropped=" + udpDropped;
@@ -316,6 +325,13 @@ public final class Socks5Bridge {
             return;
         }
         InetAddress addr = InetAddress.getByAddress(ip);
+        IpBlockList blockedIps = ipBlock;
+        if (blockedIps != null && blockedIps.isBlocked(addr)) {
+            // Refused before any node is dialled, so the FAIL_OPEN fallback cannot reach it either.
+            reply(out, REP_NOT_ALLOWED, 0);
+            refusedIpBlock.incrementAndGet();
+            return;
+        }
         Link up;
         try {
             up = dialer.dial(addr, port, CONNECT_TIMEOUT_MS);
