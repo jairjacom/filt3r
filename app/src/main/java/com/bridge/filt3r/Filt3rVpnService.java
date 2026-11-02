@@ -81,7 +81,6 @@ public class Filt3rVpnService extends VpnService {
     private static final long FIRST_MAINTENANCE_MIN = 2;
     private static final int MTU = 1500;
     private static final long CONFIG_BACKSTOP_MS = 5000;
-    private static final long IP_BLOCK_MAX_AGE_MS = TimeUnit.DAYS.toMillis(7);
     static final String ACTION_STOP = "com.bridge.filt3r.STOP";
     static final String ACTION_RESTART = "com.bridge.filt3r.RESTART";
     private static final String CHANNEL_ID = "tunnel";
@@ -287,6 +286,7 @@ public class Filt3rVpnService extends VpnService {
                 DNSFilterManager.setUrlOpener(listFetcher::stream);
                 DNSFilterManager.setFilterListOverride(settings.filterListUrl());
                 DNSFilterManager.setEnabledLists(settings.enabledFilterLists());
+                DNSFilterManager.setReloadIntervalDays(settings.listRefreshDays());
                 filterFetcher = listFetcher;
                 startFilter();
                 resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
@@ -337,7 +337,7 @@ public class Filt3rVpnService extends VpnService {
                 startMaintenance(manager, tester, store, viaNode, testStamp);
                 if (settings.ipBlockEnabled()) {
                     ipBlockStatus = "Downloading...";
-                    startIpBlock(gen, listFetcher);
+                    startIpBlock(gen, listFetcher, TimeUnit.DAYS.toMillis(settings.listRefreshDays()));
                 } else {
                     ipBlockStatus = "";
                 }
@@ -588,10 +588,12 @@ public class Filt3rVpnService extends VpnService {
      * @return false if the tunnel is not running, so there is no node to download through
      */
     static boolean updateFilters() {
-        if (instance == null || TunnelState.get() != TunnelState.State.RUNNING) {
+        Filt3rVpnService service = instance;
+        if (service == null || TunnelState.get() != TunnelState.State.RUNNING) {
             return false;
         }
         DNSFilterManager.getInstance().triggerUpdateFilter();
+        service.refreshIpBlockNow();
         return true;
     }
 
@@ -764,31 +766,56 @@ public class Filt3rVpnService extends VpnService {
 
     /**
      * Loads the IP blocklist on the refresher thread: from its cache file if that is fresh, else
-     * through the node. A failure only means the tunnel runs without it. Call under {@code lock}
-     * after {@link #startMaintenance}, which creates the refresher.
+     * through the node. A failure only means the tunnel runs without it. Later it checks every
+     * maintenance period whether the cache is older than the refresh interval. Call under
+     * {@code lock} after {@link #startMaintenance}, which creates the refresher.
      */
-    private void startIpBlock(int gen, HttpsFetcher fetcher) {
+    private void startIpBlock(int gen, HttpsFetcher fetcher, long maxAgeMs) {
         File cache = new File(getFilesDir(), "ipblock.txt");
-        refresher.execute(() -> {
-            try {
-                IpBlockList list = IpBlockList.refresh(cache, IpBlockList.DEFAULT_URL, fetcher::stream,
-                        IP_BLOCK_MAX_AGE_MS);
-                synchronized (lock) {
-                    if (gen != generation.get()) {
-                        return; // stopped or restarted meanwhile: this list belongs to a bridge that is gone
-                    }
-                    bridge.setIpBlockList(list);
-                    DNSResponsePatcher.setIpBlockList(list);
-                }
-                ipBlockStatus = "Loaded: " + list.size() + " addresses";
-                Log.i(TAG, "IP blocklist loaded: " + list.size() + " entries");
-            } catch (IOException | RuntimeException | Error e) {
-                String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                ipBlockStatus = "Not loaded: " + reason;
-                notice.set("IP blocklist not loaded: " + reason);
-                Log.w(TAG, "IP blocklist not loaded: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        refresher.execute(() -> loadIpBlock(gen, fetcher, maxAgeMs));
+        refresher.scheduleWithFixedDelay(() -> {
+            if (System.currentTimeMillis() - cache.lastModified() >= maxAgeMs) {
+                loadIpBlock(gen, fetcher, maxAgeMs);
             }
-        });
+        }, MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
+    }
+
+    /** "Update lists now": downloads the IP blocklist again, if it is on and the tunnel is up. */
+    private void refreshIpBlockNow() {
+        HttpsFetcher fetcher = filterFetcher;
+        ScheduledExecutorService ref = refresher;
+        if (fetcher == null || ref == null || ipBlockStatus.isEmpty()) { // empty: the IP list is off in this run
+            return;
+        }
+        int gen = generation.get();
+        ipBlockStatus = "Updating...";
+        try {
+            ref.execute(() -> loadIpBlock(gen, fetcher, 0));
+        } catch (RejectedExecutionException e) {
+            // the tunnel is stopping
+        }
+    }
+
+    /** Runs on the refresher thread. maxAgeMs 0 forces a download. */
+    private void loadIpBlock(int gen, HttpsFetcher fetcher, long maxAgeMs) {
+        File cache = new File(getFilesDir(), "ipblock.txt");
+        try {
+            IpBlockList list = IpBlockList.refresh(cache, IpBlockList.DEFAULT_URL, fetcher::stream, maxAgeMs);
+            synchronized (lock) {
+                if (gen != generation.get()) {
+                    return; // stopped or restarted meanwhile: this list belongs to a bridge that is gone
+                }
+                bridge.setIpBlockList(list);
+                DNSResponsePatcher.setIpBlockList(list);
+            }
+            ipBlockStatus = "Loaded: " + list.size() + " addresses";
+            Log.i(TAG, "IP blocklist loaded: " + list.size() + " entries");
+        } catch (IOException | RuntimeException | Error e) {
+            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            ipBlockStatus = "Not loaded: " + reason;
+            notice.set("IP blocklist not loaded: " + reason);
+            Log.w(TAG, "IP blocklist not loaded: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
     }
 
     @Override

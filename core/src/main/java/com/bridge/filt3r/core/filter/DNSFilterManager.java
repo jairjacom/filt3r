@@ -121,6 +121,14 @@ public class DNSFilterManager extends ConfigurationAccess  {
 		enabledLists = ids == null ? null : new HashSet<>(ids);
 	}
 
+	// Days between list refreshes chosen in Settings; 0 keeps reloadIntervalDays from dnsfilter.conf.
+	private static volatile int reloadIntervalDaysOverride;
+
+	/** Days between automatic list updates; 0 or less keeps dnsfilter.conf. Call before init(). */
+	public static void setReloadIntervalDays(int days) {
+		reloadIntervalDaysOverride = Math.max(days, 0);
+	}
+
 	protected Properties config = null;
 
 
@@ -1433,7 +1441,7 @@ public class DNSFilterManager extends ConfigurationAccess  {
 		debug = false;
 		filterReloadURL = null;
 		filterhostfile = null;
-		filterReloadIntervalDays = 4;
+		filterReloadIntervalDays = 7;
 		nextReload = 0;
 		reloadUrlChanged = false;
 		filterHostsFileRemoveDuplicates = false;
@@ -1553,7 +1561,8 @@ public class DNSFilterManager extends ConfigurationAccess  {
 
 				// trigger regular filter update when configured
 				filterReloadURL = getFilterReloadURL(config);
-				filterReloadIntervalDays = Integer.parseInt(config.getProperty("reloadIntervalDays", "4"));
+				filterReloadIntervalDays = reloadIntervalDaysOverride > 0 ? reloadIntervalDaysOverride
+						: Integer.parseInt(config.getProperty("reloadIntervalDays", "7"));
 				String previousReloadURL = config.getProperty("previousAutoUpdateURL");
 
 				if (filterReloadURL != null)

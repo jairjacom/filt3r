@@ -100,6 +100,10 @@ public class SettingsPanel extends LinearLayout {
 
         void setIpBlockEnabled(boolean on);
 
+        int listRefreshDays();
+
+        void setListRefreshDays(int days);
+
         /** The filter-list status, one or two lines; read every second while the panel is open. */
         String filterStatus();
 
@@ -147,6 +151,7 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private static final int[] INTERVAL_HOURS = {1, 3, 6, 12, 24, 48, 168};
+    private static final int[] LIST_DAYS = {1, 3, 7, 14, 30};
     private static final String CUSTOM_RESOLVER_NAME = "Custom stamp";
     private static final String STAMP_HELP = "Find DNSCrypt stamps (they start with sdns://AQ) in the public"
             + " resolver list at github.com/DNSCrypt/dnscrypt-resolvers (file v3/public-resolvers.md)."
@@ -336,6 +341,16 @@ public class SettingsPanel extends LinearLayout {
         card.addView(filterStatus);
         ipBlockStatusInFilters = note(context, "");
         card.addView(ipBlockStatusInFilters);
+        Row refresh = valueRow(context, "Refresh lists", daysText(backend.listRefreshDays()));
+        refresh.setOnClickListener(v -> choose("Refresh lists", LIST_DAYS, SettingsPanel::daysText,
+                backend.listRefreshDays(), d -> {
+                    backend.setListRefreshDays(d);
+                    refresh.setSummary(daysText(d));
+                    markChanged();
+                }));
+        card.addView(refresh);
+        card.addView(note(context, "How often the block lists and the IP blocklist are downloaded again."
+                + " Applies the next time you connect."));
         MaterialButton update = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         update.setText("Update lists now");
@@ -637,22 +652,31 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private void chooseInterval(int current, java.util.function.IntConsumer onPick) {
-        CharSequence[] items = new CharSequence[INTERVAL_HOURS.length];
+        choose("Update interval", INTERVAL_HOURS, SettingsPanel::intervalText, current, onPick);
+    }
+
+    private void choose(String title, int[] values, java.util.function.IntFunction<String> text, int current,
+                        java.util.function.IntConsumer onPick) {
+        CharSequence[] items = new CharSequence[values.length];
         int checked = -1;
         for (int i = 0; i < items.length; i++) {
-            items[i] = intervalText(INTERVAL_HOURS[i]);
-            if (INTERVAL_HOURS[i] == current) {
+            items[i] = text.apply(values[i]);
+            if (values[i] == current) {
                 checked = i;
             }
         }
         new MaterialAlertDialogBuilder(getContext())
-                .setTitle("Update interval")
+                .setTitle(title)
                 .setSingleChoiceItems(items, checked, (d, which) -> {
-                    onPick.accept(INTERVAL_HOURS[which]);
+                    onPick.accept(values[which]);
                     d.dismiss();
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    private static String daysText(int days) {
+        return days == 1 ? "Every day" : "Every " + days + " days";
     }
 
     private void chooseResolver(Row row) {

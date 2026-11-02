@@ -561,6 +561,16 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public int listRefreshDays() {
+        return settings.listRefreshDays();
+    }
+
+    @Override
+    public void setListRefreshDays(int days) {
+        settings.setListRefreshDays(days);
+    }
+
+    @Override
     public boolean queryLogEnabled() {
         return settings.queryLogEnabled();
     }
