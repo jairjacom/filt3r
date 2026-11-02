@@ -159,6 +159,7 @@ public class SettingsPanel extends LinearLayout {
     private boolean changed;
     private TextView filterStatus;
     private TextView ipBlockStatus;
+    private TextView ipBlockStatusInFilters;
 
     public SettingsPanel(Context context, Backend backend, Runnable onClose) {
         super(context);
@@ -333,6 +334,8 @@ public class SettingsPanel extends LinearLayout {
                 + " spaces). They are used in addition to the lists switched on under Block lists."));
         filterStatus = note(context, backend.filterStatus());
         card.addView(filterStatus);
+        ipBlockStatusInFilters = note(context, "");
+        card.addView(ipBlockStatusInFilters);
         MaterialButton update = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         update.setText("Update lists now");
@@ -373,6 +376,8 @@ public class SettingsPanel extends LinearLayout {
         }
         ipBlockStatus.setText("IP blocklist: " + s);
         ipBlockStatus.setVisibility(s.isEmpty() ? GONE : VISIBLE);
+        ipBlockStatusInFilters.setText("IP blocklist: " + s);
+        ipBlockStatusInFilters.setVisibility(s.isEmpty() ? GONE : VISIBLE);
     }
 
     /** The text under a list name: a readable description for the lists added with this card, else the category. */
