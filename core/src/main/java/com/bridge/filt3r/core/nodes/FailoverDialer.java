@@ -36,6 +36,13 @@ public final class FailoverDialer implements Dialer {
         }
     }
 
+    /** The current node's key, or "" when there is none, so a node switch starts a new DNSCrypt key. */
+    @Override
+    public String exitId() {
+        ShadowsocksNode node = manager.current();
+        return node == null ? "" : NodeManager.keyOf(node);
+    }
+
     private synchronized ShadowsocksDialer dialerFor(ShadowsocksNode node) throws IOException {
         if (node != cachedNode) {
             cachedDialer = new ShadowsocksDialer(node, direct);
