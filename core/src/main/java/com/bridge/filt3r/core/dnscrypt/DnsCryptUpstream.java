@@ -27,7 +27,8 @@ import com.bridge.filt3r.core.socks.Link;
  * Sends DNS queries to a DNSCrypt v2 resolver over TCP (es-version 2, XChaCha20-Poly1305), through
  * a {@link Dialer}. Give it the node's dialer and the resolver sees only the node's address.
  * The resolver certificate is fetched and checked against the stamp's provider key, and renewed
- * shortly before it expires. Each query uses its own TCP connection.
+ * shortly before it expires. A new client key pair is made with each certificate fetch and when the
+ * dialer's exit changes (a node switch). Each query uses its own TCP connection.
  */
 public final class DnsCryptUpstream implements DNSResolver.Upstream {
 
@@ -45,7 +46,8 @@ public final class DnsCryptUpstream implements DNSResolver.Upstream {
 
     private final DnsCryptStamp stamp;
     private final Dialer dialer;
-    private Cert cert; // guarded by this
+    private Cert cert; // guarded by this; holds the client key pair, so it is renewed with every new exit
+    private String certExit = ""; // guarded by this: the Dialer.exitId() the cert was made for
 
     public DnsCryptUpstream(DnsCryptStamp stamp, Dialer dialer) {
         this.stamp = stamp;
@@ -124,6 +126,12 @@ public final class DnsCryptUpstream implements DNSResolver.Upstream {
 
     private synchronized Cert currentCert() throws IOException {
         long now = System.currentTimeMillis();
+        String exit = dialer.exitId();
+        if (!exit.equals(certExit)) {
+            // New exit: drop the key pair so the resolver cannot link this exit to the previous one.
+            cert = null;
+            certExit = exit;
+        }
         if (cert == null || now > cert.validUntilMs - RENEW_MARGIN_MS) {
             try {
                 cert = fetchCert();
