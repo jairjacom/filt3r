@@ -698,8 +698,13 @@ public class DNSFilterManager extends ConfigurationAccess  {
 	}
 
 
-	/** The host of a list URL for status lines. The full URL is left out: it may carry a token. */
+	private static volatile java.util.Map<String, String> listNames = new java.util.HashMap<>();
+
+	/** The name of a list for status lines (its ID in the config), else its host. The full URL is left out: it may carry a token. */
 	private static String hostOf(String urlStr) {
+		String name = listNames.get(urlStr);
+		if (name != null)
+			return name;
 		try {
 			String host = new java.net.URL(urlStr).getHost();
 			return host.isEmpty() ? urlStr : host;
@@ -1502,6 +1507,7 @@ public class DNSFilterManager extends ConfigurationAccess  {
 			}
 			if (custom != null && !custom.trim().isEmpty())
 				FilterCatalog.addCustom(config, custom);
+			listNames = FilterCatalog.namesByUrl(config);
 
 			serverStopped = false;
 

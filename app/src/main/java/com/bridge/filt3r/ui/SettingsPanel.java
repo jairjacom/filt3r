@@ -343,20 +343,32 @@ public class SettingsPanel extends LinearLayout {
     private void buildBlockLists(Context context) {
         LinearLayout card = group("Block lists");
         for (FilterCatalog.Entry entry : backend.filterCatalog()) {
-            card.addView(switchRow(context, entry.id, entry.category,
+            card.addView(switchRow(context, entry.id, listDescription(entry),
                     backend.filterListEnabled(entry.id), on -> {
                         backend.setFilterListEnabled(entry.id, on);
                         markChanged();
                     }));
         }
         card.addView(switchRow(context, "IP blocklist (Hagezi TIF)",
-                "Blocks connections to known threat IP addresses.",
+                "Hagezi IP Blocklist",
                 backend.ipBlockEnabled(), on -> {
                     backend.setIpBlockEnabled(on);
                     markChanged();
                 }));
         card.addView(note(context, "Changes apply the next time you connect. Filter-list URLs above are used in"
                 + " addition to these lists."));
+    }
+
+    /** The text under a list name: a readable description for the lists added with this card, else the category. */
+    private static String listDescription(FilterCatalog.Entry entry) {
+        switch (entry.id) {
+            case "HageziProMini":
+                return "Hagezi Domain Blocklist";
+            case "EasyPrivacy-trackers":
+                return "EasyList Tracking Servers";
+            default:
+                return entry.category;
+        }
     }
 
     private void buildPrivacy(Context context) {

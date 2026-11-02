@@ -64,6 +64,16 @@ public final class FilterCatalog {
             config.setProperty(key, defaults.getProperty(key, ""));
     }
 
+    /** Maps each list URL in the config to its ID, for status lines. */
+    static java.util.Map<String, String> namesByUrl(Properties config) {
+        String[] urls = split(config.getProperty("filterAutoUpdateURL", ""));
+        String[] ids = split(config.getProperty("filterAutoUpdateURL_IDs", ""));
+        java.util.Map<String, String> names = new java.util.HashMap<>();
+        for (int i = 0; i < urls.length && i < ids.length; i++)
+            names.put(urls[i], ids[i]);
+        return names;
+    }
+
     /** Appends the user's own list URLs ("; " separated) to the four list keys, each switched on. */
     static void addCustom(Properties config, String customUrls) {
         String[] extra = split(customUrls);
