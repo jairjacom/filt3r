@@ -368,6 +368,9 @@ public class SettingsPanel extends LinearLayout {
 
     private void showIpBlockStatus() {
         String s = backend.ipBlockStatus();
+        if (s.isEmpty() && backend.ipBlockEnabled()) {
+            s = "on, loads the next time you connect";
+        }
         ipBlockStatus.setText("IP blocklist: " + s);
         ipBlockStatus.setVisibility(s.isEmpty() ? GONE : VISIBLE);
     }
