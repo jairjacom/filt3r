@@ -48,6 +48,9 @@ public class QueryLogPanel extends LinearLayout {
         void setQueryLogEnabled(boolean on);
 
         void clearQueryLog();
+
+        /** Lets the user pick a place and saves the kept lines there as a .txt file. */
+        void exportQueryLog();
     }
 
     private static final long REFRESH_MS = 2000;
@@ -111,6 +114,9 @@ public class QueryLogPanel extends LinearLayout {
         ImageButton rules = iconButton(context, R.drawable.ic_rules, "My rules");
         rules.setOnClickListener(v -> OverridesDialog.show(context, backend, () -> { }));
         bar.addView(rules);
+        ImageButton export = iconButton(context, R.drawable.ic_export, "Save query log as a text file");
+        export.setOnClickListener(v -> backend.exportQueryLog());
+        bar.addView(export);
         bar.addView(clear);
         addView(bar);
 

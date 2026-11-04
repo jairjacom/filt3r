@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Insets;
 import android.net.VpnService;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -39,10 +40,15 @@ import com.bridge.filt3r.ui.SwipeRule;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -52,6 +58,7 @@ public class MainActivity extends Activity
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
+    private static final int REQUEST_EXPORT_LOG = 3;
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
     private static final long SLIDE_MS = 200;
@@ -255,7 +262,34 @@ public class MainActivity extends Activity
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQUEST_VPN && resultCode == RESULT_OK) {
             startVpn();
+        } else if (requestCode == REQUEST_EXPORT_LOG && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            writeQueryLog(data.getData());
         }
+    }
+
+    /** Saves the kept query lines to the file the user picked. Runs off the main thread: the target may be slow. */
+    private void writeQueryLog(Uri uri) {
+        List<String> lines = queryLines();
+        StringBuilder text = new StringBuilder();
+        for (String line : lines) {
+            text.append(line).append('\n');
+        }
+        byte[] bytes = text.toString().getBytes(StandardCharsets.UTF_8);
+        int count = lines.size();
+        Thread t = new Thread(() -> {
+            String result;
+            try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                out.write(bytes);
+                result = "Saved " + count + " entries";
+            } catch (IOException | RuntimeException e) {
+                result = "Could not save the file";
+            }
+            String shown = result;
+            runOnUiThread(() -> Toast.makeText(this, shown, Toast.LENGTH_LONG).show());
+        }, "export-log");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void startVpn() {
@@ -615,6 +649,21 @@ public class MainActivity extends Activity
     @Override
     public void clearQueryLog() {
         QueryLogs.get(this).clear();
+    }
+
+    @Override
+    public void exportQueryLog() {
+        if (queryLines().isEmpty()) {
+            Toast.makeText(this, "Nothing to save yet.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // The system picker lets the user choose the folder and name; no storage permission is needed.
+        String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
+        Intent pick = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("text/plain")
+                .putExtra(Intent.EXTRA_TITLE, "filt3r-query-log-" + stamp + ".txt");
+        startActivityForResult(pick, REQUEST_EXPORT_LOG);
     }
 
     @Override
