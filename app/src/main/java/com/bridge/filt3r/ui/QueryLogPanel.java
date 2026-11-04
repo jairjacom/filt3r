@@ -22,6 +22,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -48,6 +49,12 @@ public class QueryLogPanel extends LinearLayout {
         void setQueryLogEnabled(boolean on);
 
         void clearQueryLog();
+
+        /**
+         * Lets the user pick a place and saves the kept lines of the chosen kinds there as a .txt file.
+         * At least one of the two is true.
+         */
+        void exportQueryLog(boolean blocked, boolean allowed);
     }
 
     private static final long REFRESH_MS = 2000;
@@ -111,6 +118,9 @@ public class QueryLogPanel extends LinearLayout {
         ImageButton rules = iconButton(context, R.drawable.ic_rules, "My rules");
         rules.setOnClickListener(v -> OverridesDialog.show(context, backend, () -> { }));
         bar.addView(rules);
+        ImageButton export = iconButton(context, R.drawable.ic_export, "Save query log as a text file");
+        export.setOnClickListener(v -> askExport());
+        bar.addView(export);
         bar.addView(clear);
         addView(bar);
 
@@ -198,6 +208,17 @@ public class QueryLogPanel extends LinearLayout {
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         handler.postDelayed(tick, REFRESH_MS);
+    }
+
+
+    /** Asks which entries to save, then hands over to the backend (which opens the file picker). */
+    private void askExport() {
+        String[] choices = {"Blocked", "Allowed", "Both"};
+        new MaterialAlertDialogBuilder(getContext())
+                .setTitle("Save which entries?")
+                .setItems(choices, (d, which) -> backend.exportQueryLog(which != 1, which != 0))
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     @Override

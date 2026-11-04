@@ -76,6 +76,7 @@ public final class NodeManager {
     private PinListener pinListener;
     private Entry current;
     private String pinned; // key of the pinned node, or null
+    private long lastRoundAt; // wall-clock ms of the last finished test round, 0 if none yet
 
     public NodeManager(Listener listener) {
         this(listener, () -> System.nanoTime() / 1_000_000); // monotonic: a clock change must not stretch a blacklisting
@@ -175,6 +176,16 @@ public final class NodeManager {
     /** The node to use now, or null if none has been tested and found working yet. */
     public synchronized ShadowsocksNode current() {
         return current == null ? null : current.node;
+    }
+
+    /** Wall-clock time (ms) when the last test round finished, or 0 if none has finished yet. */
+    public synchronized long lastRoundMs() {
+        return lastRoundAt;
+    }
+
+    /** A test round just finished (called by the tester, whatever the results were). */
+    public synchronized void markRoundDone() {
+        lastRoundAt = System.currentTimeMillis();
     }
 
     public synchronized int size() {

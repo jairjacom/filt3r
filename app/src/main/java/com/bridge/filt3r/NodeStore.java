@@ -75,6 +75,12 @@ final class NodeStore {
         return sourceKinds;
     }
 
+    /** When the slot's cache was last downloaded (wall-clock ms), or 0 if it has none. */
+    static long updatedAt(File filesDir, int slot) {
+        File f = new File(filesDir, "nodes_" + slot + ".txt");
+        return f.isFile() ? f.lastModified() : 0;
+    }
+
     /** True if a subscription has no cache yet or its cache is older than its update interval. */
     boolean anyDue() {
         for (Settings.Subscription s : subscriptions) {

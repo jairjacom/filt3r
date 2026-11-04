@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Insets;
 import android.net.VpnService;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -39,10 +40,15 @@ import com.bridge.filt3r.ui.SwipeRule;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -52,6 +58,9 @@ public class MainActivity extends Activity
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
+    private static final int REQUEST_EXPORT_LOG = 3;
+    private boolean exportBlocked = true;
+    private boolean exportAllowed = true;
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
     private static final long SLIDE_MS = 200;
@@ -255,7 +264,47 @@ public class MainActivity extends Activity
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQUEST_VPN && resultCode == RESULT_OK) {
             startVpn();
+        } else if (requestCode == REQUEST_EXPORT_LOG && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            writeQueryLog(data.getData());
         }
+    }
+
+    /** The kept query lines of the kinds the user chose to save, oldest first. */
+    private List<String> exportLines(boolean blocked, boolean allowed) {
+        List<String> out = new ArrayList<>();
+        for (String line : queryLines()) {
+            // "MM-dd HH:mm:ss ALLOWED|BLOCKED name": the verdict starts after the 14-character time and a space
+            boolean isBlocked = line.startsWith("BLOCKED", 15);
+            if (isBlocked ? blocked : allowed) {
+                out.add(line);
+            }
+        }
+        return out;
+    }
+
+    /** Saves the chosen query lines to the file the user picked. Runs off the main thread: the target may be slow. */
+    private void writeQueryLog(Uri uri) {
+        List<String> lines = exportLines(exportBlocked, exportAllowed);
+        StringBuilder text = new StringBuilder();
+        for (String line : lines) {
+            text.append(line).append('\n');
+        }
+        byte[] bytes = text.toString().getBytes(StandardCharsets.UTF_8);
+        int count = lines.size();
+        Thread t = new Thread(() -> {
+            String result;
+            try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                out.write(bytes);
+                result = "Saved " + count + " entries";
+            } catch (IOException | RuntimeException e) {
+                result = "Could not save the file";
+            }
+            String shown = result;
+            runOnUiThread(() -> Toast.makeText(this, shown, Toast.LENGTH_LONG).show());
+        }, "export-log");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void startVpn() {
@@ -408,6 +457,12 @@ public class MainActivity extends Activity
         settings.setNodeSortBySpeed(bySpeed);
     }
 
+    @Override
+    public String lastTestText() {
+        long t = Filt3rVpnService.lastNodeTestMs();
+        return t <= 0 ? "Nodes not tested yet" : "Nodes tested " + FilterStatusText.ago(t, System.currentTimeMillis());
+    }
+
     // ---- SettingsPanel.Backend ----
 
     @Override
@@ -455,6 +510,27 @@ public class MainActivity extends Activity
             new File(getFilesDir(), "nodes_" + slot + ".txt").delete();
             new File(getFilesDir(), "nodes_" + slot + ".tmp").delete();
         }
+    }
+
+    @Override
+    public boolean subscriptionEnabled(int slot) {
+        for (Settings.Subscription s : settings.subscriptions()) {
+            if (s.slot == slot) {
+                return s.enabled;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public void setSubscriptionEnabled(int slot, boolean on) {
+        settings.setSubscriptionEnabled(slot, on);
+    }
+
+    @Override
+    public String subscriptionUpdated(int slot) {
+        long t = NodeStore.updatedAt(getFilesDir(), slot);
+        return t <= 0 ? "Not downloaded yet" : "Last updated " + FilterStatusText.ago(t, System.currentTimeMillis());
     }
 
     @Override
@@ -588,6 +664,26 @@ public class MainActivity extends Activity
     @Override
     public void clearQueryLog() {
         QueryLogs.get(this).clear();
+    }
+
+    @Override
+    public void exportQueryLog(boolean blocked, boolean allowed) {
+        String kind = blocked && allowed ? "" : blocked ? "blocked-" : "allowed-";
+        if (exportLines(blocked, allowed).isEmpty()) {
+            Toast.makeText(this, blocked && allowed ? "Nothing to save yet."
+                    : blocked ? "No blocked entries to save." : "No allowed entries to save.",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        exportBlocked = blocked;
+        exportAllowed = allowed;
+        // The system picker lets the user choose the folder and name; no storage permission is needed.
+        String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
+        Intent pick = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("text/plain")
+                .putExtra(Intent.EXTRA_TITLE, "filt3r-query-log-" + kind + stamp + ".txt");
+        startActivityForResult(pick, REQUEST_EXPORT_LOG);
     }
 
     @Override

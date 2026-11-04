@@ -100,6 +100,7 @@ public final class NodeTester implements NodeProbe {
             pool.shutdownNow();
             Thread.currentThread().interrupt();
         }
+        manager.markRoundDone();
     }
 
     /**
