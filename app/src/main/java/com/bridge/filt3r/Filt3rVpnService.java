@@ -207,7 +207,7 @@ public class Filt3rVpnService extends VpnService {
             DnsCryptStamp testStamp = DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
             Settings settings = new Settings(this);
             QueryLog queryLog = QueryLogs.get(this);
-            NodeStore store = new NodeStore(getFilesDir(), settings.subscriptions());
+            NodeStore store = new NodeStore(getFilesDir(), settings.activeSubscriptions());
             NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
             manager.setPinListener((gone, dead) -> {
                 settings.setPinnedNode(null);
@@ -242,7 +242,7 @@ public class Filt3rVpnService extends VpnService {
                 list = store.load();
             }
             if (list.isEmpty()) {
-                throw new IOException("no nodes: add a subscription URL in Settings");
+                throw new IOException("no nodes: add a subscription URL in Settings and switch it on");
             }
             manager.setNodes(list);
             settings.setPinnedNode(manager.pinnedKey()); // forget a pin whose node left the list
@@ -484,6 +484,13 @@ public class Filt3rVpnService extends VpnService {
         Filt3rVpnService s = instance;
         NodeManager m = s == null ? null : s.nodes;
         return m == null ? Collections.emptyList() : m.snapshot();
+    }
+
+    /** When the last node test round finished (wall-clock ms), or 0 if none has or the tunnel is down. */
+    static long lastNodeTestMs() {
+        Filt3rVpnService s = instance;
+        NodeManager m = s == null ? null : s.nodes;
+        return m == null ? 0 : m.lastRoundMs();
     }
 
     /**

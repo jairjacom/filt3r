@@ -55,6 +55,9 @@ public class NodesPanel extends LinearLayout {
 
         /** How many subscriptions supply nodes; the tag is shown only when this is above 1. */
         int sourceCount();
+
+        /** "Nodes tested 4 h ago", or a line saying they were not tested yet. */
+        String lastTestText();
     }
 
     private static final long REFRESH_MS = 2000;
@@ -64,6 +67,8 @@ public class NodesPanel extends LinearLayout {
     private final NodeAdapter adapter = new NodeAdapter();
     private final TextView currentName;
     private final TextView currentDetail;
+    private final TextView currentIp;
+    private final TextView currentTested;
     private final TextView empty;
     private final ImageButton retestButton;
     private final ListView list;
@@ -118,9 +123,17 @@ public class NodesPanel extends LinearLayout {
         currentDetail = new TextView(context);
         currentDetail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
         currentDetail.setAlpha(0.7f);
+        currentIp = new TextView(context);
+        currentIp.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        currentIp.setAlpha(0.7f);
+        currentTested = new TextView(context);
+        currentTested.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        currentTested.setAlpha(0.7f);
         card.addView(label);
         card.addView(currentName);
         card.addView(currentDetail);
+        card.addView(currentIp);
+        card.addView(currentTested);
         LayoutParams cardParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(dp(16), dp(4), dp(16), dp(12));
         addView(card, cardParams);
@@ -241,6 +254,10 @@ public class NodesPanel extends LinearLayout {
                 return byState != 0 ? byState : Long.compare(b.speedBps, a.speedBps);
             });
         }
+        if (current != null) {
+            all.remove(current);
+            all.add(0, current); // the node in use is always the first row
+        }
         adapter.set(all);
         empty.setVisibility(all.isEmpty() ? VISIBLE : GONE);
         list.setVisibility(all.isEmpty() ? GONE : VISIBLE);
@@ -248,12 +265,17 @@ public class NodesPanel extends LinearLayout {
             currentName.setText("—");
             currentDetail.setText("");
             currentDetail.setVisibility(GONE);
+            currentIp.setVisibility(GONE);
         } else {
             NodeLocation loc = NodeLocation.parse(current.node.name);
             currentName.setText(place(loc));
             currentDetail.setText(details(current));
             currentDetail.setVisibility(VISIBLE);
+            currentIp.setText("IP  " + current.node.host);
+            currentIp.setVisibility(VISIBLE);
         }
+        currentTested.setText(backend.lastTestText());
+        currentTested.setVisibility(all.isEmpty() ? GONE : VISIBLE);
     }
 
     private static String place(NodeLocation loc) {
@@ -341,6 +363,8 @@ public class NodesPanel extends LinearLayout {
         private final TextView ipv6;
         private final ImageView pin;
         private final GradientDrawable dotBg = new GradientDrawable();
+        private final TextView tag;
+        private final GradientDrawable tagBg = new GradientDrawable();
 
         Row(Context context) {
             super(context);
@@ -361,8 +385,21 @@ public class NodesPanel extends LinearLayout {
             subtitle = new TextView(context);
             subtitle.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
             subtitle.setAlpha(0.7f);
+            // The tag sits on the same line as the flag and country.
+            tag = new TextView(context);
+            tag.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall);
+            tag.setSingleLine(true);
+            tag.setPadding(dp(8), dp(1), dp(8), dp(1));
+            tag.setBackground(tagBg);
+            tagBg.setCornerRadius(dp(10));
+            LinearLayout subRow = new LinearLayout(context);
+            subRow.setGravity(Gravity.CENTER_VERTICAL);
+            subRow.addView(subtitle, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
+            LayoutParams tagParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+            tagParams.leftMargin = dp(8);
+            subRow.addView(tag, tagParams);
             texts.addView(title);
-            texts.addView(subtitle);
+            texts.addView(subRow);
             addView(texts, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
 
             pin = new ImageView(context);
@@ -421,6 +458,26 @@ public class NodesPanel extends LinearLayout {
                     break;
             }
             dotBg.setColor(color);
+            // The tag says why a row has no green dot (or that it is the node in use).
+            String tagText = null;
+            int tagColor = color;
+            if (n.current) {
+                tagText = "in use";
+            } else if (n.state == NodeInfo.State.BLACKLISTED) {
+                tagText = "dead";
+            } else if (n.state == NodeInfo.State.UNTESTED) {
+                tagText = n.failures > 0 ? "no answer" : "not tested";
+                tagColor = MaterialColors.getColor(this,
+                        com.google.android.material.R.attr.colorOnSurfaceVariant);
+            }
+            if (tagText == null) {
+                tag.setVisibility(GONE);
+            } else {
+                tag.setText(tagText);
+                tag.setTextColor(tagColor);
+                tagBg.setColor((tagColor & 0x00FFFFFF) | 0x26000000);
+                tag.setVisibility(VISIBLE);
+            }
             setAlpha(n.state == NodeInfo.State.BLACKLISTED ? 0.5f : 1f);
             setBackgroundColor(n.current
                     ? (color & 0x00FFFFFF) | 0x1A000000

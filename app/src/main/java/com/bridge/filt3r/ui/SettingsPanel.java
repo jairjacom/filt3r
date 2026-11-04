@@ -68,6 +68,14 @@ public class SettingsPanel extends LinearLayout {
 
         void setSubscription(int slot, String url, int hours);
 
+        /** Whether the subscription supplies nodes (true when never changed). */
+        boolean subscriptionEnabled(int slot);
+
+        void setSubscriptionEnabled(int slot, boolean on);
+
+        /** "Last updated 3 h ago", or "Not downloaded yet". */
+        String subscriptionUpdated(int slot);
+
         boolean failClosed();
 
         void setFailClosed(boolean closed);
@@ -241,9 +249,14 @@ public class SettingsPanel extends LinearLayout {
             field.getEditText().setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
             field.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE); // masked: the URL may hold a token
             Row interval = valueRow(context, "Update interval", intervalText(hours[0]));
+            TextView updated = note(context, backend.subscriptionUpdated(slot));
+            updated.setPadding(dp(20), 0, dp(20), dp(4));
+            updated.setVisibility(url[0].isEmpty() ? GONE : VISIBLE);
             watch(field, text -> {
                 url[0] = text.trim();
                 backend.setSubscription(slot, url[0], hours[0]);
+                updated.setText(backend.subscriptionUpdated(slot));
+                updated.setVisibility(url[0].isEmpty() ? GONE : VISIBLE);
                 markChanged();
             });
             interval.setOnClickListener(v -> chooseInterval(hours[0], h -> {
@@ -253,9 +266,17 @@ public class SettingsPanel extends LinearLayout {
                 markChanged();
             }));
             card.addView(field, fieldParams());
+            card.addView(updated);
             card.addView(interval);
+            card.addView(switchRow(context, "Use subscription " + (slot + 1),
+                    "Off: its nodes are left out.",
+                    backend.subscriptionEnabled(slot), on -> {
+                        backend.setSubscriptionEnabled(slot, on);
+                        markChanged();
+                    }));
         }
-        card.addView(note(context, "Paste the address of a Shadowsocks subscription. Nodes come from it."));
+        card.addView(note(context, "Paste the address of a Shadowsocks subscription. Nodes come from every"
+                + " subscription that is switched on; switch the others off to use just one."));
         card.addView(switchRow(context, "Block traffic when no node works",
                 "Off: connect directly instead, which shows your real IP.",
                 backend.failClosed(), on -> {

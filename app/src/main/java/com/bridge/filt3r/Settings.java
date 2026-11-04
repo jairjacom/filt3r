@@ -40,11 +40,14 @@ final class Settings {
         final int slot;
         final String url;
         final int intervalHours;
+        /** False when the user switched this subscription off: it keeps its URL but supplies no nodes. */
+        final boolean enabled;
 
-        Subscription(int slot, String url, int intervalHours) {
+        Subscription(int slot, String url, int intervalHours, boolean enabled) {
             this.slot = slot;
             this.url = url;
             this.intervalHours = intervalHours;
+            this.enabled = enabled;
         }
     }
 
@@ -73,17 +76,36 @@ final class Settings {
         this.prefs = context.getApplicationContext().getSharedPreferences(FILE, Context.MODE_PRIVATE);
     }
 
-    /** Subscription slots that have a URL, in slot order. */
+    /** Subscription slots that have a URL (switched on or off), in slot order. */
     List<Subscription> subscriptions() {
         List<Subscription> out = new ArrayList<>();
         for (int i = 0; i < MAX_SUBSCRIPTIONS; i++) {
             String url = prefs.getString("sub_url_" + i, "").trim();
             if (!url.isEmpty()) {
                 out.add(new Subscription(i, url,
-                        Math.max(1, prefs.getInt("sub_hours_" + i, DEFAULT_INTERVAL_HOURS))));
+                        Math.max(1, prefs.getInt("sub_hours_" + i, DEFAULT_INTERVAL_HOURS)),
+                        prefs.getBoolean("sub_on_" + i, true)));
             }
         }
         return out;
+    }
+
+    /** The subscriptions that supply nodes: those with a URL that are switched on. */
+    List<Subscription> activeSubscriptions() {
+        List<Subscription> out = new ArrayList<>();
+        for (Subscription s : subscriptions()) {
+            if (s.enabled) {
+                out.add(s);
+            }
+        }
+        return out;
+    }
+
+    void setSubscriptionEnabled(int slot, boolean on) {
+        if (slot < 0 || slot >= MAX_SUBSCRIPTIONS) {
+            throw new IllegalArgumentException("slot out of range");
+        }
+        prefs.edit().putBoolean("sub_on_" + slot, on).apply();
     }
 
     /** An empty URL clears the slot. */

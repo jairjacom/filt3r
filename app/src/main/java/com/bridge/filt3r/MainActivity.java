@@ -408,6 +408,12 @@ public class MainActivity extends Activity
         settings.setNodeSortBySpeed(bySpeed);
     }
 
+    @Override
+    public String lastTestText() {
+        long t = Filt3rVpnService.lastNodeTestMs();
+        return t <= 0 ? "Nodes not tested yet" : "Nodes tested " + FilterStatusText.ago(t, System.currentTimeMillis());
+    }
+
     // ---- SettingsPanel.Backend ----
 
     @Override
@@ -455,6 +461,27 @@ public class MainActivity extends Activity
             new File(getFilesDir(), "nodes_" + slot + ".txt").delete();
             new File(getFilesDir(), "nodes_" + slot + ".tmp").delete();
         }
+    }
+
+    @Override
+    public boolean subscriptionEnabled(int slot) {
+        for (Settings.Subscription s : settings.subscriptions()) {
+            if (s.slot == slot) {
+                return s.enabled;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public void setSubscriptionEnabled(int slot, boolean on) {
+        settings.setSubscriptionEnabled(slot, on);
+    }
+
+    @Override
+    public String subscriptionUpdated(int slot) {
+        long t = NodeStore.updatedAt(getFilesDir(), slot);
+        return t <= 0 ? "Not downloaded yet" : "Last updated " + FilterStatusText.ago(t, System.currentTimeMillis());
     }
 
     @Override
