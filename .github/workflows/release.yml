@@ -17,6 +17,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: versionCode must be higher than the previous release
+        run: sh scripts/check-version-code.sh
 
       - name: Tag must match the app version
         env:
@@ -120,6 +125,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: signed-apk
@@ -132,7 +139,13 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -eu
+          # Fails the job if CHANGELOG.md has no section for this tag, so no release goes out without notes.
+          sh scripts/release-notes.sh "$TAG" > notes.md
+          CERT="$(cat signed/cert-sha256.txt)"
+          {
+            echo
+            echo "Signing certificate SHA-256: \`$CERT\`. Check it with: apksigner verify --print-certs <apk>"
+          } >> notes.md
           cd signed
-          CERT="$(cat cert-sha256.txt)"
           gh release create "$TAG" filt3r-*.apk filt3r-*.apk.sha256 --verify-tag --title "$TAG" \
-            --notes "Signing certificate SHA-256: \`$CERT\`. Check it with: apksigner verify --print-certs <apk>"
+            --notes-file ../notes.md

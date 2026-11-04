@@ -15,6 +15,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: versionCode must be higher than the previous release
+        run: sh scripts/check-version-code.sh
+
+      - name: Changelog has a section for the app version
+        run: |
+          set -eu
+          VERSION="$(sed -n "s/^def appVersion = '\(.*\)'$/\1/p" app/build.gradle)"
+          [ -n "$VERSION" ] || { echo "appVersion not found in app/build.gradle"; exit 1; }
+          sh scripts/release-notes.sh "v$VERSION" > /dev/null
 
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
         with:
