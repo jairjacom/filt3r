@@ -59,6 +59,8 @@ public class MainActivity extends Activity
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
     private static final int REQUEST_EXPORT_LOG = 3;
+    private boolean exportBlocked = true;
+    private boolean exportAllowed = true;
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
     private static final long SLIDE_MS = 200;
@@ -268,9 +270,22 @@ public class MainActivity extends Activity
         }
     }
 
-    /** Saves the kept query lines to the file the user picked. Runs off the main thread: the target may be slow. */
+    /** The kept query lines of the kinds the user chose to save, oldest first. */
+    private List<String> exportLines(boolean blocked, boolean allowed) {
+        List<String> out = new ArrayList<>();
+        for (String line : queryLines()) {
+            // "MM-dd HH:mm:ss ALLOWED|BLOCKED name": the verdict starts after the 14-character time and a space
+            boolean isBlocked = line.startsWith("BLOCKED", 15);
+            if (isBlocked ? blocked : allowed) {
+                out.add(line);
+            }
+        }
+        return out;
+    }
+
+    /** Saves the chosen query lines to the file the user picked. Runs off the main thread: the target may be slow. */
     private void writeQueryLog(Uri uri) {
-        List<String> lines = queryLines();
+        List<String> lines = exportLines(exportBlocked, exportAllowed);
         StringBuilder text = new StringBuilder();
         for (String line : lines) {
             text.append(line).append('\n');
@@ -652,17 +667,22 @@ public class MainActivity extends Activity
     }
 
     @Override
-    public void exportQueryLog() {
-        if (queryLines().isEmpty()) {
-            Toast.makeText(this, "Nothing to save yet.", Toast.LENGTH_SHORT).show();
+    public void exportQueryLog(boolean blocked, boolean allowed) {
+        String kind = blocked && allowed ? "" : blocked ? "blocked-" : "allowed-";
+        if (exportLines(blocked, allowed).isEmpty()) {
+            Toast.makeText(this, blocked && allowed ? "Nothing to save yet."
+                    : blocked ? "No blocked entries to save." : "No allowed entries to save.",
+                    Toast.LENGTH_SHORT).show();
             return;
         }
+        exportBlocked = blocked;
+        exportAllowed = allowed;
         // The system picker lets the user choose the folder and name; no storage permission is needed.
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
         Intent pick = new Intent(Intent.ACTION_CREATE_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE)
                 .setType("text/plain")
-                .putExtra(Intent.EXTRA_TITLE, "filt3r-query-log-" + stamp + ".txt");
+                .putExtra(Intent.EXTRA_TITLE, "filt3r-query-log-" + kind + stamp + ".txt");
         startActivityForResult(pick, REQUEST_EXPORT_LOG);
     }
 
