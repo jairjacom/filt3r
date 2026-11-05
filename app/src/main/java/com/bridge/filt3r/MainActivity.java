@@ -407,12 +407,22 @@ public class MainActivity extends Activity
         }
     }
 
-    /** Shows section {@code index} (0 = status, no panel). {@code dir} is +1, -1 or 0 for no slide. */
+    /**
+     * Shows section {@code index} (0 = status, no panel). {@code dir} is +1, -1 or 0 for no slide.
+     * The panel being left stays under the new one until the transition ends, so the Status screen
+     * never shows through between two panels.
+     */
     private void showSection(int index, int dir) {
-        closePanel();
+        View old = panel;
+        panel = null;
+        if (old != null) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(closePanelOnBack);
+        }
         section = index;
         dock.select(index);
         if (index == 0) {
+            retirePanel(old, true);
+            updateGlow();
             return;
         }
         panel = sectionPanel(index);
@@ -421,7 +431,23 @@ public class MainActivity extends Activity
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
         enterPanel(panel, dir);
+        retirePanel(old, false);
         updateGlow();
+    }
+
+    /** Removes a panel that is no longer current: at once, or after the new panel has come in (or a fade-out). */
+    private void retirePanel(View old, boolean fadeOut) {
+        if (old == null) {
+            return;
+        }
+        int ms = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
+        if (ms == 0) {
+            frame.removeView(old);
+        } else if (fadeOut) {
+            old.animate().alpha(0f).setDuration(ms).withEndAction(() -> frame.removeView(old)).start();
+        } else {
+            old.postDelayed(() -> frame.removeView(old), ms + 50);
+        }
     }
 
     /** Brings a panel in with the chosen transition style (slide, fade or pop), if effects allow. */
@@ -436,8 +462,8 @@ public class MainActivity extends Activity
             p.animate().translationX(0).setDuration(ms).start();
         } else if (style == Effects.STYLE_POP) {
             p.setAlpha(0f);
-            p.setScaleX(0.85f);
-            p.setScaleY(0.85f);
+            p.setScaleX(0.8f);
+            p.setScaleY(0.8f);
             p.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(ms)
                     .setInterpolator(new android.view.animation.OvershootInterpolator()).start();
         } else {
