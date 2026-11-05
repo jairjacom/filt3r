@@ -17,6 +17,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.nodes.NodeLocation;
@@ -262,6 +263,11 @@ public class NodesPanel extends LinearLayout {
             all.add(0, current); // the node in use is always the first row
         }
         adapter.set(all);
+        if (all.isEmpty() && empty.getVisibility() != VISIBLE
+                && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
+            empty.setAlpha(0f);
+            empty.animate().alpha(1f).setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 200));
+        }
         empty.setVisibility(all.isEmpty() ? VISIBLE : GONE);
         list.setVisibility(all.isEmpty() ? GONE : VISIBLE);
         if (current == null) {
@@ -333,10 +339,35 @@ public class NodesPanel extends LinearLayout {
 
     private final class NodeAdapter extends BaseAdapter {
         private List<NodeInfo> items = new ArrayList<>();
+        private boolean boundBySpeed;
 
         void set(List<NodeInfo> next) {
+            boolean bySpeed = backend.sortBySpeed();
+            if (bySpeed == boundBySpeed && sameItems(items, next)) {
+                return;
+            }
+            boundBySpeed = bySpeed;
             items = next;
             notifyDataSetChanged();
+        }
+
+        /** NodeInfo has no equals(): compare every displayed field (the node by address and name). */
+        private boolean sameItems(List<NodeInfo> a, List<NodeInfo> b) {
+            if (a.size() != b.size()) {
+                return false;
+            }
+            for (int i = 0; i < a.size(); i++) {
+                NodeInfo x = a.get(i);
+                NodeInfo y = b.get(i);
+                if (!x.node.host.equals(y.node.host) || x.node.port != y.node.port
+                        || !x.node.name.equals(y.node.name) || x.state != y.state
+                        || x.medianMs != y.medianMs || x.failures != y.failures
+                        || x.current != y.current || x.pinned != y.pinned
+                        || x.speedBps != y.speedBps || !java.util.Objects.equals(x.ipv6, y.ipv6)) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Override
@@ -357,7 +388,7 @@ public class NodesPanel extends LinearLayout {
         @Override
         public View getView(int position, View convert, ViewGroup parent) {
             Row row = convert == null ? new Row(parent.getContext()) : (Row) convert;
-            row.bind(items.get(position), backend.sortBySpeed());
+            row.bind(items.get(position), boundBySpeed);
             return row;
         }
     }

@@ -23,6 +23,7 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.color.MaterialColors;
@@ -85,6 +86,8 @@ public class ExemptAppsPanel extends LinearLayout {
     private final LinearLayout banner;
     private List<App> apps = new ArrayList<>();
     private boolean detached;
+    /** Per shown app: exempt flag, package and label; the list is only redrawn when this changes. */
+    private List<String> shownKey = new ArrayList<>();
 
     public ExemptAppsPanel(Context context, Backend backend, Runnable onClose) {
         super(context);
@@ -257,7 +260,19 @@ public class ExemptAppsPanel extends LinearLayout {
             }
             return x.label.compareToIgnoreCase(y.label);
         });
-        adapter.set(shown);
+        List<String> key = new ArrayList<>();
+        for (App a : shown) {
+            key.add((exempt.contains(a.pkg) ? "1" : "0") + a.pkg + "|" + a.label);
+        }
+        if (!key.equals(shownKey)) {
+            shownKey = key;
+            adapter.set(shown);
+        }
+        if (shown.isEmpty() && empty.getVisibility() != VISIBLE
+                && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
+            empty.setAlpha(0f);
+            empty.animate().alpha(1f).setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 200));
+        }
         empty.setVisibility(shown.isEmpty() ? VISIBLE : GONE);
         empty.setText(apps.isEmpty() ? "Loading apps..." : "Nothing matches.");
     }

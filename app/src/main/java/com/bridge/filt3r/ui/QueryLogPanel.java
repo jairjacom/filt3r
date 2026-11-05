@@ -17,6 +17,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
@@ -246,6 +247,11 @@ public class QueryLogPanel extends LinearLayout {
         if (!shown.isEmpty()) {
             empty.setVisibility(GONE);
         } else {
+            if (empty.getVisibility() != VISIBLE && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
+                empty.setAlpha(0f);
+                empty.animate().alpha(1f)
+                        .setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 200));
+            }
             empty.setVisibility(VISIBLE);
             empty.setText(!lines.isEmpty() ? "Nothing matches."
                     : backend.queryLogEnabled() ? "No queries yet." : "The query log is off.");
@@ -372,8 +378,26 @@ public class QueryLogPanel extends LinearLayout {
         private List<Entry> items = new ArrayList<>();
 
         void set(List<Entry> next) {
+            if (sameItems(items, next)) {
+                return;
+            }
             items = next;
             notifyDataSetChanged();
+        }
+
+        /** Entry has no equals(): compare time, verdict and host. */
+        private boolean sameItems(List<Entry> a, List<Entry> b) {
+            if (a.size() != b.size()) {
+                return false;
+            }
+            for (int i = 0; i < a.size(); i++) {
+                Entry x = a.get(i);
+                Entry y = b.get(i);
+                if (x.blocked != y.blocked || !x.time.equals(y.time) || !x.host.equals(y.host)) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Override

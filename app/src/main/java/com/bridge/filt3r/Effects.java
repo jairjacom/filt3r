@@ -24,7 +24,9 @@ public final class Effects {
         HAPTICS("haptics", "Haptics",
                 "Small vibrations when you change section", false, false, true, true),
         AMBIENT("ambient", "Ambient glow",
-                "A slow glow around the status circle while connected", true, false, false, true);
+                "A slow glow around the status circle while connected", true, false, false, true),
+        SPARKLINE("sparkline", "Traffic graph",
+                "A small graph of recent traffic in the Traffic card", false, false, true, true);
 
         public final String key;
         public final String label;

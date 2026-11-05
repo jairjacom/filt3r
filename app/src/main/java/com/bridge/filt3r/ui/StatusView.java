@@ -9,6 +9,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.google.android.material.button.MaterialButton;
+import com.bridge.filt3r.Effects;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.loadingindicator.LoadingIndicator;
@@ -50,6 +51,7 @@ public class StatusView extends ScrollView {
     private final Card nodeCard;
     private final Card trafficCard;
     private final Card dnsCard;
+    private final Sparkline sparkline;
 
     private long lastUp = -1;
     private long lastDown = -1;
@@ -110,6 +112,9 @@ public class StatusView extends ScrollView {
             p.topMargin = dp(12);
             column.addView(c.card, p);
         }
+        sparkline = new Sparkline(context);
+        trafficCard.box.addView(sparkline, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         addView(column, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
         setState(State.STOPPED);
     }
@@ -150,10 +155,13 @@ public class StatusView extends ScrollView {
             nodeCard.set(s.nodeName, ms + "  ·  " + v6, s.nodeIp == null ? "" : "IP " + s.nodeIp);
         }
 
+        sparkline.setVisibility(s.trafficBytes != null
+                && Effects.on(getContext(), Effects.Effect.SPARKLINE) ? VISIBLE : GONE);
         if (s.trafficBytes == null) {
             trafficCard.set("—", "", "");
             lastUp = -1;
             lastDown = -1;
+            sparkline.clear();
         } else {
             long now = System.currentTimeMillis();
             long up = s.trafficBytes[0];
@@ -166,6 +174,7 @@ public class StatusView extends ScrollView {
             lastMs = now;
             trafficCard.set("↓ " + Format.bytes(downRate) + "/s   ↑ " + Format.bytes(upRate) + "/s",
                     "Session  ↓ " + Format.bytes(down) + "   ↑ " + Format.bytes(up), "");
+            sparkline.add(upRate + downRate);
         }
 
         if (s.dnsCounts == null) {
@@ -206,6 +215,7 @@ public class StatusView extends ScrollView {
         private final TextView value;
         private final TextView detail;
         private final TextView extra;
+        private final LinearLayout box;
 
         Card(Context context, String title) {
             card = new MaterialCardView(context);
@@ -214,7 +224,7 @@ public class StatusView extends ScrollView {
             card.setCardBackgroundColor(MaterialColors.getColor(card,
                     com.google.android.material.R.attr.colorSurfaceContainer));
             card.setStrokeWidth(0);
-            LinearLayout box = new LinearLayout(context);
+            box = new LinearLayout(context);
             box.setOrientation(LinearLayout.VERTICAL);
             box.setPadding(dp(20), dp(16), dp(20), dp(16));
             TextView label = new TextView(context);
