@@ -724,7 +724,13 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private void updateBanner() {
-        banner.setVisibility(changed && backend.running() ? VISIBLE : GONE);
+        int target = changed && backend.running() ? VISIBLE : GONE;
+        if (banner.getVisibility() != target
+                && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
+            android.transition.TransitionManager.beginDelayedTransition(this,
+                    new android.transition.AutoTransition());
+        }
+        banner.setVisibility(target);
     }
 
     private void chooseInterval(int current, java.util.function.IntConsumer onPick) {
