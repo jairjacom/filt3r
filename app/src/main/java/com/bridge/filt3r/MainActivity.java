@@ -91,24 +91,33 @@ public class MainActivity extends Activity
     private List<FilterCatalog.Entry> filterCatalog; // read from dnsfilter.conf on first use
     private FilterStatus.State lastFilterState = FilterStatus.State.NONE;
     private String lastFilterError = "";
-    /** Closes the open panel; during the back gesture the panel shrinks and fades as a preview. */
+    /** Closes the open panel; during the back gesture the panel shrinks, fades and follows the finger as a preview. */
     private final OnBackAnimationCallback closePanelOnBack = new OnBackAnimationCallback() {
+        @Override
+        public void onBackStarted(BackEvent event) {
+            if (getPackageName().endsWith(".test")) {
+                // test builds only: shows that the system really sends the gesture to the app
+                Messages.show(frame, "Back gesture started", Snackbar.LENGTH_SHORT);
+            }
+        }
+
         @Override
         public void onBackProgressed(BackEvent event) {
             if (panel != null && Effects.on(MainActivity.this, Effects.Effect.TRANSITIONS)) {
                 float p = event.getProgress();
-                panel.setScaleX(1f - 0.08f * p);
-                panel.setScaleY(1f - 0.08f * p);
-                panel.setAlpha(1f - 0.4f * p);
+                float side = event.getSwipeEdge() == BackEvent.EDGE_LEFT ? 1f : -1f;
+                float density = getResources().getDisplayMetrics().density;
+                panel.setScaleX(1f - 0.15f * p);
+                panel.setScaleY(1f - 0.15f * p);
+                panel.setAlpha(1f - 0.5f * p);
+                panel.setTranslationX(side * 32 * density * p);
             }
         }
 
         @Override
         public void onBackCancelled() {
             if (panel != null) {
-                panel.setScaleX(1f);
-                panel.setScaleY(1f);
-                panel.setAlpha(1f);
+                panel.animate().scaleX(1f).scaleY(1f).alpha(1f).translationX(0f).setDuration(150).start();
             }
         }
 
