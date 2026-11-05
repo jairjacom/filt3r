@@ -13,6 +13,12 @@
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowSplashScreenBackground">@color/canvas_dark</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_shield_splash</item>
-        <item name="android:windowSplashScreenAnimationDuration">600</item>
+        <item name="android:windowSplashScreenAnimationDuration">1000</item>
+    </style>
+
+    <!-- Container colours for the fixed filt3r palette (dark). -->
+    <style name="ThemeOverlay.Filt3r.DefaultContainers" parent="">
+        <item name="colorPrimaryContainer">#93000A</item>
+        <item name="colorOnPrimaryContainer">#FFDAD6</item>
     </style>
 </resources>

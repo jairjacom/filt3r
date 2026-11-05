@@ -64,7 +64,7 @@ public class MainActivity extends Activity
     private boolean exportAllowed = true;
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
-    private static final int SLIDE_MS = 200;
+    private static final int SLIDE_MS = 300;
     private static final int MAX_CONTENT_DP = 640;
     private static final long STATS_INTERVAL_MS = 1000;
 
@@ -108,6 +108,10 @@ public class MainActivity extends Activity
 
         @Override
         public void onBackInvoked() {
+            if (panel instanceof SettingsPanel && ((SettingsPanel) panel).handleBack()) {
+                onBackCancelled(); // undo the shrink preview: the panel stays open
+                return; // went back from the block-lists page to the main Settings page
+            }
             closePanel();
         }
     };
@@ -133,6 +137,21 @@ public class MainActivity extends Activity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Keep the system splash until the shield animation has finished, then fade it out.
+        getSplashScreen().setOnExitAnimationListener(splash -> {
+            long wait = 0;
+            if (splash.getIconAnimationStart() != null && splash.getIconAnimationDuration() != null) {
+                wait = splash.getIconAnimationStart().plus(splash.getIconAnimationDuration()).toEpochMilli()
+                        - System.currentTimeMillis();
+            }
+            wait = Math.max(0, Math.min(1000, wait));
+            if (Effects.ms(this, Effects.Effect.TRANSITIONS, 1) == 0) {
+                splash.remove();
+                return;
+            }
+            splash.animate().setStartDelay(wait).alpha(0f).setDuration(300)
+                    .withEndAction(splash::remove).start();
+        });
         settings = new Settings(this);
         overrides = new UserOverrides(new File(getFilesDir(), "filter/additionalHosts.txt"));
         Appearance.apply(this, settings);
@@ -351,13 +370,7 @@ public class MainActivity extends Activity
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
-        int openMs = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
-        if (openMs > 0) {
-            panel.setAlpha(0f);
-            panel.setScaleX(0.96f);
-            panel.setScaleY(0.96f);
-            panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(openMs).start();
-        }
+        enterPanel(panel, 0);
     }
 
     private void closePanel() {
@@ -393,10 +406,28 @@ public class MainActivity extends Activity
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
-        int slideMs = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
-        if (dir != 0 && slideMs > 0) {
-            panel.setTranslationX(dir * frame.getWidth());
-            panel.animate().translationX(0).setDuration(slideMs).start();
+        enterPanel(panel, dir);
+    }
+
+    /** Brings a panel in with the chosen transition style (slide, fade or pop), if effects allow. */
+    private void enterPanel(View p, int dir) {
+        int ms = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
+        if (ms == 0) {
+            return;
+        }
+        int style = Effects.transitionStyle(this);
+        if (style == Effects.STYLE_SLIDE && dir != 0) {
+            p.setTranslationX(dir * frame.getWidth());
+            p.animate().translationX(0).setDuration(ms).start();
+        } else if (style == Effects.STYLE_POP) {
+            p.setAlpha(0f);
+            p.setScaleX(0.85f);
+            p.setScaleY(0.85f);
+            p.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(ms)
+                    .setInterpolator(new android.view.animation.OvershootInterpolator()).start();
+        } else {
+            p.setAlpha(0f);
+            p.animate().alpha(1f).setDuration(ms).start();
         }
     }
 

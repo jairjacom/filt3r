@@ -53,6 +53,9 @@ final class Appearance {
             // This also applies ThemeOverlay.Material3.PersonalizedColors, which reads the colours just set.
             ColorResourcesOverride.getInstance().applyIfPossible(activity, colors);
             activity.getTheme().applyStyle(R.style.ThemeOverlay_Filt3r_Generated, true);
+        } else if (Settings.SCHEME_DEFAULT.equals(scheme)) {
+            // The fixed filt3r palette sets only the red primary; give its containers a red tint too.
+            activity.getTheme().applyStyle(R.style.ThemeOverlay_Filt3r_DefaultContainers, true);
         }
         if (dark && settings.pureBlack()) {
             activity.getTheme().applyStyle(R.style.ThemeOverlay_Filt3r_PureBlack, true);

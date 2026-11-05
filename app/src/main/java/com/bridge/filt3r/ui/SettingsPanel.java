@@ -169,6 +169,13 @@ public class SettingsPanel extends LinearLayout {
 
     private final Backend backend;
     private final LinearLayout content;
+    private final LinearLayout blockContent;
+    private final ScrollView mainScroll;
+    private final ScrollView blockScroll;
+    private final TextView title;
+    private LinearLayout target; // where group() adds its card: the main page or the block-lists page
+    private Row blockEntry;
+    private boolean onBlockPage;
     private final LinearLayout banner;
     private boolean changed;
     private TextView filterStatus;
@@ -191,8 +198,12 @@ public class SettingsPanel extends LinearLayout {
         back.setBackground(Ripple.borderless(context));
         back.setImageTintList(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface)));
-        back.setOnClickListener(v -> onClose.run());
-        TextView title = new TextView(context);
+        back.setOnClickListener(v -> {
+            if (!handleBack()) {
+                onClose.run();
+            }
+        });
+        title = new TextView(context);
         title.setText("Settings");
         title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
         bar.addView(back, new LayoutParams(dp(48), dp(48)));
@@ -222,17 +233,28 @@ public class SettingsPanel extends LinearLayout {
         bannerParams.setMargins(dp(16), dp(4), dp(16), dp(8));
         addView(banner, bannerParams);
 
-        ScrollView scroll = new ScrollView(context);
-        scroll.setClipToPadding(false);
-        scroll.setPadding(0, 0, 0, dp(96)); // the floating toolbar sits at the bottom
+        mainScroll = new ScrollView(context);
+        mainScroll.setClipToPadding(false);
+        mainScroll.setPadding(0, 0, 0, dp(96)); // the floating toolbar sits at the bottom
         content = new LinearLayout(context);
         content.setOrientation(VERTICAL);
-        scroll.addView(content, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
-        addView(scroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
+        mainScroll.addView(content, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        addView(mainScroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
+
+        blockScroll = new ScrollView(context);
+        blockScroll.setClipToPadding(false);
+        blockScroll.setPadding(0, 0, 0, dp(96));
+        blockContent = new LinearLayout(context);
+        blockContent.setOrientation(VERTICAL);
+        blockScroll.addView(blockContent, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        blockScroll.setVisibility(GONE);
+        addView(blockScroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
+        target = content;
 
         buildConnection(context);
         buildDns(context);
         buildBlockLists(context);
+        buildBlockListsEntry(context);
         buildPrivacy(context);
         buildAppearance(context);
         buildAbout(context);
@@ -385,7 +407,8 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private void buildBlockLists(Context context) {
-        LinearLayout card = group("Block lists");
+        target = blockContent;
+        LinearLayout card = group("Lists");
         for (FilterCatalog.Entry entry : backend.filterCatalog()) {
             card.addView(switchRow(context, entry.id, listDescription(entry),
                     backend.filterListEnabled(entry.id), on -> {
@@ -404,6 +427,54 @@ public class SettingsPanel extends LinearLayout {
         card.addView(ipBlockStatus);
         card.addView(note(context, "Changes apply the next time you connect. Filter-list URLs above are used in"
                 + " addition to these lists."));
+        target = content;
+    }
+
+    /** The row on the main page that opens the block-lists page. */
+    private void buildBlockListsEntry(Context context) {
+        LinearLayout card = group("Block lists");
+        blockEntry = valueRow(context, "Block lists", blockListsSummary());
+        blockEntry.setOnClickListener(v -> showBlockPage(true));
+        card.addView(blockEntry);
+    }
+
+    private String blockListsSummary() {
+        int on = 0;
+        for (FilterCatalog.Entry entry : backend.filterCatalog()) {
+            if (backend.filterListEnabled(entry.id)) {
+                on++;
+            }
+        }
+        if (backend.ipBlockEnabled()) {
+            on++;
+        }
+        return on + (on == 1 ? " list on" : " lists on");
+    }
+
+    /** Switches between the main page and the block-lists page (a fade, when effects allow). */
+    private void showBlockPage(boolean block) {
+        onBlockPage = block;
+        title.setText(block ? "Block lists" : "Settings");
+        mainScroll.setVisibility(block ? GONE : VISIBLE);
+        blockScroll.setVisibility(block ? VISIBLE : GONE);
+        if (!block) {
+            blockEntry.setSummary(blockListsSummary());
+        }
+        ScrollView shown = block ? blockScroll : mainScroll;
+        int ms = Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 250);
+        if (ms > 0) {
+            shown.setAlpha(0f);
+            shown.animate().alpha(1f).setDuration(ms).start();
+        }
+    }
+
+    /** Back from the block-lists page to the main page. Returns false when already on the main page. */
+    public boolean handleBack() {
+        if (!onBlockPage) {
+            return false;
+        }
+        showBlockPage(false);
+        return true;
     }
 
     private void showIpBlockStatus() {
@@ -605,6 +676,41 @@ public class SettingsPanel extends LinearLayout {
         card.addView(note(context, "Minimal turns the extras off. Standard is the default. Full turns every effect"
                 + " on. Custom lets you pick. The system setting to remove animations always wins."));
         card.addView(effectRows);
+
+        // How screens and panels come in (used when the Transitions effect is on).
+        TextView styleLabel = new TextView(context);
+        styleLabel.setText("Transition style");
+        styleLabel.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+        styleLabel.setPadding(dp(20), dp(12), dp(20), dp(4));
+        card.addView(styleLabel);
+        MaterialButtonToggleGroup transitionStyles = new MaterialButtonToggleGroup(context);
+        transitionStyles.setSingleSelection(true);
+        transitionStyles.setSelectionRequired(true);
+        String[] transitionNames = {"Slide", "Fade", "Pop"};
+        int[] transitionIds = new int[transitionNames.length];
+        for (int i = 0; i < transitionNames.length; i++) {
+            MaterialButton b = new MaterialButton(context, null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            b.setText(transitionNames[i]);
+            b.setId(View.generateViewId());
+            b.setCheckable(true);
+            transitionIds[i] = b.getId();
+            transitionStyles.addView(b);
+        }
+        transitionStyles.check(transitionIds[Effects.transitionStyle(context)]);
+        transitionStyles.addOnButtonCheckedListener((group, id, checked) -> {
+            if (checked) {
+                for (int i = 0; i < transitionIds.length; i++) {
+                    if (transitionIds[i] == id) {
+                        Effects.setTransitionStyle(context, i);
+                    }
+                }
+            }
+        });
+        LayoutParams styleGroupParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        styleGroupParams.setMargins(dp(16), 0, dp(16), dp(4));
+        card.addView(transitionStyles, styleGroupParams);
+        card.addView(note(context, "Slide moves screens sideways, Fade dissolves, Pop zooms in with a small bounce."));
     }
 
     /** One switch per visual effect, shown only while the level is Custom. */
@@ -727,8 +833,9 @@ public class SettingsPanel extends LinearLayout {
         int target = changed && backend.running() ? VISIBLE : GONE;
         if (banner.getVisibility() != target
                 && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
-            android.transition.TransitionManager.beginDelayedTransition(this,
-                    new android.transition.AutoTransition());
+            android.transition.AutoTransition slow = new android.transition.AutoTransition();
+            slow.setDuration(600);
+            android.transition.TransitionManager.beginDelayedTransition(this, slow);
         }
         banner.setVisibility(target);
     }
@@ -841,7 +948,7 @@ public class SettingsPanel extends LinearLayout {
         label.setTextColor(MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary));
         LayoutParams labelParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         labelParams.setMargins(dp(28), dp(16), dp(16), dp(8));
-        content.addView(label, labelParams);
+        target.addView(label, labelParams);
 
         LinearLayout card = new LinearLayout(context);
         card.setOrientation(VERTICAL);
@@ -850,7 +957,7 @@ public class SettingsPanel extends LinearLayout {
                 com.google.android.material.R.attr.colorSurfaceContainer), 24));
         LayoutParams cardParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(dp(16), 0, dp(16), 0);
-        content.addView(card, cardParams);
+        target.addView(card, cardParams);
         return card;
     }
 

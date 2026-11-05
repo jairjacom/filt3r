@@ -333,4 +333,13 @@ final class Settings {
     void setEffectCustom(String key, boolean on) {
         prefs.edit().putBoolean(KEY_EFFECT_PREFIX + key, on).apply();
     }
+
+    int transitionStyle() {
+        int style = prefs.getInt("transition_style", Effects.STYLE_SLIDE);
+        return style >= Effects.STYLE_SLIDE && style <= Effects.STYLE_POP ? style : Effects.STYLE_SLIDE;
+    }
+
+    void setTransitionStyle(int style) {
+        prefs.edit().putInt("transition_style", style).apply();
+    }
 }

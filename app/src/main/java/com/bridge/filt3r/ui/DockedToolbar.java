@@ -90,10 +90,21 @@ public class DockedToolbar extends LinearLayout {
         if (selected >= 0 && selected < highlights.size()) {
             mark(selected, false);
         }
+        boolean changed = index != selected;
         selected = index;
         if (index >= 0 && index < highlights.size()) {
             mark(index, true);
+            if (changed && index > 0 && isAttachedToWindow()
+                    && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
+                flash(buttons.get(index));
+            }
         }
+    }
+
+    /** Shows the touch ripple briefly, so a swipe between sections looks like a tap on the icon. */
+    private void flash(ImageButton button) {
+        button.setPressed(true);
+        button.postDelayed(() -> button.setPressed(false), 160);
     }
 
     /** Shows or hides the highlight and tints the icon, animated when the Transitions effect is on. */

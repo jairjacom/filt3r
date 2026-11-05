@@ -61,11 +61,25 @@ public final class Effects {
         return on(context, effect) ? ms : 0;
     }
 
-    /** Performs the haptic only when the Haptics effect is on. */
+    /** Two short haptics, 90 ms apart, when the Haptics effect is on. */
     public static void haptic(View view, int feedbackConstant) {
         if (on(view.getContext(), Effect.HAPTICS)) {
             view.performHapticFeedback(feedbackConstant);
+            view.postDelayed(() -> view.performHapticFeedback(feedbackConstant), 90);
         }
+    }
+
+    public static final int STYLE_SLIDE = 0;
+    public static final int STYLE_FADE = 1;
+    public static final int STYLE_POP = 2;
+
+    /** How screens and panels come in: STYLE_SLIDE, STYLE_FADE or STYLE_POP. */
+    public static int transitionStyle(Context context) {
+        return new Settings(context).transitionStyle();
+    }
+
+    public static void setTransitionStyle(Context context, int style) {
+        new Settings(context).setTransitionStyle(style);
     }
 
     public static int level(Context context) {
