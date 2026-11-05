@@ -102,7 +102,7 @@ public class FloatingToolbar extends FrameLayout {
         ImageButton b = new ImageButton(getContext());
         b.setImageResource(iconRes);
         b.setContentDescription(label);
-        b.setBackground(null);
+        b.setBackground(Ripple.borderless(getContext()));
         b.setImageTintList(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(
                 this, com.google.android.material.R.attr.colorOnSurface)));
         b.setOnClickListener(v -> {

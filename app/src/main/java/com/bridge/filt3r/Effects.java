@@ -22,7 +22,9 @@ public final class Effects {
         TRANSITIONS("transitions", "Transitions",
                 "Slides and fades between screens, and the connecting pulse", true, false, true, true),
         HAPTICS("haptics", "Haptics",
-                "Small vibrations when you change section", false, false, true, true);
+                "Small vibrations when you change section", false, false, true, true),
+        AMBIENT("ambient", "Ambient glow",
+                "A slow glow around the status circle while connected", true, false, false, true);
 
         public final String key;
         public final String label;
