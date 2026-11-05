@@ -118,7 +118,7 @@ public class MainActivity extends Activity
                 onBackCancelled(); // undo the shrink preview: the panel stays open
                 return; // went back from the block-lists page to the main Settings page
             }
-            closePanel();
+            closePanelAnimated();
         }
     };
 
@@ -190,13 +190,13 @@ public class MainActivity extends Activity
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM));
             toolbar.addItem(R.drawable.ic_nodes, "Nodes",
-                    () -> openPanel(() -> new NodesPanel(this, this, this::closePanel)));
+                    () -> openPanel(() -> new NodesPanel(this, this, this::closePanelAnimated)));
             toolbar.addItem(R.drawable.ic_apps, "Exempt apps",
-                    () -> openPanel(() -> new ExemptAppsPanel(this, this, this::closePanel)));
+                    () -> openPanel(() -> new ExemptAppsPanel(this, this, this::closePanelAnimated)));
             toolbar.addItem(R.drawable.ic_log, "Query log",
-                    () -> openPanel(() -> new QueryLogPanel(this, this, this::closePanel)));
+                    () -> openPanel(() -> new QueryLogPanel(this, this, this::closePanelAnimated)));
             toolbar.addItem(R.drawable.ic_settings, "Settings",
-                    () -> openPanel(() -> new SettingsPanel(this, this, this::closePanel)));
+                    () -> openPanel(() -> new SettingsPanel(this, this, this::closePanelAnimated)));
             toolbar.setAutoHide(!settings.toolbarPinned());
         }
         root.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -494,7 +494,7 @@ public class MainActivity extends Activity
         if (ms == 0) {
             frame.removeView(old);
         } else if (fadeOut) {
-            old.animate().alpha(0f).setDuration(ms).withEndAction(() -> frame.removeView(old)).start();
+            leavePanel(old);
         } else {
             old.postDelayed(() -> frame.removeView(old), ms + 50);
         }
@@ -510,6 +510,10 @@ public class MainActivity extends Activity
         if (style == Effects.STYLE_SLIDE && dir != 0) {
             p.setTranslationX(dir * frame.getWidth());
             p.animate().translationX(0).setDuration(ms).start();
+        } else if (style == Effects.STYLE_SLIDE) { // no direction (floating toolbar): rise from the bottom
+            p.setTranslationY(frame.getHeight() * 0.25f);
+            p.setAlpha(0f);
+            p.animate().translationY(0).alpha(1f).setDuration(ms).start();
         } else if (style == Effects.STYLE_POP) {
             p.setAlpha(0f);
             p.setScaleX(0.8f);
@@ -522,16 +526,49 @@ public class MainActivity extends Activity
         }
     }
 
+    /** Closes the open panel with the chosen style (the back button, the back gesture, or a panel's own back). */
+    private void closePanelAnimated() {
+        View old = panel;
+        if (old == null) {
+            return;
+        }
+        panel = null;
+        getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(closePanelOnBack);
+        if (docked) {
+            section = 0;
+            dock.select(0);
+        }
+        leavePanel(old);
+        updateGlow();
+    }
+
+    /** Takes a panel out of the window with the chosen style, then removes it. */
+    private void leavePanel(View old) {
+        int ms = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
+        if (ms == 0) {
+            frame.removeView(old);
+            return;
+        }
+        int style = Effects.transitionStyle(this);
+        android.view.ViewPropertyAnimator a = old.animate().alpha(0f).setDuration(ms);
+        if (style == Effects.STYLE_POP) {
+            a.scaleX(0.85f).scaleY(0.85f);
+        } else if (style == Effects.STYLE_SLIDE) {
+            a.translationY(frame.getHeight() * 0.25f);
+        }
+        a.withEndAction(() -> frame.removeView(old)).start();
+    }
+
     private View sectionPanel(int index) {
         switch (index) {
             case 1:
-                return new NodesPanel(this, this, this::closePanel);
+                return new NodesPanel(this, this, this::closePanelAnimated);
             case 2:
-                return new ExemptAppsPanel(this, this, this::closePanel);
+                return new ExemptAppsPanel(this, this, this::closePanelAnimated);
             case 3:
-                return new QueryLogPanel(this, this, this::closePanel);
+                return new QueryLogPanel(this, this, this::closePanelAnimated);
             default:
-                return new SettingsPanel(this, this, this::closePanel);
+                return new SettingsPanel(this, this, this::closePanelAnimated);
         }
     }
 
