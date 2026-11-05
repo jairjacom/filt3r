@@ -32,6 +32,7 @@ import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.ui.DockedToolbar;
 import com.bridge.filt3r.ui.ExemptAppsPanel;
 import com.bridge.filt3r.ui.FloatingToolbar;
+import com.bridge.filt3r.ui.GlowBackground;
 import com.bridge.filt3r.ui.NodesPanel;
 import com.bridge.filt3r.ui.QueryLogPanel;
 import com.bridge.filt3r.ui.SettingsPanel;
@@ -156,6 +157,9 @@ public class MainActivity extends Activity
         overrides = new UserOverrides(new File(getFilesDir(), "filter/additionalHosts.txt"));
         Appearance.apply(this, settings);
         frame = new FrameLayout(this);
+        glow = new GlowBackground(this);
+        frame.addView(glow, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         status = new StatusView(this, this);
         frame.addView(status, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -233,6 +237,7 @@ public class MainActivity extends Activity
         super.onStart();
         TunnelState.register(this);
         onTunnelState(TunnelState.get());
+        updateGlow();
         handler.post(statsTick);
     }
 
@@ -371,6 +376,7 @@ public class MainActivity extends Activity
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
         enterPanel(panel, 0);
+        updateGlow();
     }
 
     private void closePanel() {
@@ -379,11 +385,19 @@ public class MainActivity extends Activity
         }
         frame.removeView(panel);
         panel = null;
+        updateGlow();
         getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(closePanelOnBack);
         if (docked) {
             section = 0;
             dock.select(0);
         }
+    }
+
+    private GlowBackground glow;
+
+    /** The animated background runs only on the Status screen, and only with the Animated background effect. */
+    private void updateGlow() {
+        glow.setRunning(panel == null && Effects.on(this, Effects.Effect.SHADER));
     }
 
     private void selectSection(int index) {
@@ -407,6 +421,7 @@ public class MainActivity extends Activity
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
         enterPanel(panel, dir);
+        updateGlow();
     }
 
     /** Brings a panel in with the chosen transition style (slide, fade or pop), if effects allow. */

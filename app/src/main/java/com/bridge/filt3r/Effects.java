@@ -26,7 +26,9 @@ public final class Effects {
         AMBIENT("ambient", "Ambient glow",
                 "A slow glow around the status circle while connected", true, false, false, true),
         SPARKLINE("sparkline", "Traffic graph",
-                "A small graph of recent traffic in the Traffic card", false, false, true, true);
+                "A small graph of recent traffic in the Traffic card", false, false, true, true),
+        SHADER("shader", "Animated background",
+                "Two soft blobs of colour drifting behind the Status screen", true, false, false, true);
 
         public final String key;
         public final String label;
