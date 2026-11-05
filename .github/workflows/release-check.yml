@@ -51,8 +51,8 @@ jobs:
           echo "RELEASE_STORE_PASSWORD=$PW" >> "$GITHUB_ENV"
           echo "RELEASE_KEY_ALIAS=test" >> "$GITHUB_ENV"
 
-      - name: Build release APK
-        run: ./gradlew :app:assembleRelease --no-daemon
+      - name: Build release APK (branches get the side-by-side .test package; main builds the real one)
+        run: ./gradlew :app:assembleRelease --no-daemon ${{ github.ref != 'refs/heads/main' && '-PtestBuild' || '' }}
 
       - name: Check the APK
         run: |
