@@ -559,11 +559,17 @@ public class MainActivity extends Activity
             return;
         }
         int style = Effects.transitionStyle(this);
-        android.view.ViewPropertyAnimator a = old.animate().alpha(0f).setDuration(ms);
+        android.view.ViewPropertyAnimator a = old.animate().setDuration(ms);
         if (style == Effects.STYLE_POP) {
-            a.scaleX(0.85f).scaleY(0.85f);
+            // shrinks away while fading
+            a.alpha(0f).scaleX(0.7f).scaleY(0.7f)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator());
         } else if (style == Effects.STYLE_SLIDE) {
-            a.translationY(frame.getHeight() * 0.25f);
+            // drops off the bottom of the screen without fading, the mirror of how it rose
+            a.translationY(frame.getHeight())
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator());
+        } else {
+            a.alpha(0f);
         }
         a.withEndAction(() -> frame.removeView(old)).start();
     }
