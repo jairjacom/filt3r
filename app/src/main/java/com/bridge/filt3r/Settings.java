@@ -311,4 +311,26 @@ final class Settings {
     void setSeedColor(int argb) {
         prefs.edit().putInt(KEY_SEED_COLOR, argb | 0xFF000000).apply();
     }
+
+    private static final String KEY_EFFECTS_LEVEL = "effects_level";
+    private static final String KEY_EFFECT_PREFIX = "fx_";
+
+    /** An Effects level constant (Minimal, Standard, Full or Custom). The default is Standard. */
+    int effectsLevel() {
+        int level = prefs.getInt(KEY_EFFECTS_LEVEL, Effects.STANDARD);
+        return level >= Effects.MINIMAL && level <= Effects.CUSTOM ? level : Effects.STANDARD;
+    }
+
+    void setEffectsLevel(int level) {
+        prefs.edit().putInt(KEY_EFFECTS_LEVEL, level).apply();
+    }
+
+    /** One effect's own switch, used only while the level is Custom. */
+    boolean effectCustom(String key, boolean fallback) {
+        return prefs.getBoolean(KEY_EFFECT_PREFIX + key, fallback);
+    }
+
+    void setEffectCustom(String key, boolean on) {
+        prefs.edit().putBoolean(KEY_EFFECT_PREFIX + key, on).apply();
+    }
 }

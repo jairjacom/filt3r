@@ -11,6 +11,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 
 /** The big status circle: green when active, pale grey when off, amber and pulsing while connecting. */
@@ -74,7 +75,7 @@ public class HeroView extends FrameLayout {
         shield.setImageTintList(ColorStateList.valueOf(color));
         word.setText(text);
         word.setTextColor(color);
-        setPulsing(mode == Mode.CONNECTING);
+        setPulsing(mode == Mode.CONNECTING && Effects.on(getContext(), Effects.Effect.TRANSITIONS));
     }
 
     private void setPulsing(boolean on) {

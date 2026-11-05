@@ -63,7 +63,7 @@ public class MainActivity extends Activity
     private boolean exportAllowed = true;
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
-    private static final long SLIDE_MS = 200;
+    private static final int SLIDE_MS = 200;
     private static final long STATS_INTERVAL_MS = 1000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -337,7 +337,7 @@ public class MainActivity extends Activity
 
     private void selectSection(int index) {
         if (index != section) {
-            dock.performHapticFeedback(HapticFeedbackConstants.SEGMENT_TICK);
+            Effects.haptic(dock, HapticFeedbackConstants.SEGMENT_TICK);
             showSection(index, Integer.signum(index - section));
         }
     }
@@ -355,9 +355,10 @@ public class MainActivity extends Activity
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
-        if (dir != 0) {
+        int slideMs = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
+        if (dir != 0 && slideMs > 0) {
             panel.setTranslationX(dir * frame.getWidth());
-            panel.animate().translationX(0).setDuration(SLIDE_MS).start();
+            panel.animate().translationX(0).setDuration(slideMs).start();
         }
     }
 
@@ -378,7 +379,7 @@ public class MainActivity extends Activity
         if (target < 0 || target >= SECTION_COUNT || target == section) {
             return;
         }
-        frame.performHapticFeedback(HapticFeedbackConstants.SEGMENT_TICK);
+        Effects.haptic(frame, HapticFeedbackConstants.SEGMENT_TICK);
         showSection(target, Integer.signum(target - section));
     }
 

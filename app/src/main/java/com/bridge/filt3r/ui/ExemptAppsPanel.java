@@ -101,7 +101,7 @@ public class ExemptAppsPanel extends LinearLayout {
         ImageButton back = new ImageButton(context);
         back.setImageResource(R.drawable.ic_back);
         back.setContentDescription("Back");
-        back.setBackground(null);
+        back.setBackground(Ripple.borderless(context));
         back.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface)));
         back.setOnClickListener(v -> onClose.run());
@@ -115,7 +115,7 @@ public class ExemptAppsPanel extends LinearLayout {
         TextView note = new TextView(context);
         note.setText("Exempt apps bypass filt3r: real IP, real DNS, no filtering. Use it for calls and messaging.");
         note.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        note.setAlpha(0.7f);
+        dim(note);
         note.setPadding(dp(20), 0, dp(20), dp(8));
         addView(note);
 
@@ -186,7 +186,7 @@ public class ExemptAppsPanel extends LinearLayout {
         empty = new TextView(context);
         empty.setText("Loading apps...");
         empty.setGravity(Gravity.CENTER);
-        empty.setAlpha(0.7f);
+        dim(empty);
         empty.setPadding(dp(16), dp(48), dp(16), dp(16));
         addView(empty);
 
@@ -272,6 +272,11 @@ public class ExemptAppsPanel extends LinearLayout {
         banner.setVisibility(backend.running() ? VISIBLE : GONE);
     }
 
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
+    }
+
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
@@ -332,7 +337,7 @@ public class ExemptAppsPanel extends LinearLayout {
             name.setEllipsize(TextUtils.TruncateAt.END);
             pkg = new TextView(context);
             pkg.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            pkg.setAlpha(0.7f);
+            dim(pkg);
             pkg.setSingleLine(true);
             pkg.setEllipsize(TextUtils.TruncateAt.MIDDLE);
             texts.addView(name);

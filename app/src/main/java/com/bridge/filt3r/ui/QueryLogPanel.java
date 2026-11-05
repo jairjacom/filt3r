@@ -190,7 +190,7 @@ public class QueryLogPanel extends LinearLayout {
 
         empty = new TextView(context);
         empty.setGravity(Gravity.CENTER);
-        empty.setAlpha(0.7f);
+        dim(empty);
         empty.setPadding(dp(16), dp(48), dp(16), dp(16));
         addView(empty);
 
@@ -283,7 +283,7 @@ public class QueryLogPanel extends LinearLayout {
         ImageButton b = new ImageButton(context);
         b.setImageResource(res);
         b.setContentDescription(description);
-        b.setBackground(null);
+        b.setBackground(Ripple.borderless(context));
         b.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface)));
         b.setLayoutParams(new LayoutParams(dp(48), dp(48)));
@@ -312,7 +312,7 @@ public class QueryLogPanel extends LinearLayout {
         state.setText(rule == null ? (e.blocked ? "Blocked by the filter lists" : "Allowed")
                 : rule ? "You allowed this domain" : "You blocked this domain");
         state.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        state.setAlpha(0.7f);
+        dim(state);
         content.addView(name);
         content.addView(state);
 
@@ -337,7 +337,7 @@ public class QueryLogPanel extends LinearLayout {
         note.setText("A rule covers this domain and its sub domains and applies at once."
                 + " Manage all rules with the rules icon at the top.");
         note.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        note.setAlpha(0.7f);
+        dim(note);
         note.setPadding(0, dp(12), 0, 0);
         content.addView(note);
 
@@ -357,6 +357,11 @@ public class QueryLogPanel extends LinearLayout {
         } catch (IOException | IllegalArgumentException ex) {
             Toast.makeText(getContext(), "Could not save the rule", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
     }
 
     private int dp(int v) {
@@ -420,7 +425,7 @@ public class QueryLogPanel extends LinearLayout {
             host.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             detail = new TextView(context);
             detail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            detail.setAlpha(0.7f);
+            dim(detail);
             texts.addView(host);
             texts.addView(detail);
             addView(texts, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));

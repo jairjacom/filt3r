@@ -12,6 +12,7 @@ import android.widget.Toast;
 
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.filter.UserOverrides;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
@@ -89,7 +90,7 @@ public final class OverridesDialog {
         TextView note = new TextView(context);
         note.setText("A rule covers the domain and its sub domains.");
         note.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        note.setAlpha(0.7f);
+        dim(note);
         note.setPadding(0, dp(context, 4), 0, dp(context, 8));
         content.addView(note);
 
@@ -156,7 +157,7 @@ public final class OverridesDialog {
     private static TextView label(Context context, String text) {
         TextView t = new TextView(context);
         t.setText(text);
-        t.setAlpha(0.7f);
+        dim(t);
         t.setPadding(0, dp(context, 8), 0, dp(context, 8));
         return t;
     }
@@ -182,11 +183,16 @@ public final class OverridesDialog {
         ImageButton bin = new ImageButton(context);
         bin.setImageResource(R.drawable.ic_delete);
         bin.setContentDescription("Remove rule for " + e.host);
-        bin.setBackground(null);
+        bin.setBackground(Ripple.borderless(context));
         bin.setImageTintList(ColorStateList.valueOf(host.getCurrentTextColor()));
         bin.setOnClickListener(v -> remove.run());
         row.addView(bin, new LinearLayout.LayoutParams(dp(context, 48), dp(context, 48)));
         return row;
+    }
+
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
     }
 
     private static int dp(Context context, int v) {

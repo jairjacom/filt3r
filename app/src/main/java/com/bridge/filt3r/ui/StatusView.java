@@ -191,6 +191,11 @@ public class StatusView extends ScrollView {
         return b;
     }
 
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
+    }
+
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
@@ -215,15 +220,15 @@ public class StatusView extends ScrollView {
             TextView label = new TextView(context);
             label.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
             label.setText(title);
-            label.setAlpha(0.7f);
+            dim(label);
             value = new TextView(context);
             value.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
             detail = new TextView(context);
             detail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            detail.setAlpha(0.7f);
+            dim(detail);
             extra = new TextView(context);
             extra.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            extra.setAlpha(0.7f);
+            dim(extra);
             box.addView(label);
             box.addView(value);
             box.addView(detail);

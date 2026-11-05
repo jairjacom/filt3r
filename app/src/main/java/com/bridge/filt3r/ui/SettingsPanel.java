@@ -16,6 +16,7 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.filter.FilterCatalog;
 import com.google.android.material.button.MaterialButton;
@@ -187,7 +188,7 @@ public class SettingsPanel extends LinearLayout {
         ImageButton back = new ImageButton(context);
         back.setImageResource(R.drawable.ic_back);
         back.setContentDescription("Back");
-        back.setBackground(null);
+        back.setBackground(Ripple.borderless(context));
         back.setImageTintList(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface)));
         back.setOnClickListener(v -> onClose.run());
@@ -558,6 +559,60 @@ public class SettingsPanel extends LinearLayout {
                     "Keep the bottom toolbar visible instead of hiding it when idle.",
                     backend.toolbarPinned(), backend::setToolbarPinned));
         }
+
+        // Visual effects: Minimal, Standard and Full are bundles of the same switches; Custom shows them.
+        TextView effectsLabel = new TextView(context);
+        effectsLabel.setText("Visual effects");
+        effectsLabel.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+        effectsLabel.setPadding(dp(20), dp(12), dp(20), dp(4));
+        card.addView(effectsLabel);
+        MaterialButtonToggleGroup levels = new MaterialButtonToggleGroup(context);
+        levels.setSingleSelection(true);
+        levels.setSelectionRequired(true);
+        String[] levelNames = {"Minimal", "Standard", "Full", "Custom"};
+        int[] levelIds = new int[levelNames.length];
+        for (int i = 0; i < levelNames.length; i++) {
+            MaterialButton b = new MaterialButton(context, null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            b.setText(levelNames[i]);
+            b.setId(View.generateViewId());
+            b.setCheckable(true);
+            levelIds[i] = b.getId();
+            levels.addView(b);
+        }
+        LinearLayout effectRows = new LinearLayout(context);
+        effectRows.setOrientation(VERTICAL);
+        levels.check(levelIds[Effects.level(context)]);
+        if (Effects.level(context) == Effects.CUSTOM) {
+            fillEffectRows(context, effectRows);
+        }
+        levels.addOnButtonCheckedListener((group, id, checked) -> {
+            if (checked) {
+                for (int i = 0; i < levelIds.length; i++) {
+                    if (levelIds[i] == id && i != Effects.level(context)) {
+                        Effects.setLevel(context, i);
+                        effectRows.removeAllViews();
+                        if (i == Effects.CUSTOM) {
+                            fillEffectRows(context, effectRows);
+                        }
+                    }
+                }
+            }
+        });
+        LayoutParams levelParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        levelParams.setMargins(dp(16), 0, dp(16), dp(4));
+        card.addView(levels, levelParams);
+        card.addView(note(context, "Minimal turns the extras off. Standard is the default. Full turns every effect"
+                + " on. Custom lets you pick. The system setting to remove animations always wins."));
+        card.addView(effectRows);
+    }
+
+    /** One switch per visual effect, shown only while the level is Custom. */
+    private void fillEffectRows(Context context, LinearLayout rows) {
+        for (Effects.Effect e : Effects.Effect.values()) {
+            rows.addView(switchRow(context, e.label, e.summary, Effects.chosen(context, e),
+                    on -> Effects.set(context, e, on)));
+        }
     }
 
     private static String schemeLabel(String key) {
@@ -812,9 +867,15 @@ public class SettingsPanel extends LinearLayout {
         TextView t = new TextView(context);
         t.setText(text);
         t.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        t.setAlpha(0.7f);
+        dim(t);
         t.setPadding(dp(20), dp(8), dp(20), dp(8));
         return t;
+    }
+
+    /** Secondary text colour from the theme (instead of fading the text with alpha). */
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
     }
 
     private LinearLayout switchRow(Context context, String title, String summary, boolean checked,
@@ -830,7 +891,7 @@ public class SettingsPanel extends LinearLayout {
         TextView s = new TextView(context);
         s.setText(summary);
         s.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        s.setAlpha(0.7f);
+        dim(s);
         texts.addView(t);
         texts.addView(s);
         MaterialSwitch sw = new MaterialSwitch(context);
@@ -860,7 +921,7 @@ public class SettingsPanel extends LinearLayout {
             summary = new TextView(context);
             summary.setText(value);
             summary.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            summary.setAlpha(0.7f);
+            dim(summary);
             addView(t);
             addView(summary);
             setClickable(true);

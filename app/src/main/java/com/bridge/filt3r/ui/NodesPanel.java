@@ -1,6 +1,7 @@
 package com.bridge.filt3r.ui;
 
 import android.content.Context;
+import android.text.TextUtils;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
@@ -117,18 +118,20 @@ public class NodesPanel extends LinearLayout {
         TextView label = new TextView(context);
         label.setText("Current node");
         label.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
-        label.setAlpha(0.7f);
+        dim(label);
         currentName = new TextView(context);
         currentName.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
+        currentName.setSingleLine(true);
+        currentName.setEllipsize(TextUtils.TruncateAt.END);
         currentDetail = new TextView(context);
         currentDetail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        currentDetail.setAlpha(0.7f);
+        dim(currentDetail);
         currentIp = new TextView(context);
         currentIp.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        currentIp.setAlpha(0.7f);
+        dim(currentIp);
         currentTested = new TextView(context);
         currentTested.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        currentTested.setAlpha(0.7f);
+        dim(currentTested);
         card.addView(label);
         card.addView(currentName);
         card.addView(currentDetail);
@@ -161,7 +164,7 @@ public class NodesPanel extends LinearLayout {
         empty = new TextView(context);
         empty.setText("Connect to see the nodes.");
         empty.setGravity(Gravity.CENTER);
-        empty.setAlpha(0.7f);
+        dim(empty);
         empty.setPadding(dp(16), dp(48), dp(16), dp(16));
         addView(empty);
 
@@ -312,11 +315,16 @@ public class NodesPanel extends LinearLayout {
         ImageButton b = new ImageButton(context);
         b.setImageResource(res);
         b.setContentDescription(description);
-        b.setBackground(null);
+        b.setBackground(Ripple.borderless(context));
         b.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface)));
         b.setLayoutParams(new LayoutParams(dp(48), dp(48)));
         return b;
+    }
+
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
     }
 
     private int dp(int v) {
@@ -384,7 +392,7 @@ public class NodesPanel extends LinearLayout {
             title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
             subtitle = new TextView(context);
             subtitle.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            subtitle.setAlpha(0.7f);
+            dim(subtitle);
             // The tag sits on the same line as the flag and country.
             tag = new TextView(context);
             tag.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall);
