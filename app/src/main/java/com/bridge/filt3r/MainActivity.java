@@ -94,14 +94,6 @@ public class MainActivity extends Activity
     /** Closes the open panel; during the back gesture the panel shrinks, fades and follows the finger as a preview. */
     private final OnBackAnimationCallback closePanelOnBack = new OnBackAnimationCallback() {
         @Override
-        public void onBackStarted(BackEvent event) {
-            if (getPackageName().endsWith(".test")) {
-                // test builds only: shows that the system really sends the gesture to the app
-                Messages.show(frame, "Back gesture started", Snackbar.LENGTH_SHORT);
-            }
-        }
-
-        @Override
         public void onBackProgressed(BackEvent event) {
             if (panel != null && Effects.on(MainActivity.this, Effects.Effect.TRANSITIONS)) {
                 float p = event.getProgress();
