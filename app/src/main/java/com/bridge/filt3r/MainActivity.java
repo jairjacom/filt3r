@@ -10,7 +10,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.window.OnBackInvokedCallback;
+import android.window.BackEvent;
+import android.window.OnBackAnimationCallback;
 import android.window.OnBackInvokedDispatcher;
 import android.widget.Toast;
 import android.view.Gravity;
@@ -64,6 +65,7 @@ public class MainActivity extends Activity
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
     private static final int SLIDE_MS = 200;
+    private static final int MAX_CONTENT_DP = 640;
     private static final long STATS_INTERVAL_MS = 1000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -83,7 +85,32 @@ public class MainActivity extends Activity
     private List<FilterCatalog.Entry> filterCatalog; // read from dnsfilter.conf on first use
     private FilterStatus.State lastFilterState = FilterStatus.State.NONE;
     private String lastFilterError = "";
-    private final OnBackInvokedCallback closePanelOnBack = this::closePanel;
+    /** Closes the open panel; during the back gesture the panel shrinks and fades as a preview. */
+    private final OnBackAnimationCallback closePanelOnBack = new OnBackAnimationCallback() {
+        @Override
+        public void onBackProgressed(BackEvent event) {
+            if (panel != null && Effects.on(MainActivity.this, Effects.Effect.TRANSITIONS)) {
+                float p = event.getProgress();
+                panel.setScaleX(1f - 0.08f * p);
+                panel.setScaleY(1f - 0.08f * p);
+                panel.setAlpha(1f - 0.4f * p);
+            }
+        }
+
+        @Override
+        public void onBackCancelled() {
+            if (panel != null) {
+                panel.setScaleX(1f);
+                panel.setScaleY(1f);
+                panel.setAlpha(1f);
+            }
+        }
+
+        @Override
+        public void onBackInvoked() {
+            closePanel();
+        }
+    };
 
     private final Runnable statsTick = new Runnable() {
         @Override
@@ -144,8 +171,12 @@ public class MainActivity extends Activity
             toolbar.setAutoHide(!settings.toolbarPinned());
         }
         root.setOnApplyWindowInsetsListener((v, insets) -> {
-            Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            // On wide screens (tablet, landscape fold) keep the content in a centred column.
+            float density = getResources().getDisplayMetrics().density;
+            int extra = (int) (Math.max(0, getResources().getConfiguration().screenWidthDp - MAX_CONTENT_DP)
+                    / 2f * density);
+            v.setPadding(bars.left + extra, bars.top, bars.right + extra, bars.bottom);
             return WindowInsets.CONSUMED;
         });
         setContentView(root);
@@ -320,6 +351,13 @@ public class MainActivity extends Activity
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
+        int openMs = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
+        if (openMs > 0) {
+            panel.setAlpha(0f);
+            panel.setScaleX(0.96f);
+            panel.setScaleY(0.96f);
+            panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(openMs).start();
+        }
     }
 
     private void closePanel() {
