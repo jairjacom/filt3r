@@ -15,7 +15,7 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
-import android.widget.Toast;
+import com.google.android.material.snackbar.Snackbar;
 
 import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
@@ -303,7 +303,7 @@ public class QueryLogPanel extends LinearLayout {
         try {
             rule = backend.ruleFor(e.host);
         } catch (IOException ex) {
-            Toast.makeText(context, "Could not read your rules", Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Could not read your rules", Snackbar.LENGTH_SHORT);
             return;
         }
         BottomSheetDialog sheet = new BottomSheetDialog(context);
@@ -358,10 +358,10 @@ public class QueryLogPanel extends LinearLayout {
     private void applyRule(BottomSheetDialog sheet, RuleAction action, String done) {
         try {
             action.run();
-            Toast.makeText(getContext(), done, Toast.LENGTH_SHORT).show();
+            Messages.show(this, done, Snackbar.LENGTH_SHORT);
             sheet.dismiss();
         } catch (IOException | IllegalArgumentException ex) {
-            Toast.makeText(getContext(), "Could not save the rule", Toast.LENGTH_SHORT).show();
+            Messages.showHere(sheet.getWindow().getDecorView(), "Could not save the rule", Snackbar.LENGTH_SHORT);
         }
     }
 

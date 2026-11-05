@@ -28,7 +28,11 @@ public final class Effects {
         SPARKLINE("sparkline", "Traffic graph",
                 "A small graph of recent traffic in the Traffic card", false, false, true, true),
         SHADER("shader", "Animated background",
-                "Two soft blobs of colour drifting behind the Status screen", true, false, false, true);
+                "Two soft blobs of colour drifting behind the Status screen", true, false, false, true),
+        NODE_BARS("nodebars", "Latency bars",
+                "A thin bar under each node showing how fast it is", false, false, true, true),
+        TICKERS("tickers", "Number tickers",
+                "Counters count up smoothly instead of jumping", true, false, true, true);
 
         public final String key;
         public final String label;

@@ -15,7 +15,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
-import android.widget.Toast;
+import com.google.android.material.snackbar.Snackbar;
 
 import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
@@ -177,7 +177,7 @@ public class NodesPanel extends LinearLayout {
         list.setOnItemClickListener((p, v, pos, id) -> onNodeTap(adapter.getItem(pos)));
         list.setOnItemLongClickListener((p, v, pos, id) -> {
             ShadowsocksNode n = adapter.getItem(pos).node;
-            Toast.makeText(getContext(), n.host + ":" + n.port, Toast.LENGTH_LONG).show();
+            Messages.show(this, n.host + ":" + n.port);
             return true;
         });
         addView(list, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
@@ -197,8 +197,7 @@ public class NodesPanel extends LinearLayout {
 
     private void onNodeTap(NodeInfo n) {
         if (n.state == NodeInfo.State.BLACKLISTED) {
-            Toast.makeText(getContext(), "This node failed 3 times in a row; it is skipped for a while and tried again automatically.",
-                    Toast.LENGTH_LONG).show();
+            Messages.show(this, "This node failed 3 times in a row; it is skipped for a while and tried again automatically.");
             return;
         }
         if (n.pinned) {
@@ -207,10 +206,10 @@ public class NodesPanel extends LinearLayout {
             return;
         }
         if (n.state == NodeInfo.State.UNTESTED) {
-            Toast.makeText(getContext(), "Testing the node first...", Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Testing the node first...", Snackbar.LENGTH_SHORT);
         }
         if (!backend.pin(n.node, () -> post(this::reload))) {
-            Toast.makeText(getContext(), "Connect first.", Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Connect first.", Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -221,7 +220,7 @@ public class NodesPanel extends LinearLayout {
         busy = true;
         retestButton.setEnabled(false);
         retestButton.setAlpha(0.4f);
-        Toast.makeText(getContext(), "Re-testing and speed-testing the best nodes...", Toast.LENGTH_SHORT).show();
+        Messages.show(this, "Re-testing and speed-testing the best nodes...", Snackbar.LENGTH_SHORT);
         boolean started = backend.retest(() -> post(() -> {
             busy = false;
             retestButton.setEnabled(true);
@@ -232,8 +231,7 @@ public class NodesPanel extends LinearLayout {
             busy = false;
             retestButton.setEnabled(true);
             retestButton.setAlpha(1f);
-            Toast.makeText(getContext(), "Not possible now (tunnel off or already testing).",
-                    Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Not possible now (tunnel off or already testing).", Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -404,6 +402,8 @@ public class NodesPanel extends LinearLayout {
         private final GradientDrawable dotBg = new GradientDrawable();
         private final TextView tag;
         private final GradientDrawable tagBg = new GradientDrawable();
+        private final View bar;
+        private final GradientDrawable barBg = new GradientDrawable();
 
         Row(Context context) {
             super(context);
@@ -460,6 +460,10 @@ public class NodesPanel extends LinearLayout {
             ipv6.setText("IPv6");
             ipv6.setTextColor(context.getColor(R.color.state_active));
             right.addView(latency);
+            barBg.setCornerRadius(dp(2));
+            bar = new View(context);
+            bar.setBackground(barBg);
+            right.addView(bar, new LayoutParams(dp(84), dp(3)));
             right.addView(ipv6);
             addView(right, new LayoutParams(dp(84), LayoutParams.WRAP_CONTENT)); // fixed width: columns line up
         }
@@ -497,6 +501,17 @@ public class NodesPanel extends LinearLayout {
                     break;
             }
             dotBg.setColor(color);
+            if (Effects.on(getContext(), Effects.Effect.NODE_BARS) && n.medianMs >= 0
+                    && n.state != NodeInfo.State.BLACKLISTED) {
+                float fill = 1f - Math.min(n.medianMs, 1000) / 1000f;
+                barBg.setColor(color);
+                LayoutParams barParams = (LayoutParams) bar.getLayoutParams();
+                barParams.width = Math.max(dp(2), (int) (dp(84) * fill));
+                bar.setLayoutParams(barParams);
+                bar.setVisibility(VISIBLE);
+            } else {
+                bar.setVisibility(GONE);
+            }
             // The tag says why a row has no green dot (or that it is the node in use).
             String tagText = null;
             int tagColor = color;

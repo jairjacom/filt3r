@@ -8,7 +8,8 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
+import android.app.Activity;
+import com.google.android.material.snackbar.Snackbar;
 
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.filter.UserOverrides;
@@ -120,7 +121,7 @@ public final class OverridesDialog {
                         try {
                             backend.removeRule(e.host);
                         } catch (IOException ex) {
-                            Toast.makeText(context, "Could not remove the rule", Toast.LENGTH_SHORT).show();
+                            Messages.showHere(content, "Could not remove the rule", Snackbar.LENGTH_SHORT);
                         }
                         this.run();
                     }));
@@ -134,12 +135,12 @@ public final class OverridesDialog {
                 String host = backend.setRule(edit.getText() == null ? "" : edit.getText().toString(), allowIt);
                 edit.setText("");
                 field.setError(null);
-                Toast.makeText(context, (allowIt ? "Allowed " : "Blocked ") + host, Toast.LENGTH_SHORT).show();
+                Messages.showHere(content, (allowIt ? "Allowed " : "Blocked ") + host, Snackbar.LENGTH_SHORT);
                 refill.run();
             } catch (IllegalArgumentException e) {
                 field.setError("Enter a domain name, like example.com");
             } catch (IOException e) {
-                Toast.makeText(context, "Could not save the rule", Toast.LENGTH_SHORT).show();
+                Messages.showHere(content, "Could not save the rule", Snackbar.LENGTH_SHORT);
             }
         };
         allow.setOnClickListener(add);

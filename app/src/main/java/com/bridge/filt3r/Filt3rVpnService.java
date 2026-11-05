@@ -145,9 +145,12 @@ public class Filt3rVpnService extends VpnService {
     private volatile DNSResolver dnsResolver;
     private volatile NodeRuntime runtime;
 
+    private final TunnelState.Listener widgetListener = state -> Filt3rWidget.refresh(this);
+
     @Override
     public void onCreate() {
         instance = this;
+        TunnelState.register(widgetListener);
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel(
                 CHANNEL_ID, "Tunnel status", NotificationManager.IMPORTANCE_LOW));
@@ -833,6 +836,10 @@ public class Filt3rVpnService extends VpnService {
             TunnelState.set(TunnelState.State.STOPPED);
         }
         instance = null;
+        TunnelState.unregister(widgetListener);
+        // The listener's last callback is posted to the main thread and would arrive after the
+        // unregister above, so refresh once directly with the final state.
+        Filt3rWidget.refresh(this);
     }
 
     @Override

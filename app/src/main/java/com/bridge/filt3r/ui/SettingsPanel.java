@@ -11,7 +11,7 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
+import com.google.android.material.snackbar.Snackbar;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
@@ -398,9 +398,9 @@ public class SettingsPanel extends LinearLayout {
         MaterialButton update = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         update.setText("Update lists now");
-        update.setOnClickListener(v -> Toast.makeText(context, backend.updateFilters()
+        update.setOnClickListener(v -> Messages.show(this, backend.updateFilters()
                 ? "Updating the filter lists..." : "Connect first: the lists are downloaded through a node.",
-                Toast.LENGTH_SHORT).show());
+                Snackbar.LENGTH_SHORT));
         LayoutParams updateParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         updateParams.setMargins(dp(16), 0, dp(16), dp(8));
         card.addView(update, updateParams);
@@ -510,7 +510,7 @@ public class SettingsPanel extends LinearLayout {
         clear.setText("Clear query log");
         clear.setOnClickListener(v -> {
             backend.clearQueryLog();
-            Toast.makeText(context, "Query log cleared", Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Query log cleared", Snackbar.LENGTH_SHORT);
         });
         LayoutParams clearParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         clearParams.setMargins(dp(16), 0, dp(16), dp(8));

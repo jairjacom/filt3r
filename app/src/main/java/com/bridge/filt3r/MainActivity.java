@@ -13,7 +13,7 @@ import android.os.Looper;
 import android.window.BackEvent;
 import android.window.OnBackAnimationCallback;
 import android.window.OnBackInvokedDispatcher;
-import android.widget.Toast;
+import com.google.android.material.snackbar.Snackbar;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
@@ -36,6 +36,7 @@ import com.bridge.filt3r.ui.GlowBackground;
 import com.bridge.filt3r.ui.NodesPanel;
 import com.bridge.filt3r.ui.QueryLogPanel;
 import com.bridge.filt3r.ui.SettingsPanel;
+import com.bridge.filt3r.ui.Messages;
 import com.bridge.filt3r.ui.StatusView;
 import com.bridge.filt3r.ui.SwipeRule;
 
@@ -63,6 +64,10 @@ public class MainActivity extends Activity
     private static final int REQUEST_EXPORT_LOG = 3;
     private boolean exportBlocked = true;
     private boolean exportAllowed = true;
+    static final String ACTION_CONNECT = "com.bridge.filt3r.action.CONNECT";
+    static final String ACTION_DISCONNECT = "com.bridge.filt3r.action.DISCONNECT";
+    static final String ACTION_OPEN_NODES = "com.bridge.filt3r.action.OPEN_NODES";
+    static final String ACTION_OPEN_LOG = "com.bridge.filt3r.action.OPEN_LOG";
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
     private static final int SLIDE_MS = 300;
@@ -217,6 +222,51 @@ public class MainActivity extends Activity
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
         }
+        if (savedInstanceState == null) {
+            handleIntent(getIntent());
+        }
+        try {
+            Shortcuts.publish(this);
+        } catch (RuntimeException e) {
+            // Launcher shortcuts are a convenience: never fail startup over them.
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIntent(intent);
+    }
+
+    /** Runs a quick-settings tile or launcher shortcut action, once. */
+    private void handleIntent(Intent intent) {
+        String action = intent == null ? null : intent.getAction();
+        if (action == null || (intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) {
+            return; // nothing to do, or the app was reopened from Recents: do not repeat an old action
+        }
+        setIntent(new Intent()); // so a rotation does not repeat the action
+        if (ACTION_CONNECT.equals(action)) {
+            connect();
+        } else if (ACTION_DISCONNECT.equals(action)) {
+            disconnect();
+        } else if (ACTION_OPEN_NODES.equals(action)) {
+            openSection(1);
+        } else if (ACTION_OPEN_LOG.equals(action)) {
+            openSection(3);
+        }
+    }
+
+    /** Opens a panel by section number in either toolbar style. */
+    private void openSection(int index) {
+        if (docked) {
+            if (index != section) {
+                showSection(index, Integer.signum(index - section));
+            }
+        } else {
+            closePanel();
+            openPanel(() -> sectionPanel(index));
+        }
     }
 
     @Override
@@ -257,18 +307,17 @@ public class MainActivity extends Activity
     private void refresh() {
         String notice = Filt3rVpnService.takeNotice();
         if (notice != null) {
-            Toast.makeText(this, notice, Toast.LENGTH_LONG).show();
+            Messages.show(frame, notice);
         }
         FilterStatus.Snapshot filter = FilterStatus.get();
         if (lastFilterState == FilterStatus.State.DOWNLOADING && filter.state != lastFilterState) {
             if (filter.state == FilterStatus.State.OK) {
-                Toast.makeText(this, String.format(java.util.Locale.US, "Filter lists updated: %,d blocked names",
+                Messages.show(frame, String.format(java.util.Locale.US, "Filter lists updated: %,d blocked names",
                         filter.unique >= 0 ? filter.unique : filter.entries)
-                        + (filter.failedLists > 0 ? "; " + filter.failedLists + " list(s) failed: " + filter.error : ""),
-                        Toast.LENGTH_LONG).show();
+                        + (filter.failedLists > 0 ? "; " + filter.failedLists + " list(s) failed: " + filter.error : ""));
             } else if (filter.state == FilterStatus.State.FAILED && !filter.error.equals(lastFilterError)) {
                 lastFilterError = filter.error;
-                Toast.makeText(this, "Filter update failed: " + filter.error, Toast.LENGTH_LONG).show();
+                Messages.show(frame, "Filter update failed: " + filter.error);
             }
         }
         lastFilterState = filter.state;
@@ -356,7 +405,7 @@ public class MainActivity extends Activity
                 result = "Could not save the file";
             }
             String shown = result;
-            runOnUiThread(() -> Toast.makeText(this, shown, Toast.LENGTH_LONG).show());
+            runOnUiThread(() -> Messages.show(frame, shown));
         }, "export-log");
         t.setDaemon(true);
         t.start();
@@ -781,9 +830,9 @@ public class MainActivity extends Activity
     public void exportQueryLog(boolean blocked, boolean allowed) {
         String kind = blocked && allowed ? "" : blocked ? "blocked-" : "allowed-";
         if (exportLines(blocked, allowed).isEmpty()) {
-            Toast.makeText(this, blocked && allowed ? "Nothing to save yet."
+            Messages.show(frame, blocked && allowed ? "Nothing to save yet."
                     : blocked ? "No blocked entries to save." : "No allowed entries to save.",
-                    Toast.LENGTH_SHORT).show();
+                    Snackbar.LENGTH_SHORT);
             return;
         }
         exportBlocked = blocked;

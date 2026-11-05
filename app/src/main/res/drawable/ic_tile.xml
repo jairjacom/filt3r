@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quick Settings tile icon: the shield of ic_shield_mono, cropped to its own bounds. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="520"
+    android:viewportHeight="520">
+    <group
+        android:translateX="-252"
+        android:translateY="-252">
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M512 252 L732 330 V510 C732 636 640 720 512 772 C384 720 292 636 292 510 V330 Z M412 394 H612 L552 480 V590 H472 V480 Z" />
+    </group>
+</vector>
