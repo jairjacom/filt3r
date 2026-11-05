@@ -12,6 +12,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 
+import com.bridge.filt3r.Effects;
 import com.google.android.material.color.MaterialColors;
 
 /**
@@ -23,7 +24,7 @@ import com.google.android.material.color.MaterialColors;
 public class FloatingToolbar extends FrameLayout {
 
     private static final long IDLE_MS = 3000;
-    private static final long ANIM_MS = 220;
+    private static final int ANIM_MS = 220;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final LinearLayout pill;
@@ -101,7 +102,7 @@ public class FloatingToolbar extends FrameLayout {
         ImageButton b = new ImageButton(getContext());
         b.setImageResource(iconRes);
         b.setContentDescription(label);
-        b.setBackground(null);
+        b.setBackground(Ripple.borderless(getContext()));
         b.setImageTintList(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(
                 this, com.google.android.material.R.attr.colorOnSurface)));
         b.setOnClickListener(v -> {
@@ -146,9 +147,10 @@ public class FloatingToolbar extends FrameLayout {
         }
         hidden = false;
         handleTouch.setVisibility(GONE);
-        handle.animate().alpha(0f).setDuration(ANIM_MS).start();
+        handle.animate().alpha(0f).setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, ANIM_MS)).start();
         pill.setVisibility(VISIBLE);
-        pill.animate().translationY(0f).alpha(1f).setDuration(ANIM_MS).start();
+        pill.animate().translationY(0f).alpha(1f)
+                .setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, ANIM_MS)).start();
         poke();
     }
 
@@ -158,12 +160,12 @@ public class FloatingToolbar extends FrameLayout {
         }
         hidden = true;
         pill.animate().translationY(pill.getHeight() + dp(24)).alpha(0f)
-                .setDuration(ANIM_MS).withEndAction(() -> {
+                .setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, ANIM_MS)).withEndAction(() -> {
                     if (hidden) {
                         pill.setVisibility(INVISIBLE);
                     }
                 }).start();
-        handle.animate().alpha(0.4f).setDuration(ANIM_MS).start();
+        handle.animate().alpha(0.4f).setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, ANIM_MS)).start();
         handleTouch.setVisibility(VISIBLE);
     }
 

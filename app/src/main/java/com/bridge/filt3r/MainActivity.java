@@ -10,9 +10,10 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.window.OnBackInvokedCallback;
+import android.window.BackEvent;
+import android.window.OnBackAnimationCallback;
 import android.window.OnBackInvokedDispatcher;
-import android.widget.Toast;
+import com.google.android.material.snackbar.Snackbar;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
@@ -31,9 +32,11 @@ import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.ui.DockedToolbar;
 import com.bridge.filt3r.ui.ExemptAppsPanel;
 import com.bridge.filt3r.ui.FloatingToolbar;
+import com.bridge.filt3r.ui.GlowBackground;
 import com.bridge.filt3r.ui.NodesPanel;
 import com.bridge.filt3r.ui.QueryLogPanel;
 import com.bridge.filt3r.ui.SettingsPanel;
+import com.bridge.filt3r.ui.Messages;
 import com.bridge.filt3r.ui.StatusView;
 import com.bridge.filt3r.ui.SwipeRule;
 
@@ -61,9 +64,14 @@ public class MainActivity extends Activity
     private static final int REQUEST_EXPORT_LOG = 3;
     private boolean exportBlocked = true;
     private boolean exportAllowed = true;
+    static final String ACTION_CONNECT = "com.bridge.filt3r.action.CONNECT";
+    static final String ACTION_DISCONNECT = "com.bridge.filt3r.action.DISCONNECT";
+    static final String ACTION_OPEN_NODES = "com.bridge.filt3r.action.OPEN_NODES";
+    static final String ACTION_OPEN_LOG = "com.bridge.filt3r.action.OPEN_LOG";
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
-    private static final long SLIDE_MS = 200;
+    private static final int SLIDE_MS = 300;
+    private static final int MAX_CONTENT_DP = 640;
     private static final long STATS_INTERVAL_MS = 1000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -83,7 +91,37 @@ public class MainActivity extends Activity
     private List<FilterCatalog.Entry> filterCatalog; // read from dnsfilter.conf on first use
     private FilterStatus.State lastFilterState = FilterStatus.State.NONE;
     private String lastFilterError = "";
-    private final OnBackInvokedCallback closePanelOnBack = this::closePanel;
+    /** Closes the open panel; during the back gesture the panel shrinks, fades and follows the finger as a preview. */
+    private final OnBackAnimationCallback closePanelOnBack = new OnBackAnimationCallback() {
+        @Override
+        public void onBackProgressed(BackEvent event) {
+            if (panel != null && Effects.on(MainActivity.this, Effects.Effect.TRANSITIONS)) {
+                float p = event.getProgress();
+                float side = event.getSwipeEdge() == BackEvent.EDGE_LEFT ? 1f : -1f;
+                float density = getResources().getDisplayMetrics().density;
+                panel.setScaleX(1f - 0.15f * p);
+                panel.setScaleY(1f - 0.15f * p);
+                panel.setAlpha(1f - 0.5f * p);
+                panel.setTranslationX(side * 32 * density * p);
+            }
+        }
+
+        @Override
+        public void onBackCancelled() {
+            if (panel != null) {
+                panel.animate().scaleX(1f).scaleY(1f).alpha(1f).translationX(0f).setDuration(150).start();
+            }
+        }
+
+        @Override
+        public void onBackInvoked() {
+            if (panel instanceof SettingsPanel && ((SettingsPanel) panel).handleBack()) {
+                onBackCancelled(); // undo the shrink preview: the panel stays open
+                return; // went back from the block-lists page to the main Settings page
+            }
+            closePanelAnimated();
+        }
+    };
 
     private final Runnable statsTick = new Runnable() {
         @Override
@@ -106,10 +144,29 @@ public class MainActivity extends Activity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        CrashLog.install(this);
+        // Keep the system splash until the shield animation has finished, then fade it out.
+        getSplashScreen().setOnExitAnimationListener(splash -> {
+            long wait = 0;
+            if (splash.getIconAnimationStart() != null && splash.getIconAnimationDuration() != null) {
+                wait = splash.getIconAnimationStart().plus(splash.getIconAnimationDuration()).toEpochMilli()
+                        - System.currentTimeMillis();
+            }
+            wait = Math.max(0, Math.min(1000, wait));
+            if (Effects.ms(this, Effects.Effect.TRANSITIONS, 1) == 0) {
+                splash.remove();
+                return;
+            }
+            splash.animate().setStartDelay(wait).alpha(0f).setDuration(300)
+                    .withEndAction(splash::remove).start();
+        });
         settings = new Settings(this);
         overrides = new UserOverrides(new File(getFilesDir(), "filter/additionalHosts.txt"));
         Appearance.apply(this, settings);
         frame = new FrameLayout(this);
+        glow = new GlowBackground(this);
+        frame.addView(glow, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         status = new StatusView(this, this);
         frame.addView(status, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -134,18 +191,22 @@ public class MainActivity extends Activity
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM));
             toolbar.addItem(R.drawable.ic_nodes, "Nodes",
-                    () -> openPanel(() -> new NodesPanel(this, this, this::closePanel)));
+                    () -> openPanel(() -> new NodesPanel(this, this, this::closePanelAnimated)));
             toolbar.addItem(R.drawable.ic_apps, "Exempt apps",
-                    () -> openPanel(() -> new ExemptAppsPanel(this, this, this::closePanel)));
+                    () -> openPanel(() -> new ExemptAppsPanel(this, this, this::closePanelAnimated)));
             toolbar.addItem(R.drawable.ic_log, "Query log",
-                    () -> openPanel(() -> new QueryLogPanel(this, this, this::closePanel)));
+                    () -> openPanel(() -> new QueryLogPanel(this, this, this::closePanelAnimated)));
             toolbar.addItem(R.drawable.ic_settings, "Settings",
-                    () -> openPanel(() -> new SettingsPanel(this, this, this::closePanel)));
+                    () -> openPanel(() -> new SettingsPanel(this, this, this::closePanelAnimated)));
             toolbar.setAutoHide(!settings.toolbarPinned());
         }
         root.setOnApplyWindowInsetsListener((v, insets) -> {
-            Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            // On wide screens (tablet, landscape fold) keep the content in a centred column.
+            float density = getResources().getDisplayMetrics().density;
+            int extra = (int) (Math.max(0, getResources().getConfiguration().screenWidthDp - MAX_CONTENT_DP)
+                    / 2f * density);
+            v.setPadding(bars.left + extra, bars.top, bars.right + extra, bars.bottom);
             return WindowInsets.CONSUMED;
         });
         setContentView(root);
@@ -162,6 +223,51 @@ public class MainActivity extends Activity
         if (savedInstanceState == null
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+        }
+        if (savedInstanceState == null) {
+            handleIntent(getIntent());
+        }
+        try {
+            Shortcuts.publish(this);
+        } catch (RuntimeException e) {
+            // Launcher shortcuts are a convenience: never fail startup over them.
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIntent(intent);
+    }
+
+    /** Runs a quick-settings tile or launcher shortcut action, once. */
+    private void handleIntent(Intent intent) {
+        String action = intent == null ? null : intent.getAction();
+        if (action == null || (intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) {
+            return; // nothing to do, or the app was reopened from Recents: do not repeat an old action
+        }
+        setIntent(new Intent()); // so a rotation does not repeat the action
+        if (ACTION_CONNECT.equals(action)) {
+            connect();
+        } else if (ACTION_DISCONNECT.equals(action)) {
+            disconnect();
+        } else if (ACTION_OPEN_NODES.equals(action)) {
+            openSection(1);
+        } else if (ACTION_OPEN_LOG.equals(action)) {
+            openSection(3);
+        }
+    }
+
+    /** Opens a panel by section number in either toolbar style. */
+    private void openSection(int index) {
+        if (docked) {
+            if (index != section) {
+                showSection(index, Integer.signum(index - section));
+            }
+        } else {
+            closePanel();
+            openPanel(() -> sectionPanel(index));
         }
     }
 
@@ -183,6 +289,7 @@ public class MainActivity extends Activity
         super.onStart();
         TunnelState.register(this);
         onTunnelState(TunnelState.get());
+        updateGlow();
         handler.post(statsTick);
     }
 
@@ -202,18 +309,17 @@ public class MainActivity extends Activity
     private void refresh() {
         String notice = Filt3rVpnService.takeNotice();
         if (notice != null) {
-            Toast.makeText(this, notice, Toast.LENGTH_LONG).show();
+            Messages.show(frame, notice);
         }
         FilterStatus.Snapshot filter = FilterStatus.get();
         if (lastFilterState == FilterStatus.State.DOWNLOADING && filter.state != lastFilterState) {
             if (filter.state == FilterStatus.State.OK) {
-                Toast.makeText(this, String.format(java.util.Locale.US, "Filter lists updated: %,d blocked names",
+                Messages.show(frame, String.format(java.util.Locale.US, "Filter lists updated: %,d blocked names",
                         filter.unique >= 0 ? filter.unique : filter.entries)
-                        + (filter.failedLists > 0 ? "; " + filter.failedLists + " list(s) failed: " + filter.error : ""),
-                        Toast.LENGTH_LONG).show();
+                        + (filter.failedLists > 0 ? "; " + filter.failedLists + " list(s) failed: " + filter.error : ""));
             } else if (filter.state == FilterStatus.State.FAILED && !filter.error.equals(lastFilterError)) {
                 lastFilterError = filter.error;
-                Toast.makeText(this, "Filter update failed: " + filter.error, Toast.LENGTH_LONG).show();
+                Messages.show(frame, "Filter update failed: " + filter.error);
             }
         }
         lastFilterState = filter.state;
@@ -301,7 +407,7 @@ public class MainActivity extends Activity
                 result = "Could not save the file";
             }
             String shown = result;
-            runOnUiThread(() -> Toast.makeText(this, shown, Toast.LENGTH_LONG).show());
+            runOnUiThread(() -> Messages.show(frame, shown));
         }, "export-log");
         t.setDaemon(true);
         t.start();
@@ -320,6 +426,8 @@ public class MainActivity extends Activity
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
+        enterPanel(panel, 0);
+        updateGlow();
     }
 
     private void closePanel() {
@@ -328,6 +436,7 @@ public class MainActivity extends Activity
         }
         frame.removeView(panel);
         panel = null;
+        updateGlow();
         getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(closePanelOnBack);
         if (docked) {
             section = 0;
@@ -335,19 +444,36 @@ public class MainActivity extends Activity
         }
     }
 
+    private GlowBackground glow;
+
+    /** The animated background runs only on the Status screen, and only with the Animated background effect. */
+    private void updateGlow() {
+        glow.setRunning(panel == null && Effects.on(this, Effects.Effect.SHADER));
+    }
+
     private void selectSection(int index) {
         if (index != section) {
-            dock.performHapticFeedback(HapticFeedbackConstants.SEGMENT_TICK);
+            Effects.haptic(dock, HapticFeedbackConstants.SEGMENT_TICK);
             showSection(index, Integer.signum(index - section));
         }
     }
 
-    /** Shows section {@code index} (0 = status, no panel). {@code dir} is +1, -1 or 0 for no slide. */
+    /**
+     * Shows section {@code index} (0 = status, no panel). {@code dir} is +1, -1 or 0 for no slide.
+     * The panel being left stays under the new one until the transition ends, so the Status screen
+     * never shows through between two panels.
+     */
     private void showSection(int index, int dir) {
-        closePanel();
+        View old = panel;
+        panel = null;
+        if (old != null) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(closePanelOnBack);
+        }
         section = index;
         dock.select(index);
         if (index == 0) {
+            retirePanel(old, true);
+            updateGlow();
             return;
         }
         panel = sectionPanel(index);
@@ -355,22 +481,101 @@ public class MainActivity extends Activity
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);
-        if (dir != 0) {
-            panel.setTranslationX(dir * frame.getWidth());
-            panel.animate().translationX(0).setDuration(SLIDE_MS).start();
+        enterPanel(panel, dir);
+        retirePanel(old, false);
+        updateGlow();
+    }
+
+    /** Removes a panel that is no longer current: at once, or after the new panel has come in (or a fade-out). */
+    private void retirePanel(View old, boolean fadeOut) {
+        if (old == null) {
+            return;
         }
+        int ms = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
+        if (ms == 0) {
+            frame.removeView(old);
+        } else if (fadeOut) {
+            leavePanel(old);
+        } else {
+            old.postDelayed(() -> frame.removeView(old), ms + 50);
+        }
+    }
+
+    /** Brings a panel in with the chosen transition style (slide, fade or pop), if effects allow. */
+    private void enterPanel(View p, int dir) {
+        int ms = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
+        if (ms == 0) {
+            return;
+        }
+        int style = Effects.transitionStyle(this);
+        if (style == Effects.STYLE_SLIDE && dir != 0) {
+            p.setTranslationX(dir * frame.getWidth());
+            p.animate().translationX(0).setDuration(ms).start();
+        } else if (style == Effects.STYLE_SLIDE) { // no direction (floating toolbar): rise from the bottom
+            p.setTranslationY(frame.getHeight() * 0.25f);
+            p.setAlpha(0f);
+            p.animate().translationY(0).alpha(1f).setDuration(ms).start();
+        } else if (style == Effects.STYLE_POP) {
+            p.setAlpha(0f);
+            p.setScaleX(0.8f);
+            p.setScaleY(0.8f);
+            p.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(ms)
+                    .setInterpolator(new android.view.animation.OvershootInterpolator()).start();
+        } else {
+            p.setAlpha(0f);
+            p.animate().alpha(1f).setDuration(ms).start();
+        }
+    }
+
+    /** Closes the open panel with the chosen style (the back button, the back gesture, or a panel's own back). */
+    private void closePanelAnimated() {
+        View old = panel;
+        if (old == null) {
+            return;
+        }
+        panel = null;
+        getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(closePanelOnBack);
+        if (docked) {
+            section = 0;
+            dock.select(0);
+        }
+        leavePanel(old);
+        updateGlow();
+    }
+
+    /** Takes a panel out of the window with the chosen style, then removes it. */
+    private void leavePanel(View old) {
+        int ms = Effects.ms(this, Effects.Effect.TRANSITIONS, SLIDE_MS);
+        if (ms == 0) {
+            frame.removeView(old);
+            return;
+        }
+        int style = Effects.transitionStyle(this);
+        android.view.ViewPropertyAnimator a = old.animate().setDuration(ms);
+        if (style == Effects.STYLE_POP) {
+            // shrinks away while fading
+            a.alpha(0f).scaleX(0.7f).scaleY(0.7f)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator());
+        } else if (style == Effects.STYLE_SLIDE) {
+            // drops off the bottom of the screen without fading, the mirror of how it rose
+            a.translationY(frame.getHeight())
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator());
+        } else {
+            a.alpha(0f);
+        }
+        a.withEndAction(() -> frame.removeView(old)).start();
     }
 
     private View sectionPanel(int index) {
         switch (index) {
             case 1:
-                return new NodesPanel(this, this, this::closePanel);
+                return new NodesPanel(this, this, this::closePanelAnimated);
             case 2:
-                return new ExemptAppsPanel(this, this, this::closePanel);
+                return new ExemptAppsPanel(this, this, this::closePanelAnimated);
             case 3:
-                return new QueryLogPanel(this, this, this::closePanel);
+                return new QueryLogPanel(this, this, this::closePanelAnimated);
             default:
-                return new SettingsPanel(this, this, this::closePanel);
+                return new SettingsPanel(this, this, this::closePanelAnimated);
         }
     }
 
@@ -378,7 +583,7 @@ public class MainActivity extends Activity
         if (target < 0 || target >= SECTION_COUNT || target == section) {
             return;
         }
-        frame.performHapticFeedback(HapticFeedbackConstants.SEGMENT_TICK);
+        Effects.haptic(frame, HapticFeedbackConstants.SEGMENT_TICK);
         showSection(target, Integer.signum(target - section));
     }
 
@@ -670,9 +875,9 @@ public class MainActivity extends Activity
     public void exportQueryLog(boolean blocked, boolean allowed) {
         String kind = blocked && allowed ? "" : blocked ? "blocked-" : "allowed-";
         if (exportLines(blocked, allowed).isEmpty()) {
-            Toast.makeText(this, blocked && allowed ? "Nothing to save yet."
+            Messages.show(frame, blocked && allowed ? "Nothing to save yet."
                     : blocked ? "No blocked entries to save." : "No allowed entries to save.",
-                    Toast.LENGTH_SHORT).show();
+                    Snackbar.LENGTH_SHORT);
             return;
         }
         exportBlocked = blocked;

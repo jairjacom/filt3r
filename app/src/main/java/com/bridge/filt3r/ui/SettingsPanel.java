@@ -11,11 +11,13 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
+import com.google.android.material.snackbar.Snackbar;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 
+import com.bridge.filt3r.CrashLog;
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.filter.FilterCatalog;
 import com.google.android.material.button.MaterialButton;
@@ -168,6 +170,13 @@ public class SettingsPanel extends LinearLayout {
 
     private final Backend backend;
     private final LinearLayout content;
+    private final LinearLayout blockContent;
+    private final ScrollView mainScroll;
+    private final ScrollView blockScroll;
+    private final TextView title;
+    private LinearLayout target; // where group() adds its card: the main page or the block-lists page
+    private Row blockEntry;
+    private boolean onBlockPage;
     private final LinearLayout banner;
     private boolean changed;
     private TextView filterStatus;
@@ -187,11 +196,15 @@ public class SettingsPanel extends LinearLayout {
         ImageButton back = new ImageButton(context);
         back.setImageResource(R.drawable.ic_back);
         back.setContentDescription("Back");
-        back.setBackground(null);
+        back.setBackground(Ripple.borderless(context));
         back.setImageTintList(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface)));
-        back.setOnClickListener(v -> onClose.run());
-        TextView title = new TextView(context);
+        back.setOnClickListener(v -> {
+            if (!handleBack()) {
+                onClose.run();
+            }
+        });
+        title = new TextView(context);
         title.setText("Settings");
         title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
         bar.addView(back, new LayoutParams(dp(48), dp(48)));
@@ -221,17 +234,28 @@ public class SettingsPanel extends LinearLayout {
         bannerParams.setMargins(dp(16), dp(4), dp(16), dp(8));
         addView(banner, bannerParams);
 
-        ScrollView scroll = new ScrollView(context);
-        scroll.setClipToPadding(false);
-        scroll.setPadding(0, 0, 0, dp(96)); // the floating toolbar sits at the bottom
+        mainScroll = new ScrollView(context);
+        mainScroll.setClipToPadding(false);
+        mainScroll.setPadding(0, 0, 0, dp(96)); // the floating toolbar sits at the bottom
         content = new LinearLayout(context);
         content.setOrientation(VERTICAL);
-        scroll.addView(content, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
-        addView(scroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
+        mainScroll.addView(content, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        addView(mainScroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
+
+        blockScroll = new ScrollView(context);
+        blockScroll.setClipToPadding(false);
+        blockScroll.setPadding(0, 0, 0, dp(96));
+        blockContent = new LinearLayout(context);
+        blockContent.setOrientation(VERTICAL);
+        blockScroll.addView(blockContent, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        blockScroll.setVisibility(GONE);
+        addView(blockScroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
+        target = content;
 
         buildConnection(context);
         buildDns(context);
         buildBlockLists(context);
+        buildBlockListsEntry(context);
         buildPrivacy(context);
         buildAppearance(context);
         buildAbout(context);
@@ -375,16 +399,17 @@ public class SettingsPanel extends LinearLayout {
         MaterialButton update = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         update.setText("Update lists now");
-        update.setOnClickListener(v -> Toast.makeText(context, backend.updateFilters()
+        update.setOnClickListener(v -> Messages.show(this, backend.updateFilters()
                 ? "Updating the filter lists..." : "Connect first: the lists are downloaded through a node.",
-                Toast.LENGTH_SHORT).show());
+                Snackbar.LENGTH_SHORT));
         LayoutParams updateParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         updateParams.setMargins(dp(16), 0, dp(16), dp(8));
         card.addView(update, updateParams);
     }
 
     private void buildBlockLists(Context context) {
-        LinearLayout card = group("Block lists");
+        target = blockContent;
+        LinearLayout card = group("Lists");
         for (FilterCatalog.Entry entry : backend.filterCatalog()) {
             card.addView(switchRow(context, entry.id, listDescription(entry),
                     backend.filterListEnabled(entry.id), on -> {
@@ -403,6 +428,54 @@ public class SettingsPanel extends LinearLayout {
         card.addView(ipBlockStatus);
         card.addView(note(context, "Changes apply the next time you connect. Filter-list URLs above are used in"
                 + " addition to these lists."));
+        target = content;
+    }
+
+    /** The row on the main page that opens the block-lists page. */
+    private void buildBlockListsEntry(Context context) {
+        LinearLayout card = group("Block lists");
+        blockEntry = valueRow(context, "Block lists", blockListsSummary());
+        blockEntry.setOnClickListener(v -> showBlockPage(true));
+        card.addView(blockEntry);
+    }
+
+    private String blockListsSummary() {
+        int on = 0;
+        for (FilterCatalog.Entry entry : backend.filterCatalog()) {
+            if (backend.filterListEnabled(entry.id)) {
+                on++;
+            }
+        }
+        if (backend.ipBlockEnabled()) {
+            on++;
+        }
+        return on + (on == 1 ? " list on" : " lists on");
+    }
+
+    /** Switches between the main page and the block-lists page (a fade, when effects allow). */
+    private void showBlockPage(boolean block) {
+        onBlockPage = block;
+        title.setText(block ? "Block lists" : "Settings");
+        mainScroll.setVisibility(block ? GONE : VISIBLE);
+        blockScroll.setVisibility(block ? VISIBLE : GONE);
+        if (!block) {
+            blockEntry.setSummary(blockListsSummary());
+        }
+        ScrollView shown = block ? blockScroll : mainScroll;
+        int ms = Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 250);
+        if (ms > 0) {
+            shown.setAlpha(0f);
+            shown.animate().alpha(1f).setDuration(ms).start();
+        }
+    }
+
+    /** Back from the block-lists page to the main page. Returns false when already on the main page. */
+    public boolean handleBack() {
+        if (!onBlockPage) {
+            return false;
+        }
+        showBlockPage(false);
+        return true;
     }
 
     private void showIpBlockStatus() {
@@ -438,7 +511,7 @@ public class SettingsPanel extends LinearLayout {
         clear.setText("Clear query log");
         clear.setOnClickListener(v -> {
             backend.clearQueryLog();
-            Toast.makeText(context, "Query log cleared", Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Query log cleared", Snackbar.LENGTH_SHORT);
         });
         LayoutParams clearParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         clearParams.setMargins(dp(16), 0, dp(16), dp(8));
@@ -558,6 +631,95 @@ public class SettingsPanel extends LinearLayout {
                     "Keep the bottom toolbar visible instead of hiding it when idle.",
                     backend.toolbarPinned(), backend::setToolbarPinned));
         }
+
+        // Visual effects: Minimal, Standard and Full are bundles of the same switches; Custom shows them.
+        TextView effectsLabel = new TextView(context);
+        effectsLabel.setText("Visual effects");
+        effectsLabel.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+        effectsLabel.setPadding(dp(20), dp(12), dp(20), dp(4));
+        card.addView(effectsLabel);
+        MaterialButtonToggleGroup levels = new MaterialButtonToggleGroup(context);
+        levels.setSingleSelection(true);
+        levels.setSelectionRequired(true);
+        String[] levelNames = {"Minimal", "Standard", "Full", "Custom"};
+        int[] levelIds = new int[levelNames.length];
+        for (int i = 0; i < levelNames.length; i++) {
+            MaterialButton b = new MaterialButton(context, null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            b.setText(levelNames[i]);
+            b.setId(View.generateViewId());
+            b.setCheckable(true);
+            levelIds[i] = b.getId();
+            levels.addView(b);
+        }
+        LinearLayout effectRows = new LinearLayout(context);
+        effectRows.setOrientation(VERTICAL);
+        levels.check(levelIds[Effects.level(context)]);
+        if (Effects.level(context) == Effects.CUSTOM) {
+            fillEffectRows(context, effectRows);
+        }
+        levels.addOnButtonCheckedListener((group, id, checked) -> {
+            if (checked) {
+                for (int i = 0; i < levelIds.length; i++) {
+                    if (levelIds[i] == id && i != Effects.level(context)) {
+                        Effects.setLevel(context, i);
+                        effectRows.removeAllViews();
+                        if (i == Effects.CUSTOM) {
+                            fillEffectRows(context, effectRows);
+                        }
+                    }
+                }
+            }
+        });
+        LayoutParams levelParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        levelParams.setMargins(dp(16), 0, dp(16), dp(4));
+        card.addView(levels, levelParams);
+        card.addView(note(context, "Minimal turns the extras off. Standard is the default. Full turns every effect"
+                + " on. Custom lets you pick. The system setting to remove animations always wins."));
+        card.addView(effectRows);
+
+        // How screens and panels come in (used when the Transitions effect is on).
+        TextView styleLabel = new TextView(context);
+        styleLabel.setText("Transition style");
+        styleLabel.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+        styleLabel.setPadding(dp(20), dp(12), dp(20), dp(4));
+        card.addView(styleLabel);
+        MaterialButtonToggleGroup transitionStyles = new MaterialButtonToggleGroup(context);
+        transitionStyles.setSingleSelection(true);
+        transitionStyles.setSelectionRequired(true);
+        String[] transitionNames = {"Slide", "Fade", "Pop"};
+        int[] transitionIds = new int[transitionNames.length];
+        for (int i = 0; i < transitionNames.length; i++) {
+            MaterialButton b = new MaterialButton(context, null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            b.setText(transitionNames[i]);
+            b.setId(View.generateViewId());
+            b.setCheckable(true);
+            transitionIds[i] = b.getId();
+            transitionStyles.addView(b);
+        }
+        transitionStyles.check(transitionIds[Effects.transitionStyle(context)]);
+        transitionStyles.addOnButtonCheckedListener((group, id, checked) -> {
+            if (checked) {
+                for (int i = 0; i < transitionIds.length; i++) {
+                    if (transitionIds[i] == id) {
+                        Effects.setTransitionStyle(context, i);
+                    }
+                }
+            }
+        });
+        LayoutParams styleGroupParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        styleGroupParams.setMargins(dp(16), 0, dp(16), dp(4));
+        card.addView(transitionStyles, styleGroupParams);
+        card.addView(note(context, "Slide moves screens sideways, Fade dissolves, Pop zooms in with a small bounce."));
+    }
+
+    /** One switch per visual effect, shown only while the level is Custom. */
+    private void fillEffectRows(Context context, LinearLayout rows) {
+        for (Effects.Effect e : Effects.Effect.values()) {
+            rows.addView(switchRow(context, e.label, e.summary, Effects.chosen(context, e),
+                    on -> Effects.set(context, e, on)));
+        }
     }
 
     private static String schemeLabel(String key) {
@@ -615,6 +777,33 @@ public class SettingsPanel extends LinearLayout {
         Row gpl = valueRow(context, "GNU General Public License", "Version 3, full text");
         gpl.setOnClickListener(v -> showAsset("GNU General Public License v3", "LICENSE.txt"));
         card.addView(gpl);
+        if (CrashLog.read(context) != null) {
+            Row crash = valueRow(context, "Last crash report", "Tap to read; it stays on this device");
+            crash.setOnClickListener(v -> showCrash());
+            card.addView(crash);
+        }
+    }
+
+    /** Shows the saved crash report so it can be copied; the file is kept until the user clears it. */
+    private void showCrash() {
+        String text = CrashLog.read(getContext());
+        if (text == null) {
+            return;
+        }
+        TextView body = new TextView(getContext());
+        body.setText(text);
+        body.setTextIsSelectable(true);
+        body.setTypeface(android.graphics.Typeface.MONOSPACE);
+        body.setTextSize(11);
+        body.setPadding(dp(20), dp(8), dp(20), dp(8));
+        ScrollView scroll = new ScrollView(getContext());
+        scroll.addView(body);
+        new MaterialAlertDialogBuilder(getContext())
+                .setTitle("Last crash report")
+                .setView(scroll)
+                .setPositiveButton("Close", null)
+                .setNegativeButton("Clear", (d, w) -> CrashLog.clear(getContext()))
+                .show();
     }
 
     /** Shows a text file from the APK's assets in a scrollable dialog. */
@@ -669,7 +858,14 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private void updateBanner() {
-        banner.setVisibility(changed && backend.running() ? VISIBLE : GONE);
+        int target = changed && backend.running() ? VISIBLE : GONE;
+        if (banner.getVisibility() != target
+                && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
+            android.transition.AutoTransition slow = new android.transition.AutoTransition();
+            slow.setDuration(600);
+            android.transition.TransitionManager.beginDelayedTransition(this, slow);
+        }
+        banner.setVisibility(target);
     }
 
     private void chooseInterval(int current, java.util.function.IntConsumer onPick) {
@@ -780,7 +976,7 @@ public class SettingsPanel extends LinearLayout {
         label.setTextColor(MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary));
         LayoutParams labelParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         labelParams.setMargins(dp(28), dp(16), dp(16), dp(8));
-        content.addView(label, labelParams);
+        target.addView(label, labelParams);
 
         LinearLayout card = new LinearLayout(context);
         card.setOrientation(VERTICAL);
@@ -789,7 +985,7 @@ public class SettingsPanel extends LinearLayout {
                 com.google.android.material.R.attr.colorSurfaceContainer), 24));
         LayoutParams cardParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(dp(16), 0, dp(16), 0);
-        content.addView(card, cardParams);
+        target.addView(card, cardParams);
         return card;
     }
 
@@ -812,9 +1008,15 @@ public class SettingsPanel extends LinearLayout {
         TextView t = new TextView(context);
         t.setText(text);
         t.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        t.setAlpha(0.7f);
+        dim(t);
         t.setPadding(dp(20), dp(8), dp(20), dp(8));
         return t;
+    }
+
+    /** Secondary text colour from the theme (instead of fading the text with alpha). */
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
     }
 
     private LinearLayout switchRow(Context context, String title, String summary, boolean checked,
@@ -830,7 +1032,7 @@ public class SettingsPanel extends LinearLayout {
         TextView s = new TextView(context);
         s.setText(summary);
         s.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        s.setAlpha(0.7f);
+        dim(s);
         texts.addView(t);
         texts.addView(s);
         MaterialSwitch sw = new MaterialSwitch(context);
@@ -860,7 +1062,7 @@ public class SettingsPanel extends LinearLayout {
             summary = new TextView(context);
             summary.setText(value);
             summary.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            summary.setAlpha(0.7f);
+            dim(summary);
             addView(t);
             addView(summary);
             setClickable(true);

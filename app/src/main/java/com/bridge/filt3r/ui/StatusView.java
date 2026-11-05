@@ -1,5 +1,8 @@
 package com.bridge.filt3r.ui;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.view.Gravity;
 import android.view.View;
@@ -9,6 +12,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.google.android.material.button.MaterialButton;
+import com.bridge.filt3r.Effects;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.loadingindicator.LoadingIndicator;
@@ -50,6 +54,7 @@ public class StatusView extends ScrollView {
     private final Card nodeCard;
     private final Card trafficCard;
     private final Card dnsCard;
+    private final Sparkline sparkline;
 
     private long lastUp = -1;
     private long lastDown = -1;
@@ -110,6 +115,9 @@ public class StatusView extends ScrollView {
             p.topMargin = dp(12);
             column.addView(c.card, p);
         }
+        sparkline = new Sparkline(context);
+        trafficCard.box.addView(sparkline, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         addView(column, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
         setState(State.STOPPED);
     }
@@ -150,10 +158,13 @@ public class StatusView extends ScrollView {
             nodeCard.set(s.nodeName, ms + "  ·  " + v6, s.nodeIp == null ? "" : "IP " + s.nodeIp);
         }
 
+        sparkline.setVisibility(s.trafficBytes != null
+                && Effects.on(getContext(), Effects.Effect.SPARKLINE) ? VISIBLE : GONE);
         if (s.trafficBytes == null) {
             trafficCard.set("—", "", "");
             lastUp = -1;
             lastDown = -1;
+            sparkline.clear();
         } else {
             long now = System.currentTimeMillis();
             long up = s.trafficBytes[0];
@@ -166,6 +177,7 @@ public class StatusView extends ScrollView {
             lastMs = now;
             trafficCard.set("↓ " + Format.bytes(downRate) + "/s   ↑ " + Format.bytes(upRate) + "/s",
                     "Session  ↓ " + Format.bytes(down) + "   ↑ " + Format.bytes(up), "");
+            sparkline.add(upRate + downRate);
         }
 
         if (s.dnsCounts == null) {
@@ -191,6 +203,11 @@ public class StatusView extends ScrollView {
         return b;
     }
 
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
+    }
+
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
@@ -201,6 +218,7 @@ public class StatusView extends ScrollView {
         private final TextView value;
         private final TextView detail;
         private final TextView extra;
+        private final LinearLayout box;
 
         Card(Context context, String title) {
             card = new MaterialCardView(context);
@@ -209,21 +227,21 @@ public class StatusView extends ScrollView {
             card.setCardBackgroundColor(MaterialColors.getColor(card,
                     com.google.android.material.R.attr.colorSurfaceContainer));
             card.setStrokeWidth(0);
-            LinearLayout box = new LinearLayout(context);
+            box = new LinearLayout(context);
             box.setOrientation(LinearLayout.VERTICAL);
             box.setPadding(dp(20), dp(16), dp(20), dp(16));
             TextView label = new TextView(context);
             label.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
             label.setText(title);
-            label.setAlpha(0.7f);
+            dim(label);
             value = new TextView(context);
             value.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
             detail = new TextView(context);
             detail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            detail.setAlpha(0.7f);
+            dim(detail);
             extra = new TextView(context);
             extra.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            extra.setAlpha(0.7f);
+            dim(extra);
             box.addView(label);
             box.addView(value);
             box.addView(detail);
@@ -231,8 +249,41 @@ public class StatusView extends ScrollView {
             card.addView(box);
         }
 
+        private ValueAnimator ticker;
+        private long shown = -1;
+        private final java.util.regex.Pattern COUNT =
+                java.util.regex.Pattern.compile("Blocked (\\d{1,15})(.*)");
+
         void set(String main, String sub, String more) {
-            value.setText(main);
+            if (ticker != null) {
+                ticker.cancel();
+            }
+            // Only "Blocked 123 (4%)"-style text counts: the number is animated, the rest stays.
+            long target = -1;
+            String tail = "";
+            java.util.regex.Matcher m = COUNT.matcher(main);
+            if (m.matches()) {
+                target = Long.parseLong(m.group(1));
+                tail = m.group(2);
+            }
+            if (target >= 0 && shown >= 0 && target != shown
+                    && Effects.on(value.getContext(), Effects.Effect.TICKERS)) {
+                final String endTail = tail;
+                ticker = ValueAnimator.ofFloat(shown, target);
+                ticker.setDuration(400);
+                ticker.addUpdateListener(a -> value.setText("Blocked "
+                        + Math.round((float) a.getAnimatedValue()) + endTail));
+                ticker.addListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        value.setText(main);
+                    }
+                });
+                ticker.start();
+            } else {
+                value.setText(main);
+            }
+            shown = target;
             detail.setText(sub);
             detail.setVisibility(sub.isEmpty() ? View.GONE : View.VISIBLE);
             extra.setText(more);

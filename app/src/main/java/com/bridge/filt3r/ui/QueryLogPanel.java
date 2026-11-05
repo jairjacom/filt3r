@@ -15,8 +15,9 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
-import android.widget.Toast;
+import com.google.android.material.snackbar.Snackbar;
 
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
@@ -190,7 +191,7 @@ public class QueryLogPanel extends LinearLayout {
 
         empty = new TextView(context);
         empty.setGravity(Gravity.CENTER);
-        empty.setAlpha(0.7f);
+        dim(empty);
         empty.setPadding(dp(16), dp(48), dp(16), dp(16));
         addView(empty);
 
@@ -246,6 +247,11 @@ public class QueryLogPanel extends LinearLayout {
         if (!shown.isEmpty()) {
             empty.setVisibility(GONE);
         } else {
+            if (empty.getVisibility() != VISIBLE && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
+                empty.setAlpha(0f);
+                empty.animate().alpha(1f)
+                        .setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 200));
+            }
             empty.setVisibility(VISIBLE);
             empty.setText(!lines.isEmpty() ? "Nothing matches."
                     : backend.queryLogEnabled() ? "No queries yet." : "The query log is off.");
@@ -283,7 +289,7 @@ public class QueryLogPanel extends LinearLayout {
         ImageButton b = new ImageButton(context);
         b.setImageResource(res);
         b.setContentDescription(description);
-        b.setBackground(null);
+        b.setBackground(Ripple.borderless(context));
         b.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface)));
         b.setLayoutParams(new LayoutParams(dp(48), dp(48)));
@@ -297,7 +303,7 @@ public class QueryLogPanel extends LinearLayout {
         try {
             rule = backend.ruleFor(e.host);
         } catch (IOException ex) {
-            Toast.makeText(context, "Could not read your rules", Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Could not read your rules", Snackbar.LENGTH_SHORT);
             return;
         }
         BottomSheetDialog sheet = new BottomSheetDialog(context);
@@ -312,7 +318,7 @@ public class QueryLogPanel extends LinearLayout {
         state.setText(rule == null ? (e.blocked ? "Blocked by the filter lists" : "Allowed")
                 : rule ? "You allowed this domain" : "You blocked this domain");
         state.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        state.setAlpha(0.7f);
+        dim(state);
         content.addView(name);
         content.addView(state);
 
@@ -337,7 +343,7 @@ public class QueryLogPanel extends LinearLayout {
         note.setText("A rule covers this domain and its sub domains and applies at once."
                 + " Manage all rules with the rules icon at the top.");
         note.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        note.setAlpha(0.7f);
+        dim(note);
         note.setPadding(0, dp(12), 0, 0);
         content.addView(note);
 
@@ -352,11 +358,16 @@ public class QueryLogPanel extends LinearLayout {
     private void applyRule(BottomSheetDialog sheet, RuleAction action, String done) {
         try {
             action.run();
-            Toast.makeText(getContext(), done, Toast.LENGTH_SHORT).show();
+            Messages.show(this, done, Snackbar.LENGTH_SHORT);
             sheet.dismiss();
         } catch (IOException | IllegalArgumentException ex) {
-            Toast.makeText(getContext(), "Could not save the rule", Toast.LENGTH_SHORT).show();
+            Messages.showHere(sheet.getWindow().getDecorView(), "Could not save the rule", Snackbar.LENGTH_SHORT);
         }
+    }
+
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
     }
 
     private int dp(int v) {
@@ -367,8 +378,26 @@ public class QueryLogPanel extends LinearLayout {
         private List<Entry> items = new ArrayList<>();
 
         void set(List<Entry> next) {
+            if (sameItems(items, next)) {
+                return;
+            }
             items = next;
             notifyDataSetChanged();
+        }
+
+        /** Entry has no equals(): compare time, verdict and host. */
+        private boolean sameItems(List<Entry> a, List<Entry> b) {
+            if (a.size() != b.size()) {
+                return false;
+            }
+            for (int i = 0; i < a.size(); i++) {
+                Entry x = a.get(i);
+                Entry y = b.get(i);
+                if (x.blocked != y.blocked || !x.time.equals(y.time) || !x.host.equals(y.host)) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Override
@@ -420,7 +449,7 @@ public class QueryLogPanel extends LinearLayout {
             host.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             detail = new TextView(context);
             detail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            detail.setAlpha(0.7f);
+            dim(detail);
             texts.addView(host);
             texts.addView(detail);
             addView(texts, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));

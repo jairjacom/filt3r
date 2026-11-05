@@ -1,6 +1,7 @@
 package com.bridge.filt3r.ui;
 
 import android.content.Context;
+import android.text.TextUtils;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
@@ -14,8 +15,9 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
-import android.widget.Toast;
+import com.google.android.material.snackbar.Snackbar;
 
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.nodes.NodeLocation;
@@ -117,18 +119,20 @@ public class NodesPanel extends LinearLayout {
         TextView label = new TextView(context);
         label.setText("Current node");
         label.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
-        label.setAlpha(0.7f);
+        dim(label);
         currentName = new TextView(context);
         currentName.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
+        currentName.setSingleLine(true);
+        currentName.setEllipsize(TextUtils.TruncateAt.END);
         currentDetail = new TextView(context);
         currentDetail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        currentDetail.setAlpha(0.7f);
+        dim(currentDetail);
         currentIp = new TextView(context);
         currentIp.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        currentIp.setAlpha(0.7f);
+        dim(currentIp);
         currentTested = new TextView(context);
         currentTested.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-        currentTested.setAlpha(0.7f);
+        dim(currentTested);
         card.addView(label);
         card.addView(currentName);
         card.addView(currentDetail);
@@ -161,7 +165,7 @@ public class NodesPanel extends LinearLayout {
         empty = new TextView(context);
         empty.setText("Connect to see the nodes.");
         empty.setGravity(Gravity.CENTER);
-        empty.setAlpha(0.7f);
+        dim(empty);
         empty.setPadding(dp(16), dp(48), dp(16), dp(16));
         addView(empty);
 
@@ -173,7 +177,7 @@ public class NodesPanel extends LinearLayout {
         list.setOnItemClickListener((p, v, pos, id) -> onNodeTap(adapter.getItem(pos)));
         list.setOnItemLongClickListener((p, v, pos, id) -> {
             ShadowsocksNode n = adapter.getItem(pos).node;
-            Toast.makeText(getContext(), n.host + ":" + n.port, Toast.LENGTH_LONG).show();
+            Messages.show(this, n.host + ":" + n.port);
             return true;
         });
         addView(list, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
@@ -193,8 +197,7 @@ public class NodesPanel extends LinearLayout {
 
     private void onNodeTap(NodeInfo n) {
         if (n.state == NodeInfo.State.BLACKLISTED) {
-            Toast.makeText(getContext(), "This node failed 3 times in a row; it is skipped for a while and tried again automatically.",
-                    Toast.LENGTH_LONG).show();
+            Messages.show(this, "This node failed 3 times in a row; it is skipped for a while and tried again automatically.");
             return;
         }
         if (n.pinned) {
@@ -203,10 +206,10 @@ public class NodesPanel extends LinearLayout {
             return;
         }
         if (n.state == NodeInfo.State.UNTESTED) {
-            Toast.makeText(getContext(), "Testing the node first...", Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Testing the node first...", Snackbar.LENGTH_SHORT);
         }
         if (!backend.pin(n.node, () -> post(this::reload))) {
-            Toast.makeText(getContext(), "Connect first.", Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Connect first.", Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -217,7 +220,7 @@ public class NodesPanel extends LinearLayout {
         busy = true;
         retestButton.setEnabled(false);
         retestButton.setAlpha(0.4f);
-        Toast.makeText(getContext(), "Re-testing and speed-testing the best nodes...", Toast.LENGTH_SHORT).show();
+        Messages.show(this, "Re-testing and speed-testing the best nodes...", Snackbar.LENGTH_SHORT);
         boolean started = backend.retest(() -> post(() -> {
             busy = false;
             retestButton.setEnabled(true);
@@ -228,8 +231,7 @@ public class NodesPanel extends LinearLayout {
             busy = false;
             retestButton.setEnabled(true);
             retestButton.setAlpha(1f);
-            Toast.makeText(getContext(), "Not possible now (tunnel off or already testing).",
-                    Toast.LENGTH_SHORT).show();
+            Messages.show(this, "Not possible now (tunnel off or already testing).", Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -259,6 +261,11 @@ public class NodesPanel extends LinearLayout {
             all.add(0, current); // the node in use is always the first row
         }
         adapter.set(all);
+        if (all.isEmpty() && empty.getVisibility() != VISIBLE
+                && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
+            empty.setAlpha(0f);
+            empty.animate().alpha(1f).setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 200));
+        }
         empty.setVisibility(all.isEmpty() ? VISIBLE : GONE);
         list.setVisibility(all.isEmpty() ? GONE : VISIBLE);
         if (current == null) {
@@ -312,11 +319,16 @@ public class NodesPanel extends LinearLayout {
         ImageButton b = new ImageButton(context);
         b.setImageResource(res);
         b.setContentDescription(description);
-        b.setBackground(null);
+        b.setBackground(Ripple.borderless(context));
         b.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface)));
         b.setLayoutParams(new LayoutParams(dp(48), dp(48)));
         return b;
+    }
+
+    private static void dim(TextView t) {
+        t.setTextColor(MaterialColors.getColor(t.getContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
     }
 
     private int dp(int v) {
@@ -325,10 +337,35 @@ public class NodesPanel extends LinearLayout {
 
     private final class NodeAdapter extends BaseAdapter {
         private List<NodeInfo> items = new ArrayList<>();
+        private boolean boundBySpeed;
 
         void set(List<NodeInfo> next) {
+            boolean bySpeed = backend.sortBySpeed();
+            if (bySpeed == boundBySpeed && sameItems(items, next)) {
+                return;
+            }
+            boundBySpeed = bySpeed;
             items = next;
             notifyDataSetChanged();
+        }
+
+        /** NodeInfo has no equals(): compare every displayed field (the node by address and name). */
+        private boolean sameItems(List<NodeInfo> a, List<NodeInfo> b) {
+            if (a.size() != b.size()) {
+                return false;
+            }
+            for (int i = 0; i < a.size(); i++) {
+                NodeInfo x = a.get(i);
+                NodeInfo y = b.get(i);
+                if (!x.node.host.equals(y.node.host) || x.node.port != y.node.port
+                        || !x.node.name.equals(y.node.name) || x.state != y.state
+                        || x.medianMs != y.medianMs || x.failures != y.failures
+                        || x.current != y.current || x.pinned != y.pinned
+                        || x.speedBps != y.speedBps || !java.util.Objects.equals(x.ipv6, y.ipv6)) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Override
@@ -349,7 +386,7 @@ public class NodesPanel extends LinearLayout {
         @Override
         public View getView(int position, View convert, ViewGroup parent) {
             Row row = convert == null ? new Row(parent.getContext()) : (Row) convert;
-            row.bind(items.get(position), backend.sortBySpeed());
+            row.bind(items.get(position), boundBySpeed);
             return row;
         }
     }
@@ -365,6 +402,8 @@ public class NodesPanel extends LinearLayout {
         private final GradientDrawable dotBg = new GradientDrawable();
         private final TextView tag;
         private final GradientDrawable tagBg = new GradientDrawable();
+        private final View bar;
+        private final GradientDrawable barBg = new GradientDrawable();
 
         Row(Context context) {
             super(context);
@@ -384,7 +423,7 @@ public class NodesPanel extends LinearLayout {
             title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
             subtitle = new TextView(context);
             subtitle.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
-            subtitle.setAlpha(0.7f);
+            dim(subtitle);
             // The tag sits on the same line as the flag and country.
             tag = new TextView(context);
             tag.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall);
@@ -421,6 +460,10 @@ public class NodesPanel extends LinearLayout {
             ipv6.setText("IPv6");
             ipv6.setTextColor(context.getColor(R.color.state_active));
             right.addView(latency);
+            barBg.setCornerRadius(dp(2));
+            bar = new View(context);
+            bar.setBackground(barBg);
+            right.addView(bar, new LayoutParams(dp(84), dp(3)));
             right.addView(ipv6);
             addView(right, new LayoutParams(dp(84), LayoutParams.WRAP_CONTENT)); // fixed width: columns line up
         }
@@ -458,6 +501,17 @@ public class NodesPanel extends LinearLayout {
                     break;
             }
             dotBg.setColor(color);
+            if (Effects.on(getContext(), Effects.Effect.NODE_BARS) && n.medianMs >= 0
+                    && n.state != NodeInfo.State.BLACKLISTED) {
+                float fill = 1f - Math.min(n.medianMs, 1000) / 1000f;
+                barBg.setColor(color);
+                LayoutParams barParams = (LayoutParams) bar.getLayoutParams();
+                barParams.width = Math.max(dp(2), (int) (dp(84) * fill));
+                bar.setLayoutParams(barParams);
+                bar.setVisibility(VISIBLE);
+            } else {
+                bar.setVisibility(GONE);
+            }
             // The tag says why a row has no green dot (or that it is the node in use).
             String tagText = null;
             int tagColor = color;

@@ -15,6 +15,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.slider.Slider;
 import com.google.android.material.tabs.TabLayout;
 
@@ -202,7 +203,7 @@ final class ColorPicker {
     private static TextView label(Context context, String text) {
         TextView t = new TextView(context);
         t.setText(text);
-        t.setAlpha(0.7f);
+        t.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
         return t;
     }
 
