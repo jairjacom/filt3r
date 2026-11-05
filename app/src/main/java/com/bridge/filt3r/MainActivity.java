@@ -143,6 +143,7 @@ public class MainActivity extends Activity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        CrashLog.install(this);
         // Keep the system splash until the shield animation has finished, then fade it out.
         getSplashScreen().setOnExitAnimationListener(splash -> {
             long wait = 0;

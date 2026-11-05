@@ -16,6 +16,7 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 
+import com.bridge.filt3r.CrashLog;
 import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.filter.FilterCatalog;
@@ -776,6 +777,33 @@ public class SettingsPanel extends LinearLayout {
         Row gpl = valueRow(context, "GNU General Public License", "Version 3, full text");
         gpl.setOnClickListener(v -> showAsset("GNU General Public License v3", "LICENSE.txt"));
         card.addView(gpl);
+        if (CrashLog.read(context) != null) {
+            Row crash = valueRow(context, "Last crash report", "Tap to read; it stays on this device");
+            crash.setOnClickListener(v -> showCrash());
+            card.addView(crash);
+        }
+    }
+
+    /** Shows the saved crash report so it can be copied; the file is kept until the user clears it. */
+    private void showCrash() {
+        String text = CrashLog.read(getContext());
+        if (text == null) {
+            return;
+        }
+        TextView body = new TextView(getContext());
+        body.setText(text);
+        body.setTextIsSelectable(true);
+        body.setTypeface(android.graphics.Typeface.MONOSPACE);
+        body.setTextSize(11);
+        body.setPadding(dp(20), dp(8), dp(20), dp(8));
+        ScrollView scroll = new ScrollView(getContext());
+        scroll.addView(body);
+        new MaterialAlertDialogBuilder(getContext())
+                .setTitle("Last crash report")
+                .setView(scroll)
+                .setPositiveButton("Close", null)
+                .setNegativeButton("Clear", (d, w) -> CrashLog.clear(getContext()))
+                .show();
     }
 
     /** Shows a text file from the APK's assets in a scrollable dialog. */

@@ -149,6 +149,7 @@ public class Filt3rVpnService extends VpnService {
 
     @Override
     public void onCreate() {
+        CrashLog.install(this);
         instance = this;
         TunnelState.register(widgetListener);
         NotificationManager nm = getSystemService(NotificationManager.class);
