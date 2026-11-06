@@ -73,6 +73,7 @@ public class MainActivity extends Activity
     static final String ACTION_OPEN_NODES = "com.bridge.filt3r.action.OPEN_NODES";
     static final String ACTION_OPEN_LOG = "com.bridge.filt3r.action.OPEN_LOG";
     private static final String KEY_SECTION = "section";
+    private static final String KEY_SETTINGS_PAGE = "settings_page";
     private static final int SECTION_COUNT = 5;
     private static final int SLIDE_MS = 300;
     private static final int HANDOVER_MS = 450;
@@ -240,6 +241,9 @@ public class MainActivity extends Activity
                 int index = savedInstanceState.getInt(KEY_SECTION);
                 openPanel(() -> sectionPanel(index));
             }
+            if (panel instanceof SettingsPanel) {
+                ((SettingsPanel) panel).openPage(savedInstanceState.getInt(KEY_SETTINGS_PAGE));
+            }
         }
 
         // Ask on a fresh launch only, and only while the permission is missing (not again after every rotation).
@@ -305,6 +309,7 @@ public class MainActivity extends Activity
                     : panel instanceof QueryLogPanel ? 3
                     : panel instanceof SettingsPanel ? 4 : 0);
         }
+        outState.putInt(KEY_SETTINGS_PAGE, panel instanceof SettingsPanel ? ((SettingsPanel) panel).page() : 0);
     }
 
     @Override

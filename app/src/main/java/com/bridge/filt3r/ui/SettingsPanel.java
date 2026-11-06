@@ -2,15 +2,18 @@ package com.bridge.filt3r.ui;
 
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
-import android.text.Editable;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.view.HapticFeedbackConstants;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.inputmethod.EditorInfo;
+import android.widget.EditText;
 import com.google.android.material.snackbar.Snackbar;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -34,10 +37,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Full-screen settings in card groups: Connection, DNS and filtering, Block lists, Privacy,
- * Appearance, About.
- * Every change is saved at once. Those that only apply at the next (re)start show a "Restart to
- * apply" banner while the tunnel is up.
+ * Full-screen settings. A home page lists Connection, DNS and filtering, Privacy, Appearance and
+ * About; each opens its own page, and Block lists opens from DNS and filtering.
+ * Every change is saved at once (text fields when they lose focus). Those that only apply at the
+ * next (re)start show a "Restart to apply" banner while the tunnel is up.
  */
 public class SettingsPanel extends LinearLayout {
 
@@ -171,21 +174,29 @@ public class SettingsPanel extends LinearLayout {
             + " Only resolvers that support the XChaCha20 cipher and DNSCrypt over TCP work. The VPN has"
             + " to be on: the stamp is tested through your node before it is saved.";
 
+    public static final int PAGE_HOME = 0;
+    public static final int PAGE_CONNECTION = 1;
+    public static final int PAGE_DNS = 2;
+    public static final int PAGE_BLOCK = 3; // opens from DNS and filtering
+    public static final int PAGE_PRIVACY = 4;
+    public static final int PAGE_APPEARANCE = 5;
+    public static final int PAGE_ABOUT = 6;
+    private static final String[] PAGE_TITLES = {"Settings", "Connection", "DNS and filtering", "Block lists",
+        "Privacy", "Appearance", "About"};
+
     private final Backend backend;
-    private final LinearLayout content;
-    private final LinearLayout blockContent;
-    private final ScrollView mainScroll;
-    private final ScrollView blockScroll;
+    private final ScrollView[] pageScrolls = new ScrollView[PAGE_TITLES.length];
+    private final LinearLayout[] pageContents = new LinearLayout[PAGE_TITLES.length];
     private final TextView title;
-    private LinearLayout target; // where group() adds its card: the main page or the block-lists page
+    private LinearLayout target; // where group() adds its card: the page being built
     private Row blockEntry;
-    private boolean onBlockPage;
+    private int page = PAGE_HOME;
+    private final List<Runnable> pendingCommits = new ArrayList<>(); // text fields: saved on blur, Done or page change
     private final LinearLayout banner;
     private boolean changed;
     private TextView filterStatus;
     private TextView ipBlockStatus;
     private TextView ipBlockStatusInFilters;
-
     public SettingsPanel(Context context, Backend backend, Runnable onClose) {
         super(context);
         this.backend = backend;
@@ -237,37 +248,39 @@ public class SettingsPanel extends LinearLayout {
         bannerParams.setMargins(dp(16), dp(4), dp(16), dp(8));
         addView(banner, bannerParams);
 
-        mainScroll = new ScrollView(context);
-        mainScroll.setClipToPadding(false);
-        mainScroll.setPadding(0, 0, 0, dp(96)); // the floating toolbar sits at the bottom
-        content = new LinearLayout(context);
-        content.setOrientation(VERTICAL);
-        mainScroll.addView(content, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
-        addView(mainScroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
+        for (int i = 0; i < PAGE_TITLES.length; i++) {
+            ScrollView scroll = new ScrollView(context);
+            scroll.setClipToPadding(false);
+            scroll.setPadding(0, 0, 0, dp(96)); // the floating toolbar sits at the bottom
+            LinearLayout pageContent = new LinearLayout(context);
+            pageContent.setOrientation(VERTICAL);
+            scroll.addView(pageContent, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+            scroll.setVisibility(i == PAGE_HOME ? VISIBLE : GONE);
+            addView(scroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
+            pageScrolls[i] = scroll;
+            pageContents[i] = pageContent;
+        }
 
-        blockScroll = new ScrollView(context);
-        blockScroll.setClipToPadding(false);
-        blockScroll.setPadding(0, 0, 0, dp(96));
-        blockContent = new LinearLayout(context);
-        blockContent.setOrientation(VERTICAL);
-        blockScroll.addView(blockContent, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
-        blockScroll.setVisibility(GONE);
-        addView(blockScroll, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
-        target = content;
-
+        target = pageContents[PAGE_CONNECTION];
         buildConnection(context);
+        target = pageContents[PAGE_DNS];
         buildDns(context);
+        target = pageContents[PAGE_BLOCK];
         buildBlockLists(context);
-        buildBlockListsEntry(context);
+        target = pageContents[PAGE_PRIVACY];
         buildPrivacy(context);
+        target = pageContents[PAGE_APPEARANCE];
         buildAppearance(context);
+        target = pageContents[PAGE_ABOUT];
         buildAbout(context);
+        target = pageContents[PAGE_HOME];
+        buildHome(context);
     }
 
     // ---- groups ----
 
     private void buildConnection(Context context) {
-        LinearLayout card = group("Connection");
+        LinearLayout card = group(null);
         for (int i = 0; i < backend.subscriptionSlots(); i++) {
             final int slot = i;
             final String[] url = {backend.subscriptionUrl(slot)};
@@ -275,11 +288,12 @@ public class SettingsPanel extends LinearLayout {
             TextInputLayout field = textField(context, "Subscription URL " + (slot + 1), url[0]);
             field.getEditText().setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
             field.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE); // masked: the URL may hold a token
+            field.getEditText().setImeOptions(EditorInfo.IME_ACTION_DONE);
             Row interval = valueRow(context, "Update interval", intervalText(hours[0]));
             TextView updated = note(context, backend.subscriptionUpdated(slot));
             updated.setPadding(dp(20), 0, dp(20), dp(4));
             updated.setVisibility(url[0].isEmpty() ? GONE : VISIBLE);
-            watch(field, text -> {
+            watchCommit(field, text -> {
                 url[0] = text.trim();
                 backend.setSubscription(slot, url[0], hours[0]);
                 updated.setText(backend.subscriptionUpdated(slot));
@@ -313,7 +327,7 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private void buildDns(Context context) {
-        LinearLayout card = group("DNS and filtering");
+        LinearLayout card = group(null);
         Row resolverRow = valueRow(context, "DNSCrypt resolver", backend.resolverName());
         resolverRow.setOnClickListener(v -> chooseResolver(resolverRow));
         card.addView(resolverRow);
@@ -322,6 +336,9 @@ public class SettingsPanel extends LinearLayout {
         rules.setOnClickListener(v -> OverridesDialog.show(context, backend,
                 () -> rules.setSummary(OverridesDialog.summary(backend))));
         card.addView(rules);
+        blockEntry = valueRow(context, "Block lists", blockListsSummary());
+        blockEntry.setOnClickListener(v -> showPage(PAGE_BLOCK));
+        card.addView(blockEntry);
 
         TextInputLayout custom = textField(context, "Custom sdns:// stamp", "");
         custom.getEditText().setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
@@ -375,7 +392,7 @@ public class SettingsPanel extends LinearLayout {
         lists.getEditText().setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         lists.getEditText().setSingleLine(false);
-        watch(lists, text -> {
+        watchCommit(lists, text -> {
             String error = backend.setFilterListUrl(text);
             lists.setError(error);
             if (error == null) {
@@ -411,8 +428,7 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private void buildBlockLists(Context context) {
-        target = blockContent;
-        LinearLayout card = group("Lists");
+        LinearLayout card = group(null);
         for (FilterCatalog.Entry entry : backend.filterCatalog()) {
             card.addView(switchRow(context, entry.id, listDescription(entry),
                     backend.filterListEnabled(entry.id), on -> {
@@ -431,15 +447,25 @@ public class SettingsPanel extends LinearLayout {
         card.addView(ipBlockStatus);
         card.addView(note(context, "Changes apply the next time you connect. Filter-list URLs above are used in"
                 + " addition to these lists."));
-        target = content;
     }
 
-    /** The row on the main page that opens the block-lists page. */
-    private void buildBlockListsEntry(Context context) {
-        LinearLayout card = group("Block lists");
-        blockEntry = valueRow(context, "Block lists", blockListsSummary());
-        blockEntry.setOnClickListener(v -> showBlockPage(true));
-        card.addView(blockEntry);
+    /** The home page: one row for each settings page. */
+    private void buildHome(Context context) {
+        LinearLayout card = group(null);
+        card.addView(categoryRow(context, "Connection",
+                "Subscriptions, and what happens when no node works", PAGE_CONNECTION));
+        card.addView(categoryRow(context, "DNS and filtering",
+                "Resolver, My rules, block lists and filter-list URLs", PAGE_DNS));
+        card.addView(categoryRow(context, "Privacy", "The query log", PAGE_PRIVACY));
+        card.addView(categoryRow(context, "Appearance",
+                "Theme, colours, toolbar and visual effects", PAGE_APPEARANCE));
+        card.addView(categoryRow(context, "About", "Version, licences and the last crash report", PAGE_ABOUT));
+    }
+
+    private Row categoryRow(Context context, String name, String summary, int destination) {
+        Row row = valueRow(context, name, summary);
+        row.setOnClickListener(v -> showPage(destination));
+        return row;
     }
 
     private String blockListsSummary() {
@@ -455,29 +481,89 @@ public class SettingsPanel extends LinearLayout {
         return on + (on == 1 ? " list on" : " lists on");
     }
 
-    /** Switches between the main page and the block-lists page (a fade, when effects allow). */
-    private void showBlockPage(boolean block) {
-        onBlockPage = block;
-        title.setText(block ? "Block lists" : "Settings");
-        mainScroll.setVisibility(block ? GONE : VISIBLE);
-        blockScroll.setVisibility(block ? VISIBLE : GONE);
-        if (!block) {
-            blockEntry.setSummary(blockListsSummary());
+    /** The page being shown, so the screen can come back to it after a restart. */
+    public int page() {
+        return page;
+    }
+
+    /** Shows a page at once, without a transition (used when the screen is rebuilt). */
+    public void openPage(int next) {
+        if (next < 0 || next >= PAGE_TITLES.length || next == page) {
+            return;
         }
-        ScrollView shown = block ? blockScroll : mainScroll;
+        pageScrolls[page].setVisibility(GONE);
+        page = next;
+        pageScrolls[page].setVisibility(VISIBLE);
+        title.setText(PAGE_TITLES[page]);
+    }
+
+    private static int depth(int p) {
+        return p == PAGE_HOME ? 0 : p == PAGE_BLOCK ? 2 : 1;
+    }
+
+    /** The page that Back returns to. */
+    private static int parentOf(int p) {
+        return p == PAGE_BLOCK ? PAGE_DNS : PAGE_HOME;
+    }
+
+    /** Moves to another page: the old one slides and fades out, the new one comes in from the same side. */
+    private void showPage(int next) {
+        if (next == page) {
+            return;
+        }
+        commitEdits();
+        hideKeyboard();
+        ScrollView from = pageScrolls[page];
+        ScrollView to = pageScrolls[next];
+        boolean deeper = depth(next) > depth(page);
+        page = next;
+        title.setText(PAGE_TITLES[next]);
+        blockEntry.setSummary(blockListsSummary());
         int ms = Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 250);
-        if (ms > 0) {
-            shown.setAlpha(0f);
-            shown.animate().alpha(1f).setDuration(ms).start();
+        if (ms == 0) {
+            from.setVisibility(GONE);
+            to.setVisibility(VISIBLE);
+            return;
+        }
+        float shift = dp(24) * (deeper ? 1 : -1);
+        from.animate().cancel();
+        to.animate().cancel();
+        from.animate().setStartDelay(0).alpha(0f).translationX(-shift).setDuration(ms / 2).withEndAction(() -> {
+            if (from != pageScrolls[page]) {
+                from.setVisibility(GONE);
+            }
+            from.setAlpha(1f);
+            from.setTranslationX(0f);
+        }).start();
+        to.setAlpha(0f);
+        to.setTranslationX(shift);
+        to.setVisibility(VISIBLE);
+        to.animate().setStartDelay(ms / 3).alpha(1f).translationX(0f).setDuration(ms).start();
+    }
+
+    private void commitEdits() {
+        for (Runnable commit : pendingCommits) {
+            commit.run();
         }
     }
 
-    /** Back from the block-lists page to the main page. Returns false when already on the main page. */
+    private void hideKeyboard() {
+        View focus = findFocus();
+        if (focus != null) {
+            focus.clearFocus();
+        }
+        WindowInsetsController controller = getWindowInsetsController();
+        if (controller != null) {
+            controller.hide(WindowInsets.Type.ime());
+        }
+    }
+
+    /** Back one page. Returns false when already on the home page. */
     public boolean handleBack() {
-        if (!onBlockPage) {
+        if (page == PAGE_HOME) {
             return false;
         }
-        showBlockPage(false);
+        showPage(parentOf(page));
         return true;
     }
 
@@ -505,17 +591,19 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private void buildPrivacy(Context context) {
-        LinearLayout card = group("Privacy");
+        LinearLayout card = group(null);
         card.addView(switchRow(context, "Query log",
                 "Keeps the last 1,000 DNS queries on this phone.",
                 backend.queryLogEnabled(), backend::setQueryLogEnabled));
         MaterialButton clear = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         clear.setText("Clear query log");
-        clear.setOnClickListener(v -> {
-            backend.clearQueryLog();
-            Messages.show(this, "Query log cleared", Snackbar.LENGTH_SHORT);
-        });
+        clear.setOnClickListener(v -> confirm("Clear the query log?",
+                "This removes the DNS queries kept on this phone. It cannot be undone.", "Clear", () -> {
+                    backend.clearQueryLog();
+                    Effects.haptic(clear, HapticFeedbackConstants.CONFIRM);
+                    Messages.show(this, "Query log cleared", Snackbar.LENGTH_SHORT);
+                }));
         LayoutParams clearParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         clearParams.setMargins(dp(16), 0, dp(16), dp(8));
         card.addView(clear, clearParams);
@@ -526,7 +614,7 @@ public class SettingsPanel extends LinearLayout {
         "Expressive (accents shifted)", "Use Material You"};
 
     private void buildAppearance(Context context) {
-        LinearLayout card = group("Appearance");
+        LinearLayout card = group(null);
 
         // Theme mode: follow the system, light or dark. Applies at once (the system restarts the screen).
         TextView modeLabel = new TextView(context);
@@ -545,6 +633,7 @@ public class SettingsPanel extends LinearLayout {
             b.setText(modeNames[i]);
             b.setId(View.generateViewId());
             b.setCheckable(true);
+            Accent.selectable(b);
             modeIds[i] = b.getId();
             modes.addView(b);
         }
@@ -575,7 +664,7 @@ public class SettingsPanel extends LinearLayout {
 
         boolean dynamic = "dynamic".equals(backend.colorScheme());
         Row colour = valueRow(context, "Select colour", "");
-        colour.setSummary(swatchText(backend.seedColor()));
+        colour.setSummary(dynamic ? "Your wallpaper picks the colours" : swatchText(backend.seedColor()));
         if (dynamic) {
             colour.setAlpha(0.4f); // the wallpaper picks the colours
             colour.setClickable(false);
@@ -607,6 +696,7 @@ public class SettingsPanel extends LinearLayout {
             b.setText(styleNames[i]);
             b.setId(View.generateViewId());
             b.setCheckable(true);
+            Accent.selectable(b);
             styleIds[i] = b.getId();
             styles.addView(b);
         }
@@ -652,6 +742,7 @@ public class SettingsPanel extends LinearLayout {
             b.setText(levelNames[i]);
             b.setId(View.generateViewId());
             b.setCheckable(true);
+            Accent.selectable(b);
             levelIds[i] = b.getId();
             levels.addView(b);
         }
@@ -702,6 +793,7 @@ public class SettingsPanel extends LinearLayout {
             b.setText(transitionNames[i]);
             b.setId(View.generateViewId());
             b.setCheckable(true);
+            Accent.selectable(b);
             transitionIds[i] = b.getId();
             transitionStyles.addView(b);
         }
@@ -759,7 +851,7 @@ public class SettingsPanel extends LinearLayout {
                 labels.add(SCHEME_LABELS[i]);
             }
         }
-        new MaterialAlertDialogBuilder(getContext())
+        Dialogs.builder(getContext())
                 .setTitle("Colour scheme")
                 .setSingleChoiceItems(labels.toArray(new CharSequence[0]), keys.indexOf(backend.colorScheme()),
                         (d, which) -> {
@@ -773,7 +865,7 @@ public class SettingsPanel extends LinearLayout {
     }
 
     private void buildAbout(Context context) {
-        LinearLayout card = group("About");
+        LinearLayout card = group(null);
         card.addView(note(context, "filt3r " + backend.version()));
         card.addView(note(context, "For the strongest protection, turn on Always-on VPN and Block connections"
                 + " without VPN for filt3r in Android Settings > Network > VPN. Only one VPN can run at a"
@@ -809,11 +901,13 @@ public class SettingsPanel extends LinearLayout {
         body.setPadding(dp(20), dp(8), dp(20), dp(8));
         ScrollView scroll = new ScrollView(getContext());
         scroll.addView(body);
-        new MaterialAlertDialogBuilder(getContext())
+        Dialogs.builder(getContext())
                 .setTitle("Last crash report")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-                .setNegativeButton("Clear", (d, w) -> CrashLog.clear(getContext()))
+                .setNegativeButton("Clear", (d, w) -> confirm("Delete the crash report?",
+                        "It is only on this phone, and there is no way to get it back.", "Delete",
+                        () -> CrashLog.clear(getContext())))
                 .show();
     }
 
@@ -833,7 +927,7 @@ public class SettingsPanel extends LinearLayout {
         body.setPadding(dp(20), dp(8), dp(20), dp(8));
         ScrollView scroll = new ScrollView(getContext());
         scroll.addView(body);
-        new MaterialAlertDialogBuilder(getContext())
+        Dialogs.builder(getContext())
                 .setTitle(title)
                 .setView(scroll)
                 .setPositiveButton("Close", null)
@@ -858,7 +952,16 @@ public class SettingsPanel extends LinearLayout {
     @Override
     protected void onDetachedFromWindow() {
         removeCallbacks(statusTick);
+        commitEdits();
         super.onDetachedFromWindow();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasWindowFocus) {
+        super.onWindowFocusChanged(hasWindowFocus);
+        if (!hasWindowFocus) {
+            commitEdits(); // leaving the app with a field half way through
+        }
     }
 
     // ---- behaviour ----
@@ -893,13 +996,22 @@ public class SettingsPanel extends LinearLayout {
                 checked = i;
             }
         }
-        new MaterialAlertDialogBuilder(getContext())
+        Dialogs.builder(getContext())
                 .setTitle(title)
                 .setSingleChoiceItems(items, checked, (d, which) -> {
                     onPick.accept(values[which]);
                     d.dismiss();
                 })
                 .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void confirm(String heading, String message, String action, Runnable onYes) {
+        Dialogs.builder(getContext())
+                .setTitle(heading)
+                .setMessage(message)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton(action, (d, w) -> onYes.run())
                 .show();
     }
 
@@ -919,7 +1031,7 @@ public class SettingsPanel extends LinearLayout {
                 checked = i;
             }
         }
-        MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(getContext())
+        MaterialAlertDialogBuilder b = Dialogs.builder(getContext())
                 .setTitle("DNSCrypt resolver")
                 .setSingleChoiceItems(items.toArray(new CharSequence[0]), checked, (d, which) -> {
                     Resolver r = all.get(which);
@@ -961,33 +1073,46 @@ public class SettingsPanel extends LinearLayout {
         void onChecked(boolean on);
     }
 
-    /** Calls the listener on every edit made after this point. */
-    private static void watch(TextInputLayout field, TextListener listener) {
-        field.getEditText().addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+    /**
+     * Saves a field's text when it loses focus, when Done is pressed, or when the page changes, so a
+     * half-typed address is not saved at every key press.
+     */
+    private void watchCommit(TextInputLayout field, TextListener listener) {
+        EditText edit = field.getEditText();
+        String[] saved = {edit.getText().toString()};
+        Runnable commit = () -> {
+            String now = edit.getText().toString();
+            if (!now.equals(saved[0])) {
+                saved[0] = now;
+                listener.onText(now);
             }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                listener.onText(s.toString());
+        };
+        edit.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                commit.run();
             }
         });
+        edit.setOnEditorActionListener((v, action, event) -> {
+            if (action == EditorInfo.IME_ACTION_DONE) {
+                commit.run();
+                edit.clearFocus();
+            }
+            return false;
+        });
+        pendingCommits.add(commit);
     }
 
     private LinearLayout group(String title) {
         Context context = getContext();
-        TextView label = new TextView(context);
-        label.setText(title);
-        label.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge);
-        label.setTextColor(MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary));
-        LayoutParams labelParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(dp(28), dp(16), dp(16), dp(8));
-        target.addView(label, labelParams);
+        if (title != null) {
+            TextView label = new TextView(context);
+            label.setText(title);
+            label.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge);
+            label.setTextColor(MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary));
+            LayoutParams labelParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+            labelParams.setMargins(dp(28), dp(16), dp(16), dp(8));
+            target.addView(label, labelParams);
+        }
 
         LinearLayout card = new LinearLayout(context);
         card.setOrientation(VERTICAL);
@@ -995,7 +1120,7 @@ public class SettingsPanel extends LinearLayout {
         card.setBackground(rounded(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorSurfaceContainer), 24));
         LayoutParams cardParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
-        cardParams.setMargins(dp(16), 0, dp(16), 0);
+        cardParams.setMargins(dp(16), title == null ? dp(8) : 0, dp(16), 0);
         target.addView(card, cardParams);
         return card;
     }

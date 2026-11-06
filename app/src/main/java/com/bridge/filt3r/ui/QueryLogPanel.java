@@ -23,7 +23,6 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.color.MaterialColors;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -217,7 +216,7 @@ public class QueryLogPanel extends LinearLayout {
     /** Asks which entries to save, then hands over to the backend (which opens the file picker). */
     private void askExport() {
         String[] choices = {"Blocked", "Allowed", "Both"};
-        new MaterialAlertDialogBuilder(getContext())
+        Dialogs.builder(getContext())
                 .setTitle("Save which entries?")
                 .setItems(choices, (d, which) -> backend.exportQueryLog(which != 1, which != 0))
                 .setNegativeButton("Cancel", null)
@@ -350,6 +349,7 @@ public class QueryLogPanel extends LinearLayout {
         content.addView(note);
 
         sheet.setContentView(content);
+        Dialogs.blur(sheet);
         sheet.show();
     }
 

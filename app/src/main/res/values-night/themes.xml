@@ -20,5 +20,9 @@
     <style name="ThemeOverlay.Filt3r.DefaultContainers" parent="">
         <item name="colorPrimaryContainer">#93000A</item>
         <item name="colorOnPrimaryContainer">#FFDAD6</item>
+        <item name="colorSecondary">#E7BDB8</item>
+        <item name="colorOnSecondary">#442926</item>
+        <item name="colorSecondaryContainer">#5D3F3C</item>
+        <item name="colorOnSecondaryContainer">#FFDAD6</item>
     </style>
 </resources>

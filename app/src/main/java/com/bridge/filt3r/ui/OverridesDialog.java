@@ -17,7 +17,6 @@ import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.filter.UserOverrides;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -123,6 +122,14 @@ public final class OverridesDialog {
                         try {
                             backend.removeRule(e.host);
                             Effects.haptic(list, HapticFeedbackConstants.CONFIRM);
+                            Messages.showHere(content, "Removed " + e.host, "Undo", () -> {
+                                try {
+                                    backend.setRule(e.host, e.allow);
+                                } catch (IOException | IllegalArgumentException ex) {
+                                    Messages.showHere(content, "Could not restore the rule", Snackbar.LENGTH_SHORT);
+                                }
+                                this.run();
+                            });
                         } catch (IOException ex) {
                             Messages.showHere(content, "Could not remove the rule", Snackbar.LENGTH_SHORT);
                         }
@@ -152,7 +159,7 @@ public final class OverridesDialog {
         block.setOnClickListener(add);
         refill.run();
 
-        new MaterialAlertDialogBuilder(context)
+        Dialogs.builder(context)
                 .setTitle("My rules")
                 .setView(content)
                 .setPositiveButton("Close", null)

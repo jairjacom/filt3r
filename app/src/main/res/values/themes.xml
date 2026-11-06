@@ -21,6 +21,10 @@
     <style name="ThemeOverlay.Filt3r.DefaultContainers" parent="">
         <item name="colorPrimaryContainer">#FFDAD7</item>
         <item name="colorOnPrimaryContainer">#410004</item>
+        <item name="colorSecondary">#775653</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="colorSecondaryContainer">#F5DDDA</item>
+        <item name="colorOnSecondaryContainer">#2C1512</item>
     </style>
 
     <!-- Applied after a generated palette (or Material You): the window follows the palette's background colour. -->
