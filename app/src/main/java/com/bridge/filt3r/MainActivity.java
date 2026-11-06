@@ -679,7 +679,10 @@ public class MainActivity extends Activity
             case MotionEvent.ACTION_DOWN:
                 downX = ev.getX();
                 downY = ev.getY();
-                swipeAllowed = !(getCurrentFocus() instanceof EditText);
+                // Not on a Settings sub-page: there the gesture belongs to the page, and Back goes up.
+                swipeAllowed = !(getCurrentFocus() instanceof EditText)
+                        && !(panel instanceof SettingsPanel
+                        && ((SettingsPanel) panel).page() != SettingsPanel.PAGE_HOME);
                 if (velocity == null) {
                     velocity = VelocityTracker.obtain();
                 } else {

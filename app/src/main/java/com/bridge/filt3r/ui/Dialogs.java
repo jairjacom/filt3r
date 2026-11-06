@@ -34,6 +34,16 @@ public final class Dialogs {
         };
     }
 
+    /** Asks before something that cannot be undone; {@code onYes} runs only on the action button. */
+    public static void confirm(Context context, String heading, String message, String action, Runnable onYes) {
+        builder(context)
+                .setTitle(heading)
+                .setMessage(message)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton(action, (d, w) -> onYes.run())
+                .show();
+    }
+
     /** Call before {@code show()}; does nothing if the effect is off or the system has window blur disabled. */
     public static void blur(Dialog dialog) {
         Context context = dialog.getContext();

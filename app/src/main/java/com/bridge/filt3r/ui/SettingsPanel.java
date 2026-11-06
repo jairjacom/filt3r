@@ -598,7 +598,7 @@ public class SettingsPanel extends LinearLayout {
         MaterialButton clear = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         clear.setText("Clear query log");
-        clear.setOnClickListener(v -> confirm("Clear the query log?",
+        clear.setOnClickListener(v -> Dialogs.confirm(getContext(), "Clear the query log?",
                 "This removes the DNS queries kept on this phone. It cannot be undone.", "Clear", () -> {
                     backend.clearQueryLog();
                     Effects.haptic(clear, HapticFeedbackConstants.CONFIRM);
@@ -905,7 +905,7 @@ public class SettingsPanel extends LinearLayout {
                 .setTitle("Last crash report")
                 .setView(scroll)
                 .setPositiveButton("Close", null)
-                .setNegativeButton("Clear", (d, w) -> confirm("Delete the crash report?",
+                .setNegativeButton("Clear", (d, w) -> Dialogs.confirm(getContext(), "Delete the crash report?",
                         "It is only on this phone, and there is no way to get it back.", "Delete",
                         () -> CrashLog.clear(getContext())))
                 .show();
@@ -1003,15 +1003,6 @@ public class SettingsPanel extends LinearLayout {
                     d.dismiss();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void confirm(String heading, String message, String action, Runnable onYes) {
-        Dialogs.builder(getContext())
-                .setTitle(heading)
-                .setMessage(message)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton(action, (d, w) -> onYes.run())
                 .show();
     }
 

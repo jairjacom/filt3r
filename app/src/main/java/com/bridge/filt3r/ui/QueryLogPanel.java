@@ -109,10 +109,11 @@ public class QueryLogPanel extends LinearLayout {
         title.setText("Query log");
         title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
         ImageButton clear = iconButton(context, R.drawable.ic_delete, "Clear query log");
-        clear.setOnClickListener(v -> {
-            backend.clearQueryLog();
-            reload();
-        });
+        clear.setOnClickListener(v -> Dialogs.confirm(getContext(), "Clear the query log?",
+                "This removes the DNS queries kept on this phone. It cannot be undone.", "Clear", () -> {
+                    backend.clearQueryLog();
+                    reload();
+                }));
         bar.addView(back);
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         ImageButton rules = iconButton(context, R.drawable.ic_rules, "My rules");
