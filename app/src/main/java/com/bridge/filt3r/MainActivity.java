@@ -131,6 +131,10 @@ public class MainActivity extends Activity
 
         @Override
         public void onBackInvoked() {
+            if (panel instanceof NodesPanel && ((NodesPanel) panel).handleBack()) {
+                onBackCancelled(); // the node details closed; the panel stays open
+                return;
+            }
             if (panel instanceof SettingsPanel && ((SettingsPanel) panel).handleBack()) {
                 onBackCancelled(); // undo the shrink preview: the panel stays open
                 return; // went back from the block-lists page to the main Settings page
@@ -420,6 +424,17 @@ public class MainActivity extends Activity
             }
         }
         lastFilterState = filter.state;
+        if (dock != null) {
+            int working = 0;
+            if (TunnelState.get() == TunnelState.State.RUNNING) {
+                for (NodeInfo n : Filt3rVpnService.nodeStatus()) {
+                    if (n.state == NodeInfo.State.WORKING) {
+                        working++;
+                    }
+                }
+            }
+            dock.setBadge(1, working, "working");
+        }
         if (TunnelState.get() != TunnelState.State.RUNNING) {
             return;
         }

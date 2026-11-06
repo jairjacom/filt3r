@@ -44,7 +44,9 @@ public final class Effects {
         BOLD_TYPE("boldtype", "Bold headings",
                 "Heavier type for the status word and section titles", false, true, false, true, true),
         BLUR("blur", "Blur",
-                "Frosted blur behind dialogs and under the toolbar", false, true, false, false, true);
+                "Frosted blur behind dialogs and under the toolbar", false, true, false, false, true),
+        WAVY_PROGRESS("wavy", "Wavy progress",
+                "A waving bar instead of a straight one while the nodes are tested", true, false, false, false, true);
 
         public final String key;
         public final String label;

@@ -15,6 +15,11 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.graphics.Color;
+import android.transition.Transition;
+import android.transition.TransitionListenerAdapter;
+import android.transition.TransitionManager;
+import android.widget.FrameLayout;
 import com.google.android.material.snackbar.Snackbar;
 
 import com.bridge.filt3r.Effects;
@@ -25,13 +30,16 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
+import com.google.android.material.shape.ShapeAppearanceModel;
+import com.google.android.material.transition.platform.MaterialContainerTransform;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Full-screen node list: the current node on top, then every node with status, place, latency,
- * IPv6 and speed. Tap a node to pin it (tap the pinned one to unpin); long-press shows its address.
+ * IPv6 and speed. Tap a node to pin it (tap the pinned one to unpin); long-press opens its details.
  */
 public class NodesPanel extends LinearLayout {
 
@@ -75,6 +83,11 @@ public class NodesPanel extends LinearLayout {
     private final ImageButton retestButton;
     private final ListView list;
     private boolean busy;
+    private final LinearProgressIndicator progress;
+    private FrameLayout detailLayer;
+    private View detailCard;
+    private View detailRow;
+    private int panelAccessibility;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -106,6 +119,20 @@ public class NodesPanel extends LinearLayout {
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(retestButton);
         addView(bar);
+
+        // Shown while the nodes are re-tested.
+        progress = new LinearProgressIndicator(context);
+        progress.setIndeterminate(true);
+        progress.setVisibility(INVISIBLE);
+        progress.setContentDescription("Testing nodes");
+        if (Effects.on(context, Effects.Effect.WAVY_PROGRESS)) {
+            progress.setTrackThickness(dp(6));
+            progress.setWaveAmplitude(dp(3));
+            progress.setWavelengthIndeterminate(dp(40));
+        }
+        LayoutParams progressParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        progressParams.setMargins(dp(20), 0, dp(20), dp(8));
+        addView(progress, progressParams);
 
         // Current node card.
         LinearLayout card = new LinearLayout(context);
@@ -176,8 +203,7 @@ public class NodesPanel extends LinearLayout {
         list.setPadding(0, 0, 0, dp(96)); // the toolbar overlays the bottom
         list.setOnItemClickListener((p, v, pos, id) -> onNodeTap(adapter.getItem(pos)));
         list.setOnItemLongClickListener((p, v, pos, id) -> {
-            ShadowsocksNode n = adapter.getItem(pos).node;
-            Messages.show(this, n.host + ":" + n.port);
+            showDetail(v, adapter.getItem(pos));
             return true;
         });
         addView(list, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
@@ -192,7 +218,19 @@ public class NodesPanel extends LinearLayout {
     @Override
     protected void onDetachedFromWindow() {
         handler.removeCallbacks(tick);
+        if (detailLayer != null) {
+            removeDetail(); // no transition: the panel is going away
+        }
         super.onDetachedFromWindow();
+    }
+
+    /** Closes the node details if they are open. Returns false when there was nothing to close. */
+    public boolean handleBack() {
+        if (detailLayer == null) {
+            return false;
+        }
+        closeDetail();
+        return true;
     }
 
     private void onNodeTap(NodeInfo n) {
@@ -213,24 +251,29 @@ public class NodesPanel extends LinearLayout {
         }
     }
 
+    private void setBusy(boolean on) {
+        busy = on;
+        retestButton.setEnabled(!on);
+        retestButton.setAlpha(on ? 0.4f : 1f);
+        if (on) {
+            progress.show();
+        } else {
+            progress.hide();
+        }
+    }
+
     private void retest() {
         if (busy) {
             return;
         }
-        busy = true;
-        retestButton.setEnabled(false);
-        retestButton.setAlpha(0.4f);
+        setBusy(true);
         Messages.show(this, "Re-testing and speed-testing the best nodes...", Snackbar.LENGTH_SHORT);
         boolean started = backend.retest(() -> post(() -> {
-            busy = false;
-            retestButton.setEnabled(true);
-            retestButton.setAlpha(1f);
+            setBusy(false);
             reload();
         }));
         if (!started) {
-            busy = false;
-            retestButton.setEnabled(true);
-            retestButton.setAlpha(1f);
+            setBusy(false);
             Messages.show(this, "Not possible now (tunnel off or already testing).", Snackbar.LENGTH_SHORT);
         }
     }
@@ -239,9 +282,7 @@ public class NodesPanel extends LinearLayout {
         List<NodeInfo> all = new ArrayList<>(backend.nodes());
         if (all.isEmpty() && busy) {
             // The tunnel stopped while a re-test was queued: its callback will never run.
-            busy = false;
-            retestButton.setEnabled(true);
-            retestButton.setAlpha(1f);
+            setBusy(false);
         }
         NodeInfo current = null;
         for (NodeInfo n : all) {
@@ -306,12 +347,203 @@ public class NodesPanel extends LinearLayout {
         return sb.toString();
     }
 
+    private static String stateText(NodeInfo n) {
+        if (n.current) {
+            return "In use";
+        }
+        switch (n.state) {
+            case WORKING:
+                return "Working";
+            case BLACKLISTED:
+                return "Dead: failed 3 times in a row. Skipped for a while, then tried again.";
+            default:
+                return n.failures > 0 ? "No answer yet" : "Not tested";
+        }
+    }
+
+    /** Opens the details of a node; the row grows into the card (and shrinks back when it closes). */
+    private void showDetail(View row, NodeInfo n) {
+        if (detailLayer != null || !(getParent() instanceof FrameLayout)) {
+            return;
+        }
+        FrameLayout host = (FrameLayout) getParent();
+        Context context = getContext();
+        FrameLayout layer = new FrameLayout(context);
+        layer.setClickable(true);
+        View scrim = new View(context);
+        scrim.setBackgroundColor(0x66000000);
+        scrim.setAlpha(0f);
+        scrim.setOnClickListener(v -> closeDetail());
+        scrim.setContentDescription("Close details");
+        layer.addView(scrim, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        LinearLayout card = detailCard(context, n);
+        card.setVisibility(INVISIBLE);
+        FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        cardParams.setMargins(dp(24), dp(24), dp(24), dp(24));
+        layer.addView(card, cardParams);
+        host.addView(layer, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        detailLayer = layer;
+        detailCard = card;
+        detailRow = row;
+        panelAccessibility = getImportantForAccessibility();
+        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        int ms = Effects.ms(context, Effects.Effect.TRANSITIONS, 300);
+        if (ms == 0) {
+            card.setVisibility(VISIBLE);
+            scrim.setAlpha(1f);
+            return;
+        }
+        layer.addOnLayoutChangeListener(new OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                layer.removeOnLayoutChangeListener(this);
+                morph(host, row, card, ms, null);
+                scrim.animate().alpha(1f).setDuration(ms);
+            }
+        });
+    }
+
+    private void closeDetail() {
+        FrameLayout layer = detailLayer;
+        if (layer == null) {
+            return;
+        }
+        View row = detailRow;
+        View card = detailCard;
+        detailLayer = null;
+        setImportantForAccessibility(panelAccessibility);
+        int ms = Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 250);
+        if (ms == 0 || row == null || !row.isAttachedToWindow() || !(layer.getParent() instanceof FrameLayout)) {
+            if (row != null) {
+                row.setVisibility(VISIBLE);
+            }
+            ((ViewGroup) layer.getParent()).removeView(layer);
+            return;
+        }
+        morph((FrameLayout) layer.getParent(), card, row, ms, () -> {
+            if (layer.getParent() != null) {
+                ((ViewGroup) layer.getParent()).removeView(layer);
+            }
+        });
+        layer.getChildAt(0).animate().alpha(0f).setDuration(ms);
+    }
+
+    /** Removes the details at once (the panel is closing). */
+    private void removeDetail() {
+        FrameLayout layer = detailLayer;
+        detailLayer = null;
+        if (detailRow != null) {
+            detailRow.setVisibility(VISIBLE);
+        }
+        if (layer != null && layer.getParent() != null) {
+            ((ViewGroup) layer.getParent()).removeView(layer);
+        }
+    }
+
+    /** Container transform: {@code from} turns into {@code to}. {@code done} runs when it ends. */
+    private void morph(FrameLayout host, View from, View to, int ms, Runnable done) {
+        MaterialContainerTransform t = new MaterialContainerTransform();
+        t.setStartView(from);
+        t.setEndView(to);
+        t.setScrimColor(Color.TRANSPARENT);
+        t.setAllContainerColors(MaterialColors.getColor(this,
+                com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        t.setFadeMode(MaterialContainerTransform.FADE_MODE_CROSS);
+        ShapeAppearanceModel round = ShapeAppearanceModel.builder().setAllCornerSizes(dp(28)).build();
+        t.setStartShapeAppearanceModel(round);
+        t.setEndShapeAppearanceModel(round);
+        t.setDuration(ms);
+        if (done != null) {
+            t.addListener(new TransitionListenerAdapter() {
+                @Override
+                public void onTransitionEnd(Transition transition) {
+                    done.run();
+                }
+
+                @Override
+                public void onTransitionCancel(Transition transition) {
+                    done.run();
+                }
+            });
+        }
+        TransitionManager.beginDelayedTransition(host, t);
+        to.setVisibility(VISIBLE);
+        from.setVisibility(INVISIBLE);
+    }
+
+    private LinearLayout detailCard(Context context, NodeInfo n) {
+        NodeLocation loc = NodeLocation.parse(n.node.name);
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(VERTICAL);
+        card.setPadding(dp(24), dp(24), dp(24), dp(16));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        bg.setCornerRadius(dp(28));
+        card.setBackground(bg);
+        card.setAccessibilityPaneTitle(place(loc));
+
+        TextView name = new TextView(context);
+        name.setText(place(loc));
+        name.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall);
+        card.addView(name);
+        card.addView(detailLine(context, "Address", n.node.host + ":" + n.node.port));
+        card.addView(detailLine(context, "Status", stateText(n)));
+        card.addView(detailLine(context, "Latency", n.medianMs >= 0 ? n.medianMs + " ms" : "Not measured"));
+        card.addView(detailLine(context, "Speed", n.speedBps >= 0 ? Format.bytes(n.speedBps) + "/s" : "Not measured"));
+        card.addView(detailLine(context, "IPv6", n.ipv6 == null ? "Checking" : n.ipv6 ? "On" : "Off"));
+        int source = backend.sourceCount() > 1 ? backend.source(n.node) : -1;
+        if (source >= 0) {
+            card.addView(detailLine(context, "Subscription", "Sub " + (source + 1)));
+        }
+
+        LinearLayout buttons = new LinearLayout(context);
+        buttons.setGravity(Gravity.END);
+        MaterialButton close = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        close.setText("Close");
+        close.setOnClickListener(v -> closeDetail());
+        MaterialButton pin = new MaterialButton(context);
+        pin.setText(n.pinned ? "Unpin" : "Pin this node");
+        pin.setEnabled(n.state != NodeInfo.State.BLACKLISTED);
+        pin.setOnClickListener(v -> {
+            closeDetail();
+            onNodeTap(n);
+        });
+        LayoutParams gap = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        gap.rightMargin = dp(8);
+        buttons.addView(close, gap);
+        buttons.addView(pin);
+        LayoutParams buttonParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        buttonParams.topMargin = dp(16);
+        card.addView(buttons, buttonParams);
+        return card;
+    }
+
+    private View detailLine(Context context, String label, String value) {
+        LinearLayout line = new LinearLayout(context);
+        line.setPadding(0, dp(10), 0, 0);
+        TextView l = new TextView(context);
+        l.setText(label);
+        l.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        dim(l);
+        TextView v = new TextView(context);
+        v.setText(value);
+        v.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        line.addView(l, new LayoutParams(dp(104), LayoutParams.WRAP_CONTENT));
+        line.addView(v, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
+        return line;
+    }
+
     private MaterialButton sortButton(Context context, String text) {
         MaterialButton b = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         b.setText(text);
         b.setId(View.generateViewId());
         b.setCheckable(true);
+        Accent.selectable(b);
         return b;
     }
 
@@ -444,7 +676,7 @@ public class NodesPanel extends LinearLayout {
 
             pin = new ImageView(context);
             pin.setImageResource(R.drawable.ic_pin);
-            pin.setContentDescription("Pinned");
+            pin.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); // the row says "pinned"
             pin.setImageTintList(ColorStateList.valueOf(context.getColor(R.color.brand_red)));
             LayoutParams pinParams = new LayoutParams(dp(18), dp(18));
             pinParams.rightMargin = dp(12);
@@ -535,6 +767,24 @@ public class NodesPanel extends LinearLayout {
                 tagBg.setColor((tagColor & 0x00FFFFFF) | 0x26000000);
                 tag.setVisibility(VISIBLE);
             }
+            StringBuilder said = new StringBuilder(loc.city);
+            if (!loc.countryCode.isEmpty()) {
+                said.append(", ").append(loc.countryCode);
+            }
+            said.append(", ").append(n.medianMs >= 0 ? n.medianMs + " milliseconds" : "not measured");
+            if (n.speedBps >= 0) {
+                said.append(", ").append(Format.bytes(n.speedBps)).append(" per second");
+            }
+            if (tagText != null) {
+                said.append(", ").append(tagText);
+            }
+            if (n.pinned) {
+                said.append(", pinned");
+            }
+            if (Boolean.TRUE.equals(n.ipv6)) {
+                said.append(", IPv6");
+            }
+            setContentDescription(said.toString());
             setAlpha(n.state == NodeInfo.State.BLACKLISTED ? 0.5f : 1f);
             setBackgroundColor(n.current
                     ? (color & 0x00FFFFFF) | 0x1A000000
