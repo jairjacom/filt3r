@@ -816,9 +816,7 @@ public class SettingsPanel extends LinearLayout {
     /** One switch per visual effect, shown only while the level is Custom. */
     private void fillEffectRows(Context context, LinearLayout rows) {
         for (Effects.Effect e : Effects.Effect.values()) {
-            String summary = e == Effects.Effect.BLUR && !Dialogs.systemBlurOn(context)
-                    ? e.summary + ". Android reports window blur as off right now." : e.summary;
-            rows.addView(switchRow(context, e.label, summary, Effects.chosen(context, e), on -> {
+            rows.addView(switchRow(context, e.label, e.summary, Effects.chosen(context, e), on -> {
                 Effects.set(context, e, on);
                 if (e.restart) {
                     backend.recreateScreen();

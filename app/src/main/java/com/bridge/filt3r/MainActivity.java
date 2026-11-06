@@ -32,6 +32,7 @@ import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.filter.UserOverrides;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
+import com.bridge.filt3r.ui.BlurBehind;
 import com.bridge.filt3r.ui.DockedToolbar;
 import com.bridge.filt3r.ui.ExemptAppsPanel;
 import com.bridge.filt3r.ui.FloatingToolbar;
@@ -84,6 +85,7 @@ public class MainActivity extends Activity
     private StatusView status;
     private FloatingToolbar toolbar;
     private DockedToolbar dock;
+    private BlurBehind blurStrip;
     private boolean docked;
     private int section;
     private VelocityTracker velocity;
@@ -152,6 +154,9 @@ public class MainActivity extends Activity
         } else {
             toolbar.poke();
         }
+        if (blurStrip != null) {
+            blurStrip.pulse();
+        }
         return super.dispatchTouchEvent(ev);
     }
 
@@ -196,6 +201,12 @@ public class MainActivity extends Activity
             dock.addItem(R.drawable.ic_log, "Query log");
             dock.addItem(R.drawable.ic_settings, "Settings");
             dock.select(0);
+            if (Effects.on(this, Effects.Effect.BLUR)) {
+                blurStrip = new BlurBehind(this);
+                frame.addView(blurStrip, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, (int) (112 * getResources().getDisplayMetrics().density),
+                        Gravity.BOTTOM));
+            }
             FrameLayout.LayoutParams dockParams = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
@@ -221,6 +232,9 @@ public class MainActivity extends Activity
             // With the keyboard up the toolbar would sit on top of it and cover what is being typed.
             if (dock != null) {
                 dock.setVisibility(insets.isVisible(WindowInsets.Type.ime()) ? View.GONE : View.VISIBLE);
+                if (blurStrip != null) {
+                    blurStrip.setVisibility(dock.getVisibility());
+                }
             }
             return WindowInsets.CONSUMED;
         });
@@ -553,7 +567,10 @@ public class MainActivity extends Activity
             return;
         }
         panel = sectionPanel(index);
-        frame.addView(panel, frame.indexOfChild(dock), new FrameLayout.LayoutParams(
+        if (blurStrip != null) {
+            blurStrip.pulse();
+        }
+        frame.addView(panel, frame.indexOfChild(blurStrip != null ? blurStrip : dock), new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);

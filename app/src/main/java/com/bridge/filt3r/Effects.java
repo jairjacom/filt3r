@@ -43,8 +43,8 @@ public final class Effects {
                 "Rounder buttons that change shape when pressed. Off gives the classic buttons", false, true, false, true, true),
         BOLD_TYPE("boldtype", "Bold headings",
                 "Heavier type for the status word and section titles", false, true, false, true, true),
-        BLUR("blur", "Blurred dialogs",
-                "Frosted blur behind dialogs and sheets, when the system's window blur is on", false, false, false, false, true);
+        BLUR("blur", "Blur",
+                "Frosted blur behind dialogs and under the toolbar", false, true, false, false, true);
 
         public final String key;
         public final String label;

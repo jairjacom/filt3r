@@ -1,22 +1,39 @@
 package com.bridge.filt3r.ui;
 
+import android.animation.ValueAnimator;
+import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.ContextWrapper;
+import android.graphics.RenderEffect;
+import android.graphics.Shader;
+import android.view.View;
 import android.view.Window;
-import android.view.WindowManager;
 
 import androidx.appcompat.app.AlertDialog;
 
 import com.bridge.filt3r.Effects;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
+import java.util.Map;
+import java.util.WeakHashMap;
+
 /**
- * Dialogs and sheets. With the Blurred dialogs effect on, and the system's window blur available,
- * the screen behind a dialog is blurred; otherwise the normal dimming is used.
+ * Dialogs and sheets. With the Blur effect on, the screen behind a dialog is blurred while it is open.
+ * This blurs our own window, so it works whether or not the system allows blur across windows.
  */
 public final class Dialogs {
 
-    private static final int BLUR_DP = 20;
+    private static final int BLUR_DP = 10;
+
+    /** How many dialogs are open over a screen, and the blur animation running on it. */
+    private static final class Open {
+        int count;
+        ValueAnimator animator;
+        float radius;
+    }
+
+    private static final Map<View, Open> OPEN = new WeakHashMap<>();
 
     private Dialogs() {
     }
@@ -44,26 +61,68 @@ public final class Dialogs {
                 .show();
     }
 
-    /** True when Android lets apps blur behind windows (it is off with Battery saver or a developer option). */
-    public static boolean systemBlurOn(Context context) {
-        WindowManager windows = context.getSystemService(WindowManager.class);
-        return windows != null && windows.isCrossWindowBlurEnabled();
-    }
-
-    /** Call before {@code show()}; does nothing if the effect is off or the system has window blur disabled. */
+    /** Call before {@code show()}; the screen is blurred for as long as the dialog is on screen. */
     public static void blur(Dialog dialog) {
         Context context = dialog.getContext();
         Window window = dialog.getWindow();
-        if (window == null || !Effects.on(context, Effects.Effect.BLUR)) {
+        Activity activity = activityOf(context);
+        if (window == null || activity == null || !Effects.on(context, Effects.Effect.BLUR)) {
             return;
         }
-        if (!systemBlurOn(context)) {
+        View target = activity.findViewById(android.R.id.content);
+        if (target == null) {
             return;
         }
-        float density = context.getResources().getDisplayMetrics().density;
-        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND);
-        WindowManager.LayoutParams params = window.getAttributes();
-        params.setBlurBehindRadius((int) (BLUR_DP * density));
-        window.setAttributes(params);
+        float to = BLUR_DP * context.getResources().getDisplayMetrics().density;
+        int ms = Effects.ms(context, Effects.Effect.TRANSITIONS, 200);
+        window.getDecorView().addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+                Open open = OPEN.computeIfAbsent(target, t -> new Open());
+                open.count++;
+                animate(target, open, to, ms);
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                Open open = OPEN.get(target);
+                if (open != null && --open.count <= 0) {
+                    animate(target, open, 0f, ms);
+                }
+            }
+        });
+    }
+
+    private static void animate(View target, Open open, float to, int ms) {
+        if (open.animator != null) {
+            open.animator.cancel();
+        }
+        if (ms == 0) {
+            open.radius = to;
+            apply(target, to);
+            return;
+        }
+        ValueAnimator a = ValueAnimator.ofFloat(open.radius, to).setDuration(ms);
+        a.addUpdateListener(u -> {
+            open.radius = (float) u.getAnimatedValue();
+            apply(target, open.radius);
+        });
+        open.animator = a;
+        a.start();
+    }
+
+    private static void apply(View target, float radius) {
+        target.setRenderEffect(radius < 0.5f ? null
+                : RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP));
+    }
+
+    private static Activity activityOf(Context context) {
+        while (context instanceof ContextWrapper) {
+            if (context instanceof Activity) {
+                return (Activity) context;
+            }
+            context = ((ContextWrapper) context).getBaseContext();
+        }
+        return null;
     }
 }
