@@ -85,6 +85,7 @@ public class NodesPanel extends LinearLayout {
     private boolean busy;
     private final LinearProgressIndicator progress;
     private FrameLayout detailLayer;
+    private Runnable unblur = () -> { };
     private View detailCard;
     private View detailRow;
     private int panelAccessibility;
@@ -388,6 +389,7 @@ public class NodesPanel extends LinearLayout {
         detailLayer = layer;
         detailCard = card;
         detailRow = row;
+        unblur = Dialogs.blurView(this);
         panelAccessibility = getImportantForAccessibility();
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int ms = Effects.ms(context, Effects.Effect.TRANSITIONS, 300);
@@ -414,6 +416,8 @@ public class NodesPanel extends LinearLayout {
         View row = detailRow;
         View card = detailCard;
         detailLayer = null;
+        unblur.run();
+        unblur = () -> { };
         setImportantForAccessibility(panelAccessibility);
         int ms = Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 250);
         if (ms == 0 || row == null || !row.isAttachedToWindow() || !(layer.getParent() instanceof FrameLayout)) {
@@ -435,6 +439,8 @@ public class NodesPanel extends LinearLayout {
     private void removeDetail() {
         FrameLayout layer = detailLayer;
         detailLayer = null;
+        unblur.run();
+        unblur = () -> { };
         if (detailRow != null) {
             detailRow.setVisibility(VISIBLE);
         }

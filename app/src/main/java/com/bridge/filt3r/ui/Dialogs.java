@@ -73,24 +73,42 @@ public final class Dialogs {
         if (target == null) {
             return;
         }
-        float to = BLUR_DP * context.getResources().getDisplayMetrics().density;
-        int ms = Effects.ms(context, Effects.Effect.TRANSITIONS, 200);
+        Runnable[] release = new Runnable[1];
         window.getDecorView().addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override
             public void onViewAttachedToWindow(View v) {
-                Open open = OPEN.computeIfAbsent(target, t -> new Open());
-                open.count++;
-                animate(target, open, to, ms);
+                release[0] = blurView(target);
             }
 
             @Override
             public void onViewDetachedFromWindow(View v) {
-                Open open = OPEN.get(target);
-                if (open != null && --open.count <= 0) {
-                    animate(target, open, 0f, ms);
+                if (release[0] != null) {
+                    release[0].run();
+                    release[0] = null;
                 }
             }
         });
+    }
+
+    /**
+     * Blurs a view (with the Blur effect on) until the returned action runs. Used for things that
+     * are not dialogs, such as the node details. Several callers can blur the same view.
+     */
+    public static Runnable blurView(View target) {
+        Context context = target.getContext();
+        if (!Effects.on(context, Effects.Effect.BLUR)) {
+            return () -> { };
+        }
+        float to = BLUR_DP * context.getResources().getDisplayMetrics().density;
+        int ms = Effects.ms(context, Effects.Effect.TRANSITIONS, 200);
+        Open open = OPEN.computeIfAbsent(target, t -> new Open());
+        open.count++;
+        animate(target, open, to, ms);
+        return () -> {
+            if (--open.count <= 0) {
+                animate(target, open, 0f, ms);
+            }
+        };
     }
 
     private static void animate(View target, Open open, float to, int ms) {
