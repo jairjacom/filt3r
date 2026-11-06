@@ -38,6 +38,7 @@ public class DockedToolbar extends LinearLayout {
     private final List<FrameLayout> slots = new ArrayList<>();
     private final List<CharSequence> labels = new ArrayList<>();
     private final List<BadgeDrawable> badges = new ArrayList<>();
+    private final List<View> dots = new ArrayList<>();
     private final List<ValueAnimator> tints = new ArrayList<>();
     private final List<SpringAnimation> springsX = new ArrayList<>();
     private final List<SpringAnimation> springsY = new ArrayList<>();
@@ -92,6 +93,7 @@ public class DockedToolbar extends LinearLayout {
         slots.add(slot);
         labels.add(label);
         badges.add(null);
+        dots.add(null);
         buttons.add(b);
         highlights.add(highlight);
         tints.add(null);
@@ -104,26 +106,16 @@ public class DockedToolbar extends LinearLayout {
      * counts, read out after the item name ("Nodes, 5 working").
      */
     public void setBadge(int index, int count, String meaning) {
-        show(index, count > 0, count, meaning);
-    }
-
-    /** Shows or hides a small dot on an item's icon. {@code meaning} is read out after the item name. */
-    public void setDot(int index, boolean on, String meaning) {
-        show(index, on, 0, meaning);
-    }
-
-    /** {@code count} above 0 shows that number, 0 shows a plain dot. */
-    private void show(int index, boolean on, int count, String meaning) {
         if (index < 0 || index >= badges.size()) {
             return;
         }
         if (!isLaidOut()) {
-            post(() -> show(index, on, count, meaning)); // the badge is placed on the icon, which needs its size
+            post(() -> setBadge(index, count, meaning)); // the badge is placed on the icon, which needs its size
             return;
         }
         BadgeDrawable badge = badges.get(index);
         ImageButton button = buttons.get(index);
-        if (!on) {
+        if (count <= 0) {
             if (badge != null) {
                 badge.setVisible(false);
             }
@@ -136,17 +128,41 @@ public class DockedToolbar extends LinearLayout {
                     androidx.appcompat.R.attr.colorPrimary, 0));
             badge.setBadgeTextColor(MaterialColors.getColor(getContext(),
                     com.google.android.material.R.attr.colorOnPrimary, 0));
-            badge.setMaxCharacterCount(2);
+            badge.setMaxCharacterCount(3);
             BadgeUtils.attachBadgeDrawable(badge, button, slots.get(index));
             badges.set(index, badge);
         }
         badge.setVisible(true);
-        if (count > 0) {
-            badge.setNumber(count);
-        } else {
-            badge.clearNumber();
+        badge.setNumber(count);
+        button.setContentDescription(labels.get(index) + ", " + count + " " + meaning);
+    }
+
+    /** Shows or hides a dot at the top right of an item's icon. {@code meaning} is read out after the name. */
+    public void setDot(int index, boolean on, String meaning) {
+        if (index < 0 || index >= dots.size()) {
+            return;
         }
-        button.setContentDescription(labels.get(index) + ", " + (count > 0 ? count + " " : "") + meaning);
+        View dot = dots.get(index);
+        if (dot == null && on) {
+            dot = new View(getContext());
+            GradientDrawable shape = new GradientDrawable();
+            shape.setShape(GradientDrawable.OVAL);
+            shape.setColor(MaterialColors.getColor(getContext(), androidx.appcompat.R.attr.colorPrimary, 0));
+            shape.setStroke(dp(2), MaterialColors.getColor(getContext(),
+                    com.google.android.material.R.attr.colorSurfaceContainer, 0)); // a ring so it stands out
+            dot.setBackground(shape);
+            dot.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(14), dp(14),
+                    Gravity.TOP | Gravity.END);
+            params.topMargin = dp(2);
+            params.rightMargin = dp(2);
+            slots.get(index).addView(dot, params);
+            dots.set(index, dot);
+        }
+        if (dot != null) {
+            dot.setVisibility(on ? VISIBLE : GONE);
+        }
+        buttons.get(index).setContentDescription(on ? labels.get(index) + ", " + meaning : labels.get(index));
     }
 
     /** Marks the section at {@code index} as current. */
