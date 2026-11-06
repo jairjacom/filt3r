@@ -44,6 +44,12 @@ public final class Dialogs {
                 .show();
     }
 
+    /** True when Android lets apps blur behind windows (it is off with Battery saver or a developer option). */
+    public static boolean systemBlurOn(Context context) {
+        WindowManager windows = context.getSystemService(WindowManager.class);
+        return windows != null && windows.isCrossWindowBlurEnabled();
+    }
+
     /** Call before {@code show()}; does nothing if the effect is off or the system has window blur disabled. */
     public static void blur(Dialog dialog) {
         Context context = dialog.getContext();
@@ -51,8 +57,7 @@ public final class Dialogs {
         if (window == null || !Effects.on(context, Effects.Effect.BLUR)) {
             return;
         }
-        WindowManager windows = context.getSystemService(WindowManager.class);
-        if (windows == null || !windows.isCrossWindowBlurEnabled()) {
+        if (!systemBlurOn(context)) {
             return;
         }
         float density = context.getResources().getDisplayMetrics().density;
