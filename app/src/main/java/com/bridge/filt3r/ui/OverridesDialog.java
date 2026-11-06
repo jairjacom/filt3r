@@ -3,6 +3,7 @@ package com.bridge.filt3r.ui;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -11,6 +12,7 @@ import android.widget.TextView;
 import android.app.Activity;
 import com.google.android.material.snackbar.Snackbar;
 
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.filter.UserOverrides;
 import com.google.android.material.color.MaterialColors;
@@ -120,6 +122,7 @@ public final class OverridesDialog {
                     list.addView(row(context, e, () -> {
                         try {
                             backend.removeRule(e.host);
+                            Effects.haptic(list, HapticFeedbackConstants.CONFIRM);
                         } catch (IOException ex) {
                             Messages.showHere(content, "Could not remove the rule", Snackbar.LENGTH_SHORT);
                         }
@@ -135,10 +138,12 @@ public final class OverridesDialog {
                 String host = backend.setRule(edit.getText() == null ? "" : edit.getText().toString(), allowIt);
                 edit.setText("");
                 field.setError(null);
+                Effects.haptic(content, HapticFeedbackConstants.CONFIRM);
                 Messages.showHere(content, (allowIt ? "Allowed " : "Blocked ") + host, Snackbar.LENGTH_SHORT);
                 refill.run();
             } catch (IllegalArgumentException e) {
                 field.setError("Enter a domain name, like example.com");
+                Effects.haptic(content, HapticFeedbackConstants.REJECT);
             } catch (IOException e) {
                 Messages.showHere(content, "Could not save the rule", Snackbar.LENGTH_SHORT);
             }
@@ -171,7 +176,7 @@ public final class OverridesDialog {
         TextView mark = new TextView(context);
         mark.setText(e.allow ? "Allow" : "Block");
         mark.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
-        mark.setTextColor(context.getColor(e.allow ? R.color.state_active : R.color.brand_red));
+        mark.setTextColor(e.allow ? Colors.active(context) : context.getColor(R.color.brand_red));
         row.addView(mark, new LinearLayout.LayoutParams(dp(context, 52), LinearLayout.LayoutParams.WRAP_CONTENT));
 
         TextView host = new TextView(context);

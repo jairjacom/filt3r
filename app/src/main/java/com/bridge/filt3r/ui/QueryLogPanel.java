@@ -134,7 +134,9 @@ public class QueryLogPanel extends LinearLayout {
         switchText.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
         MaterialSwitch sw = new MaterialSwitch(context);
         sw.setChecked(backend.queryLogEnabled());
+        sw.setContentDescription("Log DNS queries");
         sw.setOnCheckedChangeListener((b, on) -> {
+            Effects.toggle(sw, on);
             backend.setQueryLogEnabled(on);
             reload();
         });
@@ -437,6 +439,7 @@ public class QueryLogPanel extends LinearLayout {
             dotBg.setShape(GradientDrawable.OVAL);
             View dot = new View(context);
             dot.setBackground(dotBg);
+            dot.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); // the detail line says the state
             LayoutParams dotParams = new LayoutParams(dp(10), dp(10));
             dotParams.rightMargin = dp(16);
             addView(dot, dotParams);
@@ -456,7 +459,7 @@ public class QueryLogPanel extends LinearLayout {
         }
 
         void bind(Entry e) {
-            dotBg.setColor(getContext().getColor(e.blocked ? R.color.brand_red : R.color.state_active));
+            dotBg.setColor(e.blocked ? getContext().getColor(R.color.brand_red) : Colors.active(getContext()));
             host.setText(e.host);
             detail.setText((e.blocked ? "Blocked" : "Allowed") + " · " + e.time);
         }

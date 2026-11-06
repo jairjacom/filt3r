@@ -2,6 +2,7 @@ package com.bridge.filt3r;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 
 /**
@@ -18,35 +19,47 @@ public final class Effects {
     public static final int CUSTOM = 3;
 
     public enum Effect {
-        // key, label, summary, motion, on in Minimal, on in Standard, on in Full
+        // key, label, summary, motion, restart, on in Minimal, on in Standard, on in Full
+        // restart: the look is fixed when the screen is built, so changing it restarts the screen.
         TRANSITIONS("transitions", "Transitions",
-                "Slides and fades between screens, and the connecting pulse", true, false, true, true),
+                "Slides and fades between screens, and the connecting pulse", true, false, false, true, true),
         HAPTICS("haptics", "Haptics",
-                "Small vibrations when you change section", false, false, true, true),
+                "Small vibrations when you change section, flip a switch or add a rule", false, false, false, true, true),
         AMBIENT("ambient", "Ambient glow",
-                "A slow glow around the status circle while connected", true, false, false, true),
+                "A slow glow around the status circle while connected", true, false, false, false, true),
         SPARKLINE("sparkline", "Traffic graph",
-                "A small graph of recent traffic in the Traffic card", false, false, true, true),
+                "A small graph of recent traffic in the Traffic card", false, false, false, true, true),
         SHADER("shader", "Animated background",
-                "Two soft blobs of colour drifting behind the Status screen", true, false, false, true),
+                "Two soft blobs of colour drifting behind the Status screen", true, false, false, false, true),
         NODE_BARS("nodebars", "Latency bars",
-                "A thin bar under each node showing how fast it is", false, false, true, true),
+                "A thin bar under each node showing how fast it is", false, false, false, true, true),
         TICKERS("tickers", "Number tickers",
-                "Counters count up smoothly instead of jumping", true, false, true, true);
+                "Counters count up smoothly instead of jumping", true, false, false, true, true),
+        SPRING("spring", "Springy motion",
+                "Bounces and settles like a spring instead of following a fixed curve", true, false, false, true, true),
+        SHAPE_MORPH("morph", "Shape-shifting circle",
+                "The status circle changes shape between Off, Connecting, Connected and Failed", true, false, false, false, true),
+        EXPRESSIVE_BUTTONS("buttons", "Expressive buttons",
+                "Rounder buttons that change shape when pressed. Off gives the classic buttons", false, true, false, true, true),
+        BOLD_TYPE("boldtype", "Bold headings",
+                "Heavier type for the status word and section titles", false, true, false, true, true);
 
         public final String key;
         public final String label;
         public final String summary;
         /** True for effects that move; the system "remove animations" setting turns them off. */
         final boolean motion;
+        /** True if the look is fixed when the screen is built, so a change needs the screen to restart. */
+        public final boolean restart;
         private final boolean[] byLevel;
 
-        Effect(String key, String label, String summary, boolean motion,
+        Effect(String key, String label, String summary, boolean motion, boolean restart,
                boolean minimal, boolean standard, boolean full) {
             this.key = key;
             this.label = label;
             this.summary = summary;
             this.motion = motion;
+            this.restart = restart;
             this.byLevel = new boolean[] {minimal, standard, full};
         }
     }
@@ -67,12 +80,27 @@ public final class Effects {
         return on(context, effect) ? ms : 0;
     }
 
-    /** Two short haptics, 90 ms apart, when the Haptics effect is on. */
+    /** One haptic of the given {@link android.view.HapticFeedbackConstants} kind, when the Haptics effect is on. */
     public static void haptic(View view, int feedbackConstant) {
         if (on(view.getContext(), Effect.HAPTICS)) {
             view.performHapticFeedback(feedbackConstant);
-            view.postDelayed(() -> view.performHapticFeedback(feedbackConstant), 90);
         }
+    }
+
+    /** The system's switch-flip haptic: a different feel for on and off. */
+    public static void toggle(View view, boolean on) {
+        haptic(view, on ? HapticFeedbackConstants.TOGGLE_ON : HapticFeedbackConstants.TOGGLE_OFF);
+    }
+
+    /** Which look effects are on, as bits; if this changes, the screen has to restart to show it. */
+    public static int lookBits(Context context) {
+        int bits = 0;
+        for (Effect e : Effect.values()) {
+            if (e.restart && chosen(context, e)) {
+                bits |= 1 << e.ordinal();
+            }
+        }
+        return bits;
     }
 
     public static final int STYLE_SLIDE = 0;

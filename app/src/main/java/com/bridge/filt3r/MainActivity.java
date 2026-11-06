@@ -20,8 +20,11 @@ import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.WindowInsets;
+import android.view.WindowInsetsAnimation;
 import android.widget.FrameLayout;
 import android.widget.EditText;
+
+import androidx.dynamicanimation.animation.DynamicAnimation;
 
 import com.bridge.filt3r.core.filter.FilterCatalog;
 import com.bridge.filt3r.core.nodes.NodeInfo;
@@ -33,6 +36,7 @@ import com.bridge.filt3r.ui.DockedToolbar;
 import com.bridge.filt3r.ui.ExemptAppsPanel;
 import com.bridge.filt3r.ui.FloatingToolbar;
 import com.bridge.filt3r.ui.GlowBackground;
+import com.bridge.filt3r.ui.Motion;
 import com.bridge.filt3r.ui.NodesPanel;
 import com.bridge.filt3r.ui.QueryLogPanel;
 import com.bridge.filt3r.ui.SettingsPanel;
@@ -71,6 +75,7 @@ public class MainActivity extends Activity
     private static final String KEY_SECTION = "section";
     private static final int SECTION_COUNT = 5;
     private static final int SLIDE_MS = 300;
+    private static final int HANDOVER_MS = 450;
     private static final int MAX_CONTENT_DP = 640;
     private static final long STATS_INTERVAL_MS = 1000;
 
@@ -108,8 +113,16 @@ public class MainActivity extends Activity
 
         @Override
         public void onBackCancelled() {
-            if (panel != null) {
+            if (panel == null) {
+                return;
+            }
+            if (Effects.on(MainActivity.this, Effects.Effect.TRANSITIONS)) {
                 panel.animate().scaleX(1f).scaleY(1f).alpha(1f).translationX(0f).setDuration(150).start();
+            } else {
+                panel.setScaleX(1f);
+                panel.setScaleY(1f);
+                panel.setAlpha(1f);
+                panel.setTranslationX(0f);
             }
         }
 
@@ -145,7 +158,7 @@ public class MainActivity extends Activity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         CrashLog.install(this);
-        // Keep the system splash until the shield animation has finished, then fade it out.
+        // Keep the system splash until the shield animation has finished, then hand it over to the Status screen.
         getSplashScreen().setOnExitAnimationListener(splash -> {
             long wait = 0;
             if (splash.getIconAnimationStart() != null && splash.getIconAnimationDuration() != null) {
@@ -157,8 +170,10 @@ public class MainActivity extends Activity
                 splash.remove();
                 return;
             }
-            splash.animate().setStartDelay(wait).alpha(0f).setDuration(300)
-                    .withEndAction(splash::remove).start();
+            if (!handOverSplash(splash, wait)) {
+                splash.animate().setStartDelay(wait).alpha(0f).setDuration(300)
+                        .withEndAction(splash::remove).start();
+            }
         });
         settings = new Settings(this);
         overrides = new UserOverrides(new File(getFilesDir(), "filter/additionalHosts.txt"));
@@ -201,13 +216,21 @@ public class MainActivity extends Activity
             toolbar.setAutoHide(!settings.toolbarPinned());
         }
         root.setOnApplyWindowInsetsListener((v, insets) -> {
-            Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-            // On wide screens (tablet, landscape fold) keep the content in a centred column.
-            float density = getResources().getDisplayMetrics().density;
-            int extra = (int) (Math.max(0, getResources().getConfiguration().screenWidthDp - MAX_CONTENT_DP)
-                    / 2f * density);
-            v.setPadding(bars.left + extra, bars.top, bars.right + extra, bars.bottom);
+            applyInsets(v, insets);
+            // With the keyboard up the toolbar would sit on top of it and cover what is being typed.
+            if (dock != null) {
+                dock.setVisibility(insets.isVisible(WindowInsets.Type.ime()) ? View.GONE : View.VISIBLE);
+            }
             return WindowInsets.CONSUMED;
+        });
+        // The content follows the keyboard while it slides in or out, instead of jumping at the end.
+        root.setWindowInsetsAnimationCallback(new WindowInsetsAnimation.Callback(
+                WindowInsetsAnimation.Callback.DISPATCH_MODE_STOP) {
+            @Override
+            public WindowInsets onProgress(WindowInsets insets, List<WindowInsetsAnimation> running) {
+                applyInsets(root, insets);
+                return insets;
+            }
         });
         setContentView(root);
         if (savedInstanceState != null) {
@@ -296,9 +319,57 @@ public class MainActivity extends Activity
     @Override
     protected void onStop() {
         handler.removeCallbacks(statsTick);
+        glow.setRunning(false); // onStart starts it again if it should run
         if (toolbar != null) toolbar.pause();
         TunnelState.unregister(this);
         super.onStop();
+    }
+
+    /** Pads the screen by the system bars and, while the keyboard is up, by the keyboard. */
+    private void applyInsets(View v, WindowInsets insets) {
+        Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+        Insets ime = insets.getInsets(WindowInsets.Type.ime());
+        // On wide screens (tablet, landscape fold) keep the content in a centred column.
+        float density = getResources().getDisplayMetrics().density;
+        int extra = (int) (Math.max(0, getResources().getConfiguration().screenWidthDp - MAX_CONTENT_DP)
+                / 2f * density);
+        v.setPadding(bars.left + extra, bars.top, bars.right + extra, Math.max(bars.bottom, ime.bottom));
+    }
+
+    /**
+     * Lets the splash icon travel to the Status shield while the splash background fades away.
+     * Returns false (and does nothing) when the Status screen is not what is showing.
+     */
+    private boolean handOverSplash(android.window.SplashScreenView splash, long wait) {
+        View icon = splash.getIconView();
+        android.graphics.drawable.Drawable background = splash.getBackground();
+        int[] shieldAt = new int[2];
+        if (icon == null || background == null || icon.getWidth() == 0 || panel != null || section != 0
+                || !status.heroShieldCenter(shieldAt) || status.heroShieldSize() == 0) {
+            return false;
+        }
+        int[] iconAt = new int[2];
+        icon.getLocationOnScreen(iconAt);
+        float dx = shieldAt[0] - (iconAt[0] + icon.getWidth() / 2f);
+        float dy = shieldAt[1] - (iconAt[1] + icon.getHeight() / 2f);
+        // The splash icon fills about two thirds of its view; the Status shield is a picture of heroShieldSize.
+        float scale = status.heroShieldSize() / (icon.getWidth() * 2f / 3f);
+        background.mutate();
+        android.animation.ValueAnimator fade = android.animation.ValueAnimator.ofInt(255, 0);
+        fade.setStartDelay(wait);
+        fade.setDuration(HANDOVER_MS);
+        fade.addUpdateListener(a -> background.setAlpha((int) a.getAnimatedValue()));
+        fade.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                splash.remove();
+            }
+        });
+        icon.animate().setStartDelay(wait).setDuration(HANDOVER_MS)
+                .translationX(dx).translationY(dy).scaleX(scale).scaleY(scale).alpha(0f)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        fade.start();
+        return true;
     }
 
     @Override
@@ -510,17 +581,27 @@ public class MainActivity extends Activity
         int style = Effects.transitionStyle(this);
         if (style == Effects.STYLE_SLIDE && dir != 0) {
             p.setTranslationX(dir * frame.getWidth());
-            p.animate().translationX(0).setDuration(ms).start();
+            if (Motion.spring(p, DynamicAnimation.TRANSLATION_X, dir * frame.getWidth(), 0f, false, null) == null) {
+                p.animate().translationX(0).setDuration(ms).start();
+            }
         } else if (style == Effects.STYLE_SLIDE) { // no direction (floating toolbar): rise from the bottom
             p.setTranslationY(frame.getHeight() * 0.25f);
             p.setAlpha(0f);
-            p.animate().translationY(0).alpha(1f).setDuration(ms).start();
+            p.animate().alpha(1f).setDuration(ms).start();
+            if (Motion.spring(p, DynamicAnimation.TRANSLATION_Y, frame.getHeight() * 0.25f, 0f, false, null) == null) {
+                p.animate().translationY(0).setDuration(ms).start();
+            }
         } else if (style == Effects.STYLE_POP) {
             p.setAlpha(0f);
             p.setScaleX(0.8f);
             p.setScaleY(0.8f);
-            p.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(ms)
-                    .setInterpolator(new android.view.animation.OvershootInterpolator()).start();
+            p.animate().alpha(1f).setDuration(ms).start();
+            if (Motion.spring(p, DynamicAnimation.SCALE_X, 0.8f, 1f, true, null) != null) {
+                Motion.spring(p, DynamicAnimation.SCALE_Y, 0.8f, 1f, true, null);
+            } else {
+                p.animate().scaleX(1f).scaleY(1f).setInterpolator(new android.view.animation.OvershootInterpolator())
+                        .setDuration(ms).start();
+            }
         } else {
             p.setAlpha(0f);
             p.animate().alpha(1f).setDuration(ms).start();
@@ -942,6 +1023,11 @@ public class MainActivity extends Activity
     @Override
     public void setToolbarStyle(String style) {
         settings.setToolbarStyle(style);
+        recreate();
+    }
+
+    @Override
+    public void recreateScreen() {
         recreate();
     }
 

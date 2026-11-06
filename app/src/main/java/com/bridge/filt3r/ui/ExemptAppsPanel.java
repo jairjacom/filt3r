@@ -180,7 +180,11 @@ public class ExemptAppsPanel extends LinearLayout {
         systemText.setText("Show system apps");
         systemText.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
         showSystem = new MaterialSwitch(context);
-        showSystem.setOnCheckedChangeListener((b, on) -> applyFilter());
+        showSystem.setContentDescription("Show system apps");
+        showSystem.setOnCheckedChangeListener((b, on) -> {
+            Effects.toggle(showSystem, on);
+            applyFilter();
+        });
         systemRow.addView(systemText, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         systemRow.addView(showSystem);
         systemRow.setOnClickListener(v -> showSystem.toggle());
@@ -370,7 +374,11 @@ public class ExemptAppsPanel extends LinearLayout {
             pkg.setText(app.pkg);
             sw.setOnCheckedChangeListener(null); // a recycled row must not report a change
             sw.setChecked(exempt.contains(app.pkg));
-            sw.setOnCheckedChangeListener((b, on) -> toggle(app, on));
+            sw.setContentDescription(app.label); // the switch is announced with the app's name
+            sw.setOnCheckedChangeListener((b, on) -> {
+                Effects.toggle(sw, on);
+                toggle(app, on);
+            });
         }
     }
 }

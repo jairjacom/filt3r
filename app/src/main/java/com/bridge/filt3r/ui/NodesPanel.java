@@ -413,6 +413,7 @@ public class NodesPanel extends LinearLayout {
             dotBg.setShape(GradientDrawable.OVAL);
             dot = new View(context);
             dot.setBackground(dotBg);
+            dot.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); // the subtitle says the state
             LayoutParams dotParams = new LayoutParams(dp(10), dp(10));
             dotParams.rightMargin = dp(16);
             addView(dot, dotParams);
@@ -443,6 +444,7 @@ public class NodesPanel extends LinearLayout {
 
             pin = new ImageView(context);
             pin.setImageResource(R.drawable.ic_pin);
+            pin.setContentDescription("Pinned");
             pin.setImageTintList(ColorStateList.valueOf(context.getColor(R.color.brand_red)));
             LayoutParams pinParams = new LayoutParams(dp(18), dp(18));
             pinParams.rightMargin = dp(12);
@@ -458,11 +460,12 @@ public class NodesPanel extends LinearLayout {
             ipv6 = new TextView(context);
             ipv6.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall);
             ipv6.setText("IPv6");
-            ipv6.setTextColor(context.getColor(R.color.state_active));
+            ipv6.setTextColor(Colors.active(context));
             right.addView(latency);
             barBg.setCornerRadius(dp(2));
             bar = new View(context);
             bar.setBackground(barBg);
+            bar.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
             right.addView(bar, new LayoutParams(dp(84), dp(3)));
             right.addView(ipv6);
             addView(right, new LayoutParams(dp(84), LayoutParams.WRAP_CONTENT)); // fixed width: columns line up
@@ -491,7 +494,7 @@ public class NodesPanel extends LinearLayout {
             int color;
             switch (n.state) {
                 case WORKING:
-                    color = getContext().getColor(R.color.state_active);
+                    color = Colors.active(getContext());
                     break;
                 case BLACKLISTED:
                     color = getContext().getColor(R.color.brand_red);

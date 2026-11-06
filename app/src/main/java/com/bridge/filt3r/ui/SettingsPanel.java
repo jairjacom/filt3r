@@ -138,6 +138,9 @@ public class SettingsPanel extends LinearLayout {
 
         void setToolbarStyle(String style);
 
+        /** Restarts the screen, so effects that fix the look when it is built take hold. */
+        void recreateScreen();
+
         String version();
 
         /** 0 follow the system, 1 light, 2 dark. Applies at once. */
@@ -662,10 +665,14 @@ public class SettingsPanel extends LinearLayout {
             if (checked) {
                 for (int i = 0; i < levelIds.length; i++) {
                     if (levelIds[i] == id && i != Effects.level(context)) {
+                        int look = Effects.lookBits(context);
                         Effects.setLevel(context, i);
                         effectRows.removeAllViews();
                         if (i == Effects.CUSTOM) {
                             fillEffectRows(context, effectRows);
+                        }
+                        if (Effects.lookBits(context) != look) {
+                            backend.recreateScreen();
                         }
                     }
                 }
@@ -717,8 +724,12 @@ public class SettingsPanel extends LinearLayout {
     /** One switch per visual effect, shown only while the level is Custom. */
     private void fillEffectRows(Context context, LinearLayout rows) {
         for (Effects.Effect e : Effects.Effect.values()) {
-            rows.addView(switchRow(context, e.label, e.summary, Effects.chosen(context, e),
-                    on -> Effects.set(context, e, on)));
+            rows.addView(switchRow(context, e.label, e.summary, Effects.chosen(context, e), on -> {
+                Effects.set(context, e, on);
+                if (e.restart) {
+                    backend.recreateScreen();
+                }
+            }));
         }
     }
 
@@ -793,8 +804,8 @@ public class SettingsPanel extends LinearLayout {
         TextView body = new TextView(getContext());
         body.setText(text);
         body.setTextIsSelectable(true);
+        body.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall);
         body.setTypeface(android.graphics.Typeface.MONOSPACE);
-        body.setTextSize(11);
         body.setPadding(dp(20), dp(8), dp(20), dp(8));
         ScrollView scroll = new ScrollView(getContext());
         scroll.addView(body);
@@ -817,8 +828,8 @@ public class SettingsPanel extends LinearLayout {
         TextView body = new TextView(getContext());
         body.setText(text);
         body.setTextIsSelectable(true);
+        body.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall);
         body.setTypeface(android.graphics.Typeface.MONOSPACE);
-        body.setTextSize(12);
         body.setPadding(dp(20), dp(8), dp(20), dp(8));
         ScrollView scroll = new ScrollView(getContext());
         scroll.addView(body);
@@ -1037,7 +1048,11 @@ public class SettingsPanel extends LinearLayout {
         texts.addView(s);
         MaterialSwitch sw = new MaterialSwitch(context);
         sw.setChecked(checked);
-        sw.setOnCheckedChangeListener((b, on) -> listener.onChecked(on));
+        sw.setContentDescription(title); // the switch is announced with its name
+        sw.setOnCheckedChangeListener((b, on) -> {
+            Effects.toggle(sw, on);
+            listener.onChecked(on);
+        });
         row.addView(texts, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         row.addView(sw);
         row.setOnClickListener(v -> sw.toggle());

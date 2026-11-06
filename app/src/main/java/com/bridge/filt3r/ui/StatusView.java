@@ -149,6 +149,15 @@ public class StatusView extends ScrollView {
         }
     }
 
+    /** Centre of the status shield on screen; false until the screen is laid out. For the splash hand-over. */
+    public boolean heroShieldCenter(int[] out) {
+        return hero.shieldCenter(out);
+    }
+
+    public int heroShieldSize() {
+        return hero.shieldSize();
+    }
+
     public void update(Snapshot s) {
         if (s.nodeName == null) {
             nodeCard.set("—", "", "");
@@ -235,7 +244,9 @@ public class StatusView extends ScrollView {
             label.setText(title);
             dim(label);
             value = new TextView(context);
-            value.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
+            value.setTextAppearance(Effects.on(context, Effects.Effect.BOLD_TYPE)
+                    ? com.google.android.material.R.style.TextAppearance_Material3_TitleLarge_Emphasized
+                    : com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
             detail = new TextView(context);
             detail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
             dim(detail);

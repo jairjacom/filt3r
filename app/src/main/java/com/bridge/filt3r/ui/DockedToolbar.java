@@ -9,6 +9,8 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
+import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.SpringAnimation;
 
 import com.bridge.filt3r.Effects;
 import com.google.android.material.color.MaterialColors;
@@ -32,6 +34,8 @@ public class DockedToolbar extends LinearLayout {
     private final List<ImageButton> buttons = new ArrayList<>();
     private final List<View> highlights = new ArrayList<>();
     private final List<ValueAnimator> tints = new ArrayList<>();
+    private final List<SpringAnimation> springsX = new ArrayList<>();
+    private final List<SpringAnimation> springsY = new ArrayList<>();
     private final int iconColor;
     private final int selectedIconColor;
     private final int highlightColor;
@@ -83,6 +87,8 @@ public class DockedToolbar extends LinearLayout {
         buttons.add(b);
         highlights.add(highlight);
         tints.add(null);
+        springsX.add(null);
+        springsY.add(null);
     }
 
     /** Marks the section at {@code index} as current. */
@@ -112,8 +118,19 @@ public class DockedToolbar extends LinearLayout {
         int ms = Effects.ms(getContext(), Effects.Effect.TRANSITIONS, ANIM_MS);
         View highlight = highlights.get(index);
         ImageButton button = buttons.get(index);
+        button.setSelected(on);
+        button.setStateDescription(on ? "Current section" : null);
         float scale = on ? 1f : 0.6f;
-        highlight.animate().alpha(on ? 1f : 0f).scaleX(scale).scaleY(scale).setDuration(ms).start();
+        SpringAnimation sx = Motion.spring(highlight, DynamicAnimation.SCALE_X, highlight.getScaleX(), scale,
+                true, springsX.get(index));
+        if (sx != null) {
+            springsX.set(index, sx);
+            springsY.set(index, Motion.spring(highlight, DynamicAnimation.SCALE_Y, highlight.getScaleY(), scale,
+                    true, springsY.get(index)));
+            highlight.animate().alpha(on ? 1f : 0f).setDuration(ms).start();
+        } else {
+            highlight.animate().alpha(on ? 1f : 0f).scaleX(scale).scaleY(scale).setDuration(ms).start();
+        }
         ValueAnimator running = tints.get(index);
         if (running != null) {
             running.cancel();
