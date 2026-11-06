@@ -59,6 +59,11 @@ public class ExemptAppsPanel extends LinearLayout {
         boolean running();
 
         void restart();
+
+        /** Whether a change is waiting for a restart; shared with Settings so the dock can show a dot. */
+        boolean restartPending();
+
+        void setRestartPending(boolean pending);
     }
 
     /** One installed app with a launcher icon. */
@@ -139,11 +144,12 @@ public class ExemptAppsPanel extends LinearLayout {
         restart.setText("Restart");
         restart.setOnClickListener(v -> {
             banner.setVisibility(GONE);
+            backend.setRestartPending(false);
             backend.restart();
         });
         banner.addView(bannerText, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         banner.addView(restart);
-        banner.setVisibility(GONE);
+        banner.setVisibility(backend.restartPending() && backend.running() ? VISIBLE : GONE);
         LayoutParams bannerParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         bannerParams.setMargins(dp(16), dp(4), dp(16), dp(8));
         addView(banner, bannerParams);
@@ -288,6 +294,7 @@ public class ExemptAppsPanel extends LinearLayout {
             exempt.remove(app.pkg);
         }
         backend.setExemptApps(exempt);
+        backend.setRestartPending(backend.running());
         banner.setVisibility(backend.running() ? VISIBLE : GONE);
     }
 
