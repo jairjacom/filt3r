@@ -85,6 +85,7 @@ public class MainActivity extends Activity
     private StatusView status;
     private FloatingToolbar toolbar;
     private DockedToolbar dock;
+    private boolean restartPending;
     private BlurBehind blurStrip;
     private boolean docked;
     private int section;
@@ -405,6 +406,9 @@ public class MainActivity extends Activity
     @Override
     public void onTunnelState(TunnelState.State state) {
         status.setState(StatusView.State.valueOf(state.name()));
+        if (state != TunnelState.State.RUNNING && state != TunnelState.State.STARTING) {
+            setRestartPending(false); // a fresh start applies every change
+        }
     }
 
     private void refresh() {
@@ -476,6 +480,19 @@ public class MainActivity extends Activity
     public void restart() {
         startForegroundService(new Intent(this, Filt3rVpnService.class)
                 .setAction(Filt3rVpnService.ACTION_RESTART));
+    }
+
+    @Override
+    public boolean restartPending() {
+        return restartPending;
+    }
+
+    @Override
+    public void setRestartPending(boolean pending) {
+        restartPending = pending;
+        if (dock != null) {
+            dock.setDot(4, pending, "restart waiting");
+        }
     }
 
     @Override

@@ -73,6 +73,11 @@ public class SettingsPanel extends LinearLayout {
 
         void setSubscription(int slot, String url, int hours);
 
+        /** Whether a change is waiting for a restart; kept by the activity so the dock can show a dot. */
+        boolean restartPending();
+
+        void setRestartPending(boolean pending);
+
         /** Whether the subscription supplies nodes (true when never changed). */
         boolean subscriptionEnabled(int slot);
 
@@ -238,12 +243,14 @@ public class SettingsPanel extends LinearLayout {
         restart.setText("Restart");
         restart.setOnClickListener(v -> {
             changed = false;
+            backend.setRestartPending(false);
             updateBanner();
             backend.restart();
         });
         banner.addView(bannerText, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         banner.addView(restart);
-        banner.setVisibility(GONE);
+        banner.setVisibility(backend.restartPending() && backend.running() ? VISIBLE : GONE);
+        changed = backend.restartPending();
         LayoutParams bannerParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         bannerParams.setMargins(dp(16), dp(4), dp(16), dp(8));
         addView(banner, bannerParams);
@@ -968,6 +975,7 @@ public class SettingsPanel extends LinearLayout {
 
     private void markChanged() {
         changed = true;
+        backend.setRestartPending(backend.running());
         updateBanner();
     }
 

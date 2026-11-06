@@ -104,16 +104,26 @@ public class DockedToolbar extends LinearLayout {
      * counts, read out after the item name ("Nodes, 5 working").
      */
     public void setBadge(int index, int count, String meaning) {
+        show(index, count > 0, count, meaning);
+    }
+
+    /** Shows or hides a small dot on an item's icon. {@code meaning} is read out after the item name. */
+    public void setDot(int index, boolean on, String meaning) {
+        show(index, on, 0, meaning);
+    }
+
+    /** {@code count} above 0 shows that number, 0 shows a plain dot. */
+    private void show(int index, boolean on, int count, String meaning) {
         if (index < 0 || index >= badges.size()) {
             return;
         }
         if (!isLaidOut()) {
-            post(() -> setBadge(index, count, meaning)); // the badge is placed on the icon, which needs its size
+            post(() -> show(index, on, count, meaning)); // the badge is placed on the icon, which needs its size
             return;
         }
         BadgeDrawable badge = badges.get(index);
         ImageButton button = buttons.get(index);
-        if (count <= 0) {
+        if (!on) {
             if (badge != null) {
                 badge.setVisible(false);
             }
@@ -131,8 +141,12 @@ public class DockedToolbar extends LinearLayout {
             badges.set(index, badge);
         }
         badge.setVisible(true);
-        badge.setNumber(count);
-        button.setContentDescription(labels.get(index) + ", " + count + " " + meaning);
+        if (count > 0) {
+            badge.setNumber(count);
+        } else {
+            badge.clearNumber();
+        }
+        button.setContentDescription(labels.get(index) + ", " + (count > 0 ? count + " " : "") + meaning);
     }
 
     /** Marks the section at {@code index} as current. */
