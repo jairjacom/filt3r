@@ -532,6 +532,43 @@ public class Filt3rVpnService extends VpnService {
     }
 
     /**
+     * Re-tests one node (latency, speed and IPv6 if it answers). Like {@link #retestNodes}, {@code done}
+     * runs on the maintenance thread.
+     *
+     * @return false if the tunnel is not running or a re-test is already under way
+     */
+    static boolean retestNode(ShadowsocksNode node, Runnable done) {
+        Filt3rVpnService s = instance;
+        NodeRuntime r = s == null ? null : s.runtime;
+        ScheduledExecutorService maint = s == null ? null : s.maintenance;
+        if (r == null || maint == null || !r.retesting.compareAndSet(false, true)) {
+            return false;
+        }
+        try {
+            maint.execute(() -> {
+                try {
+                    List<ShadowsocksNode> one = List.of(node);
+                    r.tester.testAndRecord(r.manager, one, 1);
+                    for (NodeInfo n : r.manager.snapshot()) {
+                        if (NodeManager.keyOf(n.node).equals(NodeManager.keyOf(node))
+                                && n.state == NodeInfo.State.WORKING) {
+                            r.tester.speedAndRecord(r.manager, one);
+                            r.tester.ipv6AndRecord(r.manager, one, 1);
+                        }
+                    }
+                } finally {
+                    r.retesting.set(false);
+                    done.run();
+                }
+            });
+        } catch (RejectedExecutionException e) { // the tunnel was stopped just now
+            r.retesting.set(false);
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * Pins a node chosen in the Node list; a node that was never tested is tested first. Runs on
      * the maintenance thread, and {@code done} is called there (post to the main thread before
      * touching views). If the node does not answer, nothing is pinned and {@link #takeNotice} says so.

@@ -771,6 +771,11 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public boolean retestNode(ShadowsocksNode node, Runnable done) {
+        return Filt3rVpnService.retestNode(node, done);
+    }
+
+    @Override
     public boolean pin(ShadowsocksNode node, Runnable done) {
         return Filt3rVpnService.pinNode(node, done);
     }

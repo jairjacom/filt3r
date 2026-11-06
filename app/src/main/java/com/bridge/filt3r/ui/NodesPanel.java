@@ -51,6 +51,9 @@ public class NodesPanel extends LinearLayout {
         /** Starts a re-test; {@code done} runs on a background thread. @return false if not possible now */
         boolean retest(Runnable done);
 
+        /** Re-tests one node; {@code done} runs on a background thread. @return false if not possible now */
+        boolean retestNode(ShadowsocksNode node, Runnable done);
+
         /** Pins the node (testing it first if needed); {@code done} runs on a background thread. */
         boolean pin(ShadowsocksNode node, Runnable done);
 
@@ -260,6 +263,23 @@ public class NodesPanel extends LinearLayout {
             progress.show();
         } else {
             progress.hide();
+        }
+    }
+
+    private void retestOne(NodeInfo n) {
+        if (busy) {
+            Messages.show(this, "Already testing.", Snackbar.LENGTH_SHORT);
+            return;
+        }
+        setBusy(true);
+        NodeLocation loc = NodeLocation.parse(n.node.name);
+        Messages.show(this, "Testing " + loc.city + "...", Snackbar.LENGTH_SHORT);
+        if (!backend.retestNode(n.node, () -> post(() -> {
+            setBusy(false);
+            reload();
+        }))) {
+            setBusy(false);
+            Messages.show(this, "Not possible now (tunnel off or already testing).", Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -520,7 +540,17 @@ public class NodesPanel extends LinearLayout {
         });
         LayoutParams gap = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         gap.rightMargin = dp(8);
+        MaterialButton test = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        test.setText("Re-test");
+        test.setOnClickListener(v -> {
+            closeDetail();
+            retestOne(n);
+        });
         buttons.addView(close, gap);
+        LayoutParams testGap = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        testGap.rightMargin = dp(8);
+        buttons.addView(test, testGap);
         buttons.addView(pin);
         LayoutParams buttonParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         buttonParams.topMargin = dp(16);
