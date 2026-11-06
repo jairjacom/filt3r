@@ -201,9 +201,14 @@ public class MainActivity extends Activity
             dock.addItem(R.drawable.ic_log, "Query log");
             dock.addItem(R.drawable.ic_settings, "Settings");
             dock.select(0);
+            // The screen and its panels sit in frame; the blur strip and the dock sit above it, so the
+            // strip can copy the frame without drawing itself.
+            FrameLayout outer = new FrameLayout(this);
+            outer.addView(frame, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             if (Effects.on(this, Effects.Effect.BLUR)) {
-                blurStrip = new BlurBehind(this);
-                frame.addView(blurStrip, new FrameLayout.LayoutParams(
+                blurStrip = new BlurBehind(this, frame);
+                outer.addView(blurStrip, new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT, (int) (112 * getResources().getDisplayMetrics().density),
                         Gravity.BOTTOM));
             }
@@ -211,7 +216,8 @@ public class MainActivity extends Activity
                     FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
             dockParams.bottomMargin = (int) (8 * getResources().getDisplayMetrics().density);
-            frame.addView(dock, dockParams);
+            outer.addView(dock, dockParams);
+            root = outer;
         } else {
             toolbar = new FloatingToolbar(this);
             frame.addView(toolbar, new FrameLayout.LayoutParams(
@@ -238,12 +244,13 @@ public class MainActivity extends Activity
             }
             return WindowInsets.CONSUMED;
         });
+        final View screen = root;
         // The content follows the keyboard while it slides in or out, instead of jumping at the end.
         root.setWindowInsetsAnimationCallback(new WindowInsetsAnimation.Callback(
                 WindowInsetsAnimation.Callback.DISPATCH_MODE_STOP) {
             @Override
             public WindowInsets onProgress(WindowInsets insets, List<WindowInsetsAnimation> running) {
-                applyInsets(root, insets);
+                applyInsets(screen, insets);
                 return insets;
             }
         });
@@ -570,7 +577,7 @@ public class MainActivity extends Activity
         if (blurStrip != null) {
             blurStrip.pulse();
         }
-        frame.addView(panel, frame.indexOfChild(blurStrip != null ? blurStrip : dock), new FrameLayout.LayoutParams(
+        frame.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, closePanelOnBack);

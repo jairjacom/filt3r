@@ -11,7 +11,6 @@ import android.graphics.RenderEffect;
 import android.graphics.RenderNode;
 import android.graphics.Shader;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 
 import com.google.android.material.color.MaterialColors;
@@ -34,7 +33,7 @@ public class BlurBehind extends View {
     private final Paint tint = new Paint();
     private final Paint mask = new Paint();
     private final float radius;
-    private boolean drawing; // true while the parent is being copied, so this view is not drawn into itself
+    private final View source; // a sibling drawn under this view, never this view's own parent or child
     private long pulseUntil;
 
     private final ViewTreeObserver.OnScrollChangedListener onScroll = this::pulse;
@@ -50,8 +49,9 @@ public class BlurBehind extends View {
         }
     };
 
-    public BlurBehind(Context context) {
+    public BlurBehind(Context context, View source) {
         super(context);
+        this.source = source;
         radius = BLUR_DP * context.getResources().getDisplayMetrics().density;
         node.setClipToBounds(true);
         node.setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP));
@@ -91,20 +91,17 @@ public class BlurBehind extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
-        if (drawing || !canvas.isHardwareAccelerated() || !(getParent() instanceof ViewGroup)) {
+        if (!canvas.isHardwareAccelerated()) {
             return;
         }
-        ViewGroup parent = (ViewGroup) getParent();
         int w = getWidth();
         int h = getHeight();
         node.setPosition(0, 0, w, h);
         RecordingCanvas recording = node.beginRecording();
-        drawing = true;
         try {
-            recording.translate(-getLeft(), -getTop());
-            parent.draw(recording);
+            recording.translate(source.getLeft() - getLeft(), source.getTop() - getTop());
+            source.draw(recording);
         } finally {
-            drawing = false;
             node.endRecording();
         }
         int save = canvas.saveLayer(0, 0, w, h, null);
