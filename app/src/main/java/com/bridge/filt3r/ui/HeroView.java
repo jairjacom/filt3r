@@ -110,19 +110,19 @@ public class HeroView extends FrameLayout {
         switch (newMode) {
             case ACTIVE:
                 target = Colors.active(getContext());
-                text = "Connected";
+                text = getContext().getString(R.string.hero_connected);
                 break;
             case CONNECTING:
                 target = Colors.warning(getContext());
-                text = "Connecting";
+                text = getContext().getString(R.string.hero_connecting);
                 break;
             case FAILED:
                 target = getContext().getColor(R.color.brand_red);
-                text = "Failed";
+                text = getContext().getString(R.string.hero_failed);
                 break;
             default:
                 target = getContext().getColor(R.color.state_inactive);
-                text = "Off";
+                text = getContext().getString(R.string.hero_off);
                 break;
         }
         word.setText(text);

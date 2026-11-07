@@ -112,12 +112,12 @@ public class NodesPanel extends LinearLayout {
         LinearLayout bar = new LinearLayout(context);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(4), dp(8), dp(8), dp(8));
-        ImageButton back = iconButton(context, R.drawable.ic_back, "Back");
+        ImageButton back = iconButton(context, R.drawable.ic_back, context.getString(R.string.nodes_back));
         back.setOnClickListener(v -> onClose.run());
         TextView title = new TextView(context);
-        title.setText("Nodes");
+        title.setText(R.string.nodes_title);
         title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
-        retestButton = iconButton(context, R.drawable.ic_refresh, "Re-test nodes");
+        retestButton = iconButton(context, R.drawable.ic_refresh, context.getString(R.string.nodes_retest_description));
         retestButton.setOnClickListener(v -> retest());
         bar.addView(back);
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
@@ -128,7 +128,7 @@ public class NodesPanel extends LinearLayout {
         progress = new LinearProgressIndicator(context);
         progress.setIndeterminate(true);
         progress.setVisibility(INVISIBLE);
-        progress.setContentDescription("Testing nodes");
+        progress.setContentDescription(context.getString(R.string.nodes_testing_description));
         if (Effects.on(context, Effects.Effect.WAVY_PROGRESS)) {
             progress.setTrackThickness(dp(6));
             progress.setWaveAmplitude(dp(3));
@@ -148,7 +148,7 @@ public class NodesPanel extends LinearLayout {
         cardBg.setCornerRadius(dp(24));
         card.setBackground(cardBg);
         TextView label = new TextView(context);
-        label.setText("Current node");
+        label.setText(R.string.nodes_current_label);
         label.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
         dim(label);
         currentName = new TextView(context);
@@ -178,8 +178,8 @@ public class NodesPanel extends LinearLayout {
         sort.setSingleSelection(true);
         sort.setSelectionRequired(true);
         sort.setSpacing(dp(8));
-        MaterialButton byLatency = sortButton(context, "Latency");
-        MaterialButton bySpeed = sortButton(context, "Speed");
+        MaterialButton byLatency = sortButton(context, context.getString(R.string.nodes_sort_latency));
+        MaterialButton bySpeed = sortButton(context, context.getString(R.string.nodes_sort_speed));
         sort.addView(byLatency);
         sort.addView(bySpeed);
         sort.check(backend.sortBySpeed() ? bySpeed.getId() : byLatency.getId());
@@ -194,7 +194,7 @@ public class NodesPanel extends LinearLayout {
         addView(sort, sortParams);
 
         empty = new TextView(context);
-        empty.setText("Connect to see the nodes.");
+        empty.setText(R.string.nodes_empty);
         empty.setGravity(Gravity.CENTER);
         dim(empty);
         empty.setPadding(dp(16), dp(48), dp(16), dp(16));
@@ -239,7 +239,7 @@ public class NodesPanel extends LinearLayout {
 
     private void onNodeTap(NodeInfo n) {
         if (n.state == NodeInfo.State.BLACKLISTED) {
-            Messages.show(this, "This node failed 3 times in a row; it is skipped for a while and tried again automatically.");
+            Messages.show(this, getContext().getString(R.string.nodes_blacklisted_message));
             return;
         }
         if (n.pinned) {
@@ -248,10 +248,10 @@ public class NodesPanel extends LinearLayout {
             return;
         }
         if (n.state == NodeInfo.State.UNTESTED) {
-            Messages.show(this, "Testing the node first...", Snackbar.LENGTH_SHORT);
+            Messages.show(this, getContext().getString(R.string.nodes_testing_first), Snackbar.LENGTH_SHORT);
         }
         if (!backend.pin(n.node, () -> post(this::reload))) {
-            Messages.show(this, "Connect first.", Snackbar.LENGTH_SHORT);
+            Messages.show(this, getContext().getString(R.string.nodes_connect_first), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -268,18 +268,18 @@ public class NodesPanel extends LinearLayout {
 
     private void retestOne(NodeInfo n) {
         if (busy) {
-            Messages.show(this, "Already testing.", Snackbar.LENGTH_SHORT);
+            Messages.show(this, getContext().getString(R.string.nodes_already_testing), Snackbar.LENGTH_SHORT);
             return;
         }
         setBusy(true);
         NodeLocation loc = NodeLocation.parse(n.node.name);
-        Messages.show(this, "Testing " + loc.city + "...", Snackbar.LENGTH_SHORT);
+        Messages.show(this, getContext().getString(R.string.nodes_testing_city, loc.city), Snackbar.LENGTH_SHORT);
         if (!backend.retestNode(n.node, () -> post(() -> {
             setBusy(false);
             reload();
         }))) {
             setBusy(false);
-            Messages.show(this, "Not possible now (tunnel off or already testing).", Snackbar.LENGTH_SHORT);
+            Messages.show(this, getContext().getString(R.string.nodes_not_possible), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -288,14 +288,14 @@ public class NodesPanel extends LinearLayout {
             return;
         }
         setBusy(true);
-        Messages.show(this, "Re-testing and speed-testing the best nodes...", Snackbar.LENGTH_SHORT);
+        Messages.show(this, getContext().getString(R.string.nodes_retesting_best), Snackbar.LENGTH_SHORT);
         boolean started = backend.retest(() -> post(() -> {
             setBusy(false);
             reload();
         }));
         if (!started) {
             setBusy(false);
-            Messages.show(this, "Not possible now (tunnel off or already testing).", Snackbar.LENGTH_SHORT);
+            Messages.show(this, getContext().getString(R.string.nodes_not_possible), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -338,9 +338,9 @@ public class NodesPanel extends LinearLayout {
         } else {
             NodeLocation loc = NodeLocation.parse(current.node.name);
             currentName.setText(place(loc));
-            currentDetail.setText(details(current));
+            currentDetail.setText(details(getContext(), current));
             currentDetail.setVisibility(VISIBLE);
-            currentIp.setText("IP  " + current.node.host);
+            currentIp.setText(getContext().getString(R.string.nodes_current_ip, current.node.host));
             currentIp.setVisibility(VISIBLE);
         }
         currentTested.setText(backend.lastTestText());
@@ -351,34 +351,35 @@ public class NodesPanel extends LinearLayout {
         return loc.flag.isEmpty() ? loc.city : loc.flag + " " + loc.city;
     }
 
-    private static String details(NodeInfo n) {
+    private static String details(Context ctx, NodeInfo n) {
         StringBuilder sb = new StringBuilder();
         if (n.medianMs >= 0) {
-            sb.append(n.medianMs).append(" ms");
+            sb.append(ctx.getString(R.string.nodes_ms, n.medianMs));
         } else {
-            sb.append("not measured");
+            sb.append(ctx.getString(R.string.nodes_not_measured));
         }
         if (n.speedBps >= 0) {
             sb.append("  ·  ").append(Format.bytes(n.speedBps)).append("/s");
         }
-        sb.append("  ·  ").append(n.ipv6 == null ? "IPv6 checking" : n.ipv6 ? "IPv6 on" : "IPv6 off");
+        sb.append("  ·  ").append(ctx.getString(n.ipv6 == null ? R.string.nodes_ipv6_checking
+                : n.ipv6 ? R.string.nodes_ipv6_on : R.string.nodes_ipv6_off));
         if (n.pinned) {
-            sb.append("  ·  pinned");
+            sb.append("  ·  ").append(ctx.getString(R.string.nodes_pinned));
         }
         return sb.toString();
     }
 
-    private static String stateText(NodeInfo n) {
+    private static String stateText(Context ctx, NodeInfo n) {
         if (n.current) {
-            return "In use";
+            return ctx.getString(R.string.nodes_state_in_use);
         }
         switch (n.state) {
             case WORKING:
-                return "Working";
+                return ctx.getString(R.string.nodes_state_working);
             case BLACKLISTED:
-                return "Dead: failed 3 times in a row. Skipped for a while, then tried again.";
+                return ctx.getString(R.string.nodes_state_dead);
             default:
-                return n.failures > 0 ? "No answer yet" : "Not tested";
+                return ctx.getString(n.failures > 0 ? R.string.nodes_state_no_answer_yet : R.string.nodes_state_not_tested);
         }
     }
 
@@ -395,7 +396,7 @@ public class NodesPanel extends LinearLayout {
         scrim.setBackgroundColor(0x66000000);
         scrim.setAlpha(0f);
         scrim.setOnClickListener(v -> closeDetail());
-        scrim.setContentDescription("Close details");
+        scrim.setContentDescription(context.getString(R.string.nodes_close_details));
         layer.addView(scrim, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         LinearLayout card = detailCard(context, n);
@@ -515,24 +516,28 @@ public class NodesPanel extends LinearLayout {
         name.setText(place(loc));
         name.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall);
         card.addView(name);
-        card.addView(detailLine(context, "Address", n.node.host + ":" + n.node.port));
-        card.addView(detailLine(context, "Status", stateText(n)));
-        card.addView(detailLine(context, "Latency", n.medianMs >= 0 ? n.medianMs + " ms" : "Not measured"));
-        card.addView(detailLine(context, "Speed", n.speedBps >= 0 ? Format.bytes(n.speedBps) + "/s" : "Not measured"));
-        card.addView(detailLine(context, "IPv6", n.ipv6 == null ? "Checking" : n.ipv6 ? "On" : "Off"));
+        card.addView(detailLine(context, context.getString(R.string.nodes_detail_address), n.node.host + ":" + n.node.port));
+        card.addView(detailLine(context, context.getString(R.string.nodes_detail_status), stateText(context, n)));
+        card.addView(detailLine(context, context.getString(R.string.nodes_detail_latency), n.medianMs >= 0
+                ? context.getString(R.string.nodes_ms, n.medianMs) : context.getString(R.string.nodes_detail_not_measured)));
+        card.addView(detailLine(context, context.getString(R.string.nodes_detail_speed), n.speedBps >= 0
+                ? Format.bytes(n.speedBps) + "/s" : context.getString(R.string.nodes_detail_not_measured)));
+        card.addView(detailLine(context, context.getString(R.string.nodes_ipv6), context.getString(n.ipv6 == null
+                ? R.string.nodes_detail_checking : n.ipv6 ? R.string.nodes_detail_on : R.string.nodes_detail_off)));
         int source = backend.sourceCount() > 1 ? backend.source(n.node) : -1;
         if (source >= 0) {
-            card.addView(detailLine(context, "Subscription", "Sub " + (source + 1)));
+            card.addView(detailLine(context, context.getString(R.string.nodes_detail_subscription),
+                    context.getString(R.string.nodes_sub, source + 1)));
         }
 
         LinearLayout buttons = new LinearLayout(context);
         buttons.setGravity(Gravity.END);
         MaterialButton close = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        close.setText("Close");
+        close.setText(R.string.nodes_close);
         close.setOnClickListener(v -> closeDetail());
         MaterialButton pin = new MaterialButton(context);
-        pin.setText(n.pinned ? "Unpin" : "Pin this node");
+        pin.setText(n.pinned ? R.string.nodes_unpin : R.string.nodes_pin);
         pin.setEnabled(n.state != NodeInfo.State.BLACKLISTED);
         pin.setOnClickListener(v -> {
             closeDetail();
@@ -542,7 +547,7 @@ public class NodesPanel extends LinearLayout {
         gap.rightMargin = dp(8);
         MaterialButton test = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        test.setText("Re-test");
+        test.setText(R.string.nodes_retest_button);
         test.setOnClickListener(v -> {
             closeDetail();
             retestOne(n);
@@ -727,7 +732,7 @@ public class NodesPanel extends LinearLayout {
             latency.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
             ipv6 = new TextView(context);
             ipv6.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall);
-            ipv6.setText("IPv6");
+            ipv6.setText(R.string.nodes_ipv6);
             ipv6.setTextColor(Colors.active(context));
             right.addView(latency);
             barBg.setCornerRadius(dp(2));
@@ -743,7 +748,7 @@ public class NodesPanel extends LinearLayout {
             NodeLocation loc = NodeLocation.parse(n.node.name);
             title.setText(loc.city);
             // The right column shows the metric the list is sorted by; the other one goes under the place.
-            String ms = n.medianMs >= 0 ? n.medianMs + " ms" : "—";
+            String ms = n.medianMs >= 0 ? getContext().getString(R.string.nodes_ms, n.medianMs) : "—";
             String speed = n.speedBps >= 0 ? Format.bytes(n.speedBps) + "/s" : "—";
             StringBuilder sub = new StringBuilder();
             if (!loc.countryCode.isEmpty()) {
@@ -752,7 +757,7 @@ public class NodesPanel extends LinearLayout {
             sub.append(bySpeed ? ms : speed);
             int source = backend.sourceCount() > 1 ? backend.source(n.node) : -1;
             if (source >= 0) {
-                sub.append("  ·  Sub ").append(source + 1);
+                sub.append("  ·  ").append(getContext().getString(R.string.nodes_sub, source + 1));
             }
             subtitle.setText(sub.toString());
             latency.setText(bySpeed ? speed : ms);
@@ -787,11 +792,11 @@ public class NodesPanel extends LinearLayout {
             String tagText = null;
             int tagColor = color;
             if (n.current) {
-                tagText = "in use";
+                tagText = getContext().getString(R.string.nodes_tag_in_use);
             } else if (n.state == NodeInfo.State.BLACKLISTED) {
-                tagText = "dead";
+                tagText = getContext().getString(R.string.nodes_tag_dead);
             } else if (n.state == NodeInfo.State.UNTESTED) {
-                tagText = n.failures > 0 ? "no answer" : "not tested";
+                tagText = getContext().getString(n.failures > 0 ? R.string.nodes_tag_no_answer : R.string.nodes_tag_not_tested);
                 tagColor = MaterialColors.getColor(this,
                         com.google.android.material.R.attr.colorOnSurfaceVariant);
             }
@@ -807,18 +812,20 @@ public class NodesPanel extends LinearLayout {
             if (!loc.countryCode.isEmpty()) {
                 said.append(", ").append(loc.countryCode);
             }
-            said.append(", ").append(n.medianMs >= 0 ? n.medianMs + " milliseconds" : "not measured");
+            said.append(", ").append(n.medianMs >= 0
+                    ? getContext().getString(R.string.nodes_said_ms, n.medianMs)
+                    : getContext().getString(R.string.nodes_not_measured));
             if (n.speedBps >= 0) {
-                said.append(", ").append(Format.bytes(n.speedBps)).append(" per second");
+                said.append(", ").append(getContext().getString(R.string.nodes_said_per_second, Format.bytes(n.speedBps)));
             }
             if (tagText != null) {
                 said.append(", ").append(tagText);
             }
             if (n.pinned) {
-                said.append(", pinned");
+                said.append(", ").append(getContext().getString(R.string.nodes_pinned));
             }
             if (Boolean.TRUE.equals(n.ipv6)) {
-                said.append(", IPv6");
+                said.append(", ").append(getContext().getString(R.string.nodes_ipv6));
             }
             setContentDescription(said.toString());
             setAlpha(n.state == NodeInfo.State.BLACKLISTED ? 0.5f : 1f);

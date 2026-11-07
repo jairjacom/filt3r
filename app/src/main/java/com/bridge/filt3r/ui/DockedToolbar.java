@@ -15,6 +15,7 @@ import androidx.dynamicanimation.animation.DynamicAnimation;
 import androidx.dynamicanimation.animation.SpringAnimation;
 
 import com.bridge.filt3r.Effects;
+import com.bridge.filt3r.R;
 import com.google.android.material.color.MaterialColors;
 
 import java.util.ArrayList;
@@ -134,7 +135,7 @@ public class DockedToolbar extends LinearLayout {
         }
         badge.setVisible(true);
         badge.setNumber(count);
-        button.setContentDescription(labels.get(index) + ", " + count + " " + meaning);
+        button.setContentDescription(getContext().getString(R.string.docked_toolbar_badge_description, labels.get(index), count, meaning));
     }
 
     /** Shows or hides a dot at the top right of an item's icon. {@code meaning} is read out after the name. */
@@ -162,7 +163,7 @@ public class DockedToolbar extends LinearLayout {
         if (dot != null) {
             dot.setVisibility(on ? VISIBLE : GONE);
         }
-        buttons.get(index).setContentDescription(on ? labels.get(index) + ", " + meaning : labels.get(index));
+        buttons.get(index).setContentDescription(on ? getContext().getString(R.string.docked_toolbar_dot_description, labels.get(index), meaning) : labels.get(index));
     }
 
     /** Marks the section at {@code index} as current. */
@@ -193,7 +194,7 @@ public class DockedToolbar extends LinearLayout {
         View highlight = highlights.get(index);
         ImageButton button = buttons.get(index);
         button.setSelected(on);
-        button.setStateDescription(on ? "Current section" : null);
+        button.setStateDescription(on ? getContext().getString(R.string.docked_toolbar_current_section) : null);
         float scale = on ? 1f : 0.6f;
         SpringAnimation sx = Motion.spring(highlight, DynamicAnimation.SCALE_X, highlight.getScaleX(), scale,
                 true, springsX.get(index));

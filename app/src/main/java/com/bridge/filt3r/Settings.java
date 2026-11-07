@@ -230,14 +230,14 @@ final class Settings {
      *
      * @throws IllegalArgumentException naming the first bad entry
      */
-    static String normalizeFilterUrls(String text) {
+    static String normalizeFilterUrls(Context context, String text) {
         StringBuilder out = new StringBuilder();
         for (String url : text.trim().split("[\\s,;]+")) {
             if (url.isEmpty()) {
                 continue;
             }
             if (!url.regionMatches(true, 0, "https://", 0, 8) || url.length() == 8) {
-                throw new IllegalArgumentException("Only https:// addresses work: " + url);
+                throw new IllegalArgumentException(context.getString(R.string.settings_filter_url_https_only, url));
             }
             if (out.length() > 0) {
                 out.append("; ");

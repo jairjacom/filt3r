@@ -25,12 +25,12 @@ final class Shortcuts {
         boolean up = state == TunnelState.State.RUNNING || state == TunnelState.State.STARTING;
         List<ShortcutInfo> list = new ArrayList<>();
         if (up) {
-            list.add(build(ctx, "disconnect", "Disconnect", R.drawable.ic_power, MainActivity.ACTION_DISCONNECT));
+            list.add(build(ctx, "disconnect", ctx.getString(R.string.shortcut_disconnect), R.drawable.ic_power, MainActivity.ACTION_DISCONNECT));
         } else {
-            list.add(build(ctx, "connect", "Connect", R.drawable.ic_shield, MainActivity.ACTION_CONNECT));
+            list.add(build(ctx, "connect", ctx.getString(R.string.shortcut_connect), R.drawable.ic_shield, MainActivity.ACTION_CONNECT));
         }
-        list.add(build(ctx, "nodes", "Nodes", R.drawable.ic_nodes, MainActivity.ACTION_OPEN_NODES));
-        list.add(build(ctx, "log", "Query log", R.drawable.ic_log, MainActivity.ACTION_OPEN_LOG));
+        list.add(build(ctx, "nodes", ctx.getString(R.string.shortcut_nodes), R.drawable.ic_nodes, MainActivity.ACTION_OPEN_NODES));
+        list.add(build(ctx, "log", ctx.getString(R.string.shortcut_query_log), R.drawable.ic_log, MainActivity.ACTION_OPEN_LOG));
         try {
             if (!manager.setDynamicShortcuts(list)) {
                 Log.w("Shortcuts", "setDynamicShortcuts was refused (rate limit?)");

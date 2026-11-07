@@ -21,43 +21,43 @@ public final class Effects {
     public enum Effect {
         // key, label, summary, motion, restart, on in Minimal, on in Standard, on in Full
         // restart: the look is fixed when the screen is built, so changing it restarts the screen.
-        TRANSITIONS("transitions", "Transitions",
-                "Slides and fades between screens, and the connecting pulse", true, false, false, true, true),
-        HAPTICS("haptics", "Haptics",
-                "Small vibrations when you change section, flip a switch or add a rule", false, false, false, true, true),
-        AMBIENT("ambient", "Ambient glow",
-                "A slow glow around the status circle while connected", true, false, false, false, true),
-        SPARKLINE("sparkline", "Traffic graph",
-                "A small graph of recent traffic in the Traffic card", false, false, false, true, true),
-        SHADER("shader", "Animated background",
-                "Two soft blobs of colour drifting behind the Status screen", true, false, false, false, true),
-        NODE_BARS("nodebars", "Latency bars",
-                "A thin bar under each node showing how fast it is", false, false, false, true, true),
-        TICKERS("tickers", "Number tickers",
-                "Counters count up smoothly instead of jumping", true, false, false, true, true),
-        SPRING("spring", "Springy motion",
-                "Bounces and settles like a spring instead of following a fixed curve", true, false, false, true, true),
-        SHAPE_MORPH("morph", "Shape-shifting circle",
-                "The status circle changes shape between Off, Connecting, Connected and Failed", true, false, false, false, true),
-        EXPRESSIVE_BUTTONS("buttons", "Expressive buttons",
-                "Rounder buttons that change shape when pressed. Off gives the classic buttons", false, true, false, true, true),
-        BOLD_TYPE("boldtype", "Bold headings",
-                "Heavier type for the status word and section titles", false, true, false, true, true),
-        BLUR("blur", "Blur",
-                "Frosted blur behind dialogs and under the toolbar", false, true, false, false, true),
-        WAVY_PROGRESS("wavy", "Wavy progress",
-                "A waving bar instead of a straight one while the nodes are tested", true, false, false, false, true);
+        TRANSITIONS("transitions", R.string.effects_transitions_label,
+                R.string.effects_transitions_summary, true, false, false, true, true),
+        HAPTICS("haptics", R.string.effects_haptics_label,
+                R.string.effects_haptics_summary, false, false, false, true, true),
+        AMBIENT("ambient", R.string.effects_ambient_label,
+                R.string.effects_ambient_summary, true, false, false, false, true),
+        SPARKLINE("sparkline", R.string.effects_sparkline_label,
+                R.string.effects_sparkline_summary, false, false, false, true, true),
+        SHADER("shader", R.string.effects_shader_label,
+                R.string.effects_shader_summary, true, false, false, false, true),
+        NODE_BARS("nodebars", R.string.effects_nodebars_label,
+                R.string.effects_nodebars_summary, false, false, false, true, true),
+        TICKERS("tickers", R.string.effects_tickers_label,
+                R.string.effects_tickers_summary, true, false, false, true, true),
+        SPRING("spring", R.string.effects_spring_label,
+                R.string.effects_spring_summary, true, false, false, true, true),
+        SHAPE_MORPH("morph", R.string.effects_morph_label,
+                R.string.effects_morph_summary, true, false, false, false, true),
+        EXPRESSIVE_BUTTONS("buttons", R.string.effects_buttons_label,
+                R.string.effects_buttons_summary, false, true, false, true, true),
+        BOLD_TYPE("boldtype", R.string.effects_boldtype_label,
+                R.string.effects_boldtype_summary, false, true, false, true, true),
+        BLUR("blur", R.string.effects_blur_label,
+                R.string.effects_blur_summary, false, true, false, false, true),
+        WAVY_PROGRESS("wavy", R.string.effects_wavy_label,
+                R.string.effects_wavy_summary, true, false, false, false, true);
 
         public final String key;
-        public final String label;
-        public final String summary;
+        public final int label;
+        public final int summary;
         /** True for effects that move; the system "remove animations" setting turns them off. */
         final boolean motion;
         /** True if the look is fixed when the screen is built, so a change needs the screen to restart. */
         public final boolean restart;
         private final boolean[] byLevel;
 
-        Effect(String key, String label, String summary, boolean motion, boolean restart,
+        Effect(String key, int label, int summary, boolean motion, boolean restart,
                boolean minimal, boolean standard, boolean full) {
             this.key = key;
             this.label = label;

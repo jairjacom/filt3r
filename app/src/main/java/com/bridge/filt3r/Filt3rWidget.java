@@ -29,14 +29,14 @@ public class Filt3rWidget extends AppWidgetProvider {
         PendingIntent tap;
         int flags = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
         if (state == TunnelState.State.RUNNING || state == TunnelState.State.STARTING) {
-            status = state == TunnelState.State.RUNNING ? "On" : "Connecting";
-            hint = state == TunnelState.State.RUNNING ? "Tap to stop." : "Tap to cancel.";
+            status = ctx.getString(state == TunnelState.State.RUNNING ? R.string.widget_status_on : R.string.widget_status_connecting);
+            hint = ctx.getString(state == TunnelState.State.RUNNING ? R.string.widget_hint_stop : R.string.widget_hint_cancel);
             Intent stop = new Intent(ctx, Filt3rVpnService.class)
                     .setAction(Filt3rVpnService.ACTION_STOP);
             tap = PendingIntent.getService(ctx, 7101, stop, flags);
         } else {
-            status = state == TunnelState.State.FAILED ? "Failed" : "Off";
-            hint = "Tap to connect.";
+            status = ctx.getString(state == TunnelState.State.FAILED ? R.string.widget_status_failed : R.string.widget_status_off);
+            hint = ctx.getString(R.string.widget_hint_connect);
             Intent connect = new Intent(ctx, MainActivity.class)
                     .setAction(MainActivity.ACTION_CONNECT);
             tap = PendingIntent.getActivity(ctx, 7102, connect, flags);
@@ -44,7 +44,8 @@ public class Filt3rWidget extends AppWidgetProvider {
         RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget);
         views.setTextViewText(R.id.widget_status, status);
         views.setImageViewResource(R.id.widget_icon, icon);
-        views.setContentDescription(R.id.widget_root, "filt3r, " + status + ". " + hint);
+        views.setContentDescription(R.id.widget_root,
+                ctx.getString(R.string.widget_content_description, ctx.getString(R.string.main_brand_name), status, hint));
         views.setOnClickPendingIntent(R.id.widget_root, tap);
         manager.updateAppWidget(ids, views);
     }

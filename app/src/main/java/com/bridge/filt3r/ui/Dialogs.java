@@ -13,6 +13,7 @@ import android.view.Window;
 import androidx.appcompat.app.AlertDialog;
 
 import com.bridge.filt3r.Effects;
+import com.bridge.filt3r.R;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.Map;
@@ -56,7 +57,7 @@ public final class Dialogs {
         builder(context)
                 .setTitle(heading)
                 .setMessage(message)
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(R.string.dialogs_cancel, null)
                 .setPositiveButton(action, (d, w) -> onYes.run())
                 .show();
     }

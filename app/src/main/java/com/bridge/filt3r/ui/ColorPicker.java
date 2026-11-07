@@ -15,6 +15,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.bridge.filt3r.Effects;
+import com.bridge.filt3r.R;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.slider.Slider;
 import com.google.android.material.tabs.TabLayout;
@@ -31,22 +32,36 @@ final class ColorPicker {
         0xFFE5383B, 0xFFDC143C, 0xFFFB8C00, 0xFFFFB300, 0xFFFDD835, 0xFF9CCC65, 0xFF43A047, 0xFF00897B,
         0xFF00ACC1, 0xFF29B6F6, 0xFF1E88E5, 0xFF3949AB, 0xFF8E24AA, 0xFFEC407A, 0xFF8D6E63, 0xFF607D8B,
     };
-    private static final String[] NAMES = {
-        "filt3r red", "Crimson", "Orange", "Amber", "Yellow", "Lime", "Green", "Teal",
-        "Cyan", "Sky", "Blue", "Indigo", "Purple", "Pink", "Brown", "Slate",
+    private static final int[] NAMES = {
+        R.string.color_picker_name_filt3r_red,
+        R.string.color_picker_name_crimson,
+        R.string.color_picker_name_orange,
+        R.string.color_picker_name_amber,
+        R.string.color_picker_name_yellow,
+        R.string.color_picker_name_lime,
+        R.string.color_picker_name_green,
+        R.string.color_picker_name_teal,
+        R.string.color_picker_name_cyan,
+        R.string.color_picker_name_sky,
+        R.string.color_picker_name_blue,
+        R.string.color_picker_name_indigo,
+        R.string.color_picker_name_purple,
+        R.string.color_picker_name_pink,
+        R.string.color_picker_name_brown,
+        R.string.color_picker_name_slate,
     };
 
     private ColorPicker() {
     }
 
     /** The swatch name for the colour, or "Custom #RRGGBB". */
-    static String nameOf(int color) {
+    static String nameOf(Context context, int color) {
         for (int i = 0; i < SWATCHES.length; i++) {
             if (SWATCHES[i] == (color | 0xFF000000)) {
-                return NAMES[i];
+                return context.getString(NAMES[i]);
             }
         }
-        return "Custom " + hex(color);
+        return context.getString(R.string.color_picker_custom_name, hex(color));
     }
 
     private static String hex(int color) {
@@ -67,8 +82,8 @@ final class ColorPicker {
         showChosen.run();
 
         TabLayout tabs = new TabLayout(context);
-        tabs.addTab(tabs.newTab().setText("Standard"));
-        tabs.addTab(tabs.newTab().setText("Custom"));
+        tabs.addTab(tabs.newTab().setText(R.string.color_picker_tab_standard));
+        tabs.addTab(tabs.newTab().setText(R.string.color_picker_tab_custom));
 
         // Standard tab: a grid of swatches; the chosen one gets a ring and is announced as selected.
         GridLayout grid = new GridLayout(context);
@@ -80,7 +95,7 @@ final class ColorPicker {
                 boolean on = SWATCHES[j] == chosen[0];
                 swatchViews[j].setBackground(swatchBackground(SWATCHES[j], on, density, ringColor));
                 swatchViews[j].setSelected(on);
-                swatchViews[j].setStateDescription(on ? "Selected" : null);
+                swatchViews[j].setStateDescription(on ? context.getString(R.string.color_picker_selected) : null);
             }
         };
         for (int i = 0; i < SWATCHES.length; i++) {
@@ -92,7 +107,7 @@ final class ColorPicker {
             p.height = size;
             p.setMargins((int) (8 * density), (int) (8 * density), (int) (8 * density), (int) (8 * density));
             p.setGravity(Gravity.CENTER);
-            s.setContentDescription(NAMES[i]);
+            s.setContentDescription(context.getString(NAMES[i]));
             s.setOnClickListener(v -> {
                 chosen[0] = color;
                 refreshSwatches.run();
@@ -109,16 +124,16 @@ final class ColorPicker {
         custom.setOrientation(LinearLayout.VERTICAL);
         custom.setPadding(pad, pad, pad, pad);
         TextInputLayout hexLayout = new TextInputLayout(context);
-        hexLayout.setHint("Hex colour");
+        hexLayout.setHint(context.getString(R.string.color_picker_hex_hint));
         TextInputEditText hexField = new TextInputEditText(hexLayout.getContext());
         hexField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
         hexField.setSingleLine(true);
         hexField.setText(hex(chosen[0]));
         hexLayout.addView(hexField, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        Slider hue = slider(context, 360, "Hue");
-        Slider sat = slider(context, 100, "Saturation");
-        Slider bri = slider(context, 100, "Brightness");
+        Slider hue = slider(context, 360, context.getString(R.string.color_picker_hue));
+        Slider sat = slider(context, 100, context.getString(R.string.color_picker_saturation));
+        Slider bri = slider(context, 100, context.getString(R.string.color_picker_brightness));
         float[] hsv = new float[3];
         Color.colorToHSV(chosen[0], hsv);
         hue.setValue(hsv[0]);
@@ -178,16 +193,16 @@ final class ColorPicker {
                     // Half-typed: keep the last good colour and say nothing yet; once it has the length
                     // of a colour, say what is wrong.
                     boolean enough = t.replace("#", "").length() >= 6;
-                    hexLayout.setError(enough ? "Use 6 characters, 0-9 and A-F, like E5383B" : null);
+                    hexLayout.setError(enough ? context.getString(R.string.color_picker_hex_error) : null);
                 }
             }
         });
         custom.addView(hexLayout);
-        custom.addView(label(context, "Hue"));
+        custom.addView(label(context, context.getString(R.string.color_picker_hue)));
         custom.addView(hue);
-        custom.addView(label(context, "Saturation"));
+        custom.addView(label(context, context.getString(R.string.color_picker_saturation)));
         custom.addView(sat);
-        custom.addView(label(context, "Brightness"));
+        custom.addView(label(context, context.getString(R.string.color_picker_brightness)));
         custom.addView(bri);
         custom.setVisibility(View.GONE);
 
@@ -221,10 +236,10 @@ final class ColorPicker {
         root.addView(body);
 
         Dialogs.builder(context)
-                .setTitle("Select colour")
+                .setTitle(R.string.color_picker_title)
                 .setView(root)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Select", (d, w) -> onPick.accept(chosen[0]))
+                .setNegativeButton(R.string.color_picker_cancel, null)
+                .setPositiveButton(R.string.color_picker_select, (d, w) -> onPick.accept(chosen[0]))
                 .show();
     }
 
