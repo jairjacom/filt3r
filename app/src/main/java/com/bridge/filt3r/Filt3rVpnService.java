@@ -145,7 +145,10 @@ public class Filt3rVpnService extends VpnService {
     private volatile DNSResolver dnsResolver;
     private volatile NodeRuntime runtime;
 
-    private final TunnelState.Listener widgetListener = state -> Filt3rWidget.refresh(this);
+    private final TunnelState.Listener widgetListener = state -> {
+        Filt3rWidget.refresh(this);
+        Shortcuts.publish(this);
+    };
 
     @Override
     public void onCreate() {
@@ -878,6 +881,7 @@ public class Filt3rVpnService extends VpnService {
         // The listener's last callback is posted to the main thread and would arrive after the
         // unregister above, so refresh once directly with the final state.
         Filt3rWidget.refresh(this);
+        Shortcuts.publish(this);
     }
 
     @Override
@@ -901,22 +905,25 @@ public class Filt3rVpnService extends VpnService {
         stopEverything(true);
         TunnelState.set(TunnelState.State.FAILED);
         getSystemService(NotificationManager.class).notify(NOTIFICATION_ID,
-                buildNotification("Restart failed: traffic is blocked"));
+                buildNotification("Restart failed: traffic is blocked",
+                        "Open filt3r to connect, or tap Stop."));
     }
 
     private Notification buildNotification() {
-        return buildNotification("filt3r is running");
+        return buildNotification("filt3r is running", "DNS filtering is on.");
     }
 
-    private Notification buildNotification(String title) {
+    private Notification buildNotification(String title, String text) {
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop = PendingIntent.getService(this, 1,
                 new Intent(this, Filt3rVpnService.class).setAction(ACTION_STOP),
                 PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setSmallIcon(R.drawable.ic_tile)
                 .setContentTitle(title)
+                .setContentText(text)
+                .setCategory(Notification.CATEGORY_SERVICE)
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setVisibility(Notification.VISIBILITY_PRIVATE)

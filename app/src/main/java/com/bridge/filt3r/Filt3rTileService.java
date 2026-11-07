@@ -66,7 +66,7 @@ public class Filt3rTileService extends TileService implements TunnelState.Listen
                 break;
             case STARTING:
                 tile.setState(Tile.STATE_INACTIVE);
-                tile.setSubtitle("Connecting");
+                tile.setSubtitle("Connecting. Tap to cancel.");
                 break;
             case FAILED:
                 tile.setState(Tile.STATE_INACTIVE);
