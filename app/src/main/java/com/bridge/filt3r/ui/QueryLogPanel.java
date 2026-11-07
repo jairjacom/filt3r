@@ -256,7 +256,8 @@ public class QueryLogPanel extends LinearLayout {
             }
             empty.setVisibility(VISIBLE);
             empty.setText(!lines.isEmpty() ? "Nothing matches."
-                    : backend.queryLogEnabled() ? "No queries yet." : "The query log is off.");
+                    : backend.queryLogEnabled() ? "No queries yet."
+                    : "The query log is off. Turn it on with the switch above.");
         }
     }
 
@@ -284,6 +285,7 @@ public class QueryLogPanel extends LinearLayout {
         b.setText(text);
         b.setId(View.generateViewId());
         b.setCheckable(true);
+        Accent.selectable(b);
         return b;
     }
 
@@ -462,7 +464,10 @@ public class QueryLogPanel extends LinearLayout {
         void bind(Entry e) {
             dotBg.setColor(e.blocked ? getContext().getColor(R.color.brand_red) : Colors.active(getContext()));
             host.setText(e.host);
-            detail.setText((e.blocked ? "Blocked" : "Allowed") + " · " + e.time);
+            String said = (e.blocked ? "Blocked" : "Allowed") + " · " + e.time;
+            detail.setText(said);
+            setContentDescription(e.host + ", " + (e.blocked ? "blocked" : "allowed") + ", " + e.time
+                    + ". Double tap for options.");
         }
     }
 }
