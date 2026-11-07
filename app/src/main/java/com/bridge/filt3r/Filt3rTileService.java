@@ -58,23 +58,23 @@ public class Filt3rTileService extends TileService implements TunnelState.Listen
         if (tile == null) {
             return;
         }
-        tile.setLabel("filt3r");
+        tile.setLabel(getString(R.string.main_brand_name));
         switch (state) {
             case RUNNING:
                 tile.setState(Tile.STATE_ACTIVE);
-                tile.setSubtitle("On");
+                tile.setSubtitle(getString(R.string.tile_on));
                 break;
             case STARTING:
                 tile.setState(Tile.STATE_INACTIVE);
-                tile.setSubtitle("Connecting");
+                tile.setSubtitle(getString(R.string.tile_connecting));
                 break;
             case FAILED:
                 tile.setState(Tile.STATE_INACTIVE);
-                tile.setSubtitle("Failed");
+                tile.setSubtitle(getString(R.string.tile_failed));
                 break;
             default:
                 tile.setState(Tile.STATE_INACTIVE);
-                tile.setSubtitle("Off");
+                tile.setSubtitle(getString(R.string.tile_off));
                 break;
         }
         tile.updateTile();

@@ -23,7 +23,6 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.color.MaterialColors;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -104,22 +103,23 @@ public class QueryLogPanel extends LinearLayout {
         LinearLayout bar = new LinearLayout(context);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(4), dp(8), dp(8), dp(8));
-        ImageButton back = iconButton(context, R.drawable.ic_back, "Back");
+        ImageButton back = iconButton(context, R.drawable.ic_back, context.getString(R.string.qlog_back));
         back.setOnClickListener(v -> onClose.run());
         TextView title = new TextView(context);
-        title.setText("Query log");
+        title.setText(R.string.qlog_title);
         title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
-        ImageButton clear = iconButton(context, R.drawable.ic_delete, "Clear query log");
-        clear.setOnClickListener(v -> {
-            backend.clearQueryLog();
-            reload();
-        });
+        ImageButton clear = iconButton(context, R.drawable.ic_delete, context.getString(R.string.qlog_clear_description));
+        clear.setOnClickListener(v -> Dialogs.confirm(getContext(), context.getString(R.string.qlog_clear_title),
+                context.getString(R.string.qlog_clear_message), context.getString(R.string.qlog_clear_confirm), () -> {
+                    backend.clearQueryLog();
+                    reload();
+                }));
         bar.addView(back);
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
-        ImageButton rules = iconButton(context, R.drawable.ic_rules, "My rules");
+        ImageButton rules = iconButton(context, R.drawable.ic_rules, context.getString(R.string.qlog_rules_description));
         rules.setOnClickListener(v -> OverridesDialog.show(context, backend, () -> { }));
         bar.addView(rules);
-        ImageButton export = iconButton(context, R.drawable.ic_export, "Save query log as a text file");
+        ImageButton export = iconButton(context, R.drawable.ic_export, context.getString(R.string.qlog_export_description));
         export.setOnClickListener(v -> askExport());
         bar.addView(export);
         bar.addView(clear);
@@ -130,11 +130,13 @@ public class QueryLogPanel extends LinearLayout {
         switchRow.setGravity(Gravity.CENTER_VERTICAL);
         switchRow.setPadding(dp(20), dp(4), dp(20), dp(4));
         TextView switchText = new TextView(context);
-        switchText.setText("Log DNS queries");
+        switchText.setText(R.string.qlog_switch);
         switchText.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
         MaterialSwitch sw = new MaterialSwitch(context);
         sw.setChecked(backend.queryLogEnabled());
+        sw.setContentDescription(context.getString(R.string.qlog_switch));
         sw.setOnCheckedChangeListener((b, on) -> {
+            Effects.toggle(sw, on);
             backend.setQueryLogEnabled(on);
             reload();
         });
@@ -145,7 +147,7 @@ public class QueryLogPanel extends LinearLayout {
 
         // Search field.
         TextInputLayout searchLayout = new TextInputLayout(context);
-        searchLayout.setHint("Search names");
+        searchLayout.setHint(context.getString(R.string.qlog_search_hint));
         search = new TextInputEditText(searchLayout.getContext());
         search.setSingleLine(true);
         search.addTextChangedListener(new TextWatcher() {
@@ -172,9 +174,9 @@ public class QueryLogPanel extends LinearLayout {
         chips.setSingleSelection(true);
         chips.setSelectionRequired(true);
         chips.setSpacing(dp(8));
-        MaterialButton all = chip(context, "All");
-        MaterialButton blocked = chip(context, "Blocked");
-        MaterialButton allowed = chip(context, "Allowed");
+        MaterialButton all = chip(context, context.getString(R.string.qlog_chip_all));
+        MaterialButton blocked = chip(context, context.getString(R.string.qlog_blocked));
+        MaterialButton allowed = chip(context, context.getString(R.string.qlog_allowed));
         chips.addView(all);
         chips.addView(blocked);
         chips.addView(allowed);
@@ -214,11 +216,13 @@ public class QueryLogPanel extends LinearLayout {
 
     /** Asks which entries to save, then hands over to the backend (which opens the file picker). */
     private void askExport() {
-        String[] choices = {"Blocked", "Allowed", "Both"};
-        new MaterialAlertDialogBuilder(getContext())
-                .setTitle("Save which entries?")
+        Context context = getContext();
+        String[] choices = {context.getString(R.string.qlog_blocked), context.getString(R.string.qlog_allowed),
+                context.getString(R.string.qlog_export_both)};
+        Dialogs.builder(context)
+                .setTitle(R.string.qlog_export_title)
                 .setItems(choices, (d, which) -> backend.exportQueryLog(which != 1, which != 0))
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(R.string.qlog_cancel, null)
                 .show();
     }
 
@@ -253,8 +257,9 @@ public class QueryLogPanel extends LinearLayout {
                         .setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 200));
             }
             empty.setVisibility(VISIBLE);
-            empty.setText(!lines.isEmpty() ? "Nothing matches."
-                    : backend.queryLogEnabled() ? "No queries yet." : "The query log is off.");
+            empty.setText(!lines.isEmpty() ? R.string.qlog_empty_no_match
+                    : backend.queryLogEnabled() ? R.string.qlog_empty_no_queries
+                    : R.string.qlog_empty_off);
         }
     }
 
@@ -282,6 +287,7 @@ public class QueryLogPanel extends LinearLayout {
         b.setText(text);
         b.setId(View.generateViewId());
         b.setCheckable(true);
+        Accent.selectable(b);
         return b;
     }
 
@@ -303,7 +309,7 @@ public class QueryLogPanel extends LinearLayout {
         try {
             rule = backend.ruleFor(e.host);
         } catch (IOException ex) {
-            Messages.show(this, "Could not read your rules", Snackbar.LENGTH_SHORT);
+            Messages.show(this, context.getString(R.string.qlog_rules_read_failed), Snackbar.LENGTH_SHORT);
             return;
         }
         BottomSheetDialog sheet = new BottomSheetDialog(context);
@@ -315,8 +321,8 @@ public class QueryLogPanel extends LinearLayout {
         name.setText(e.host);
         name.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
         TextView state = new TextView(context);
-        state.setText(rule == null ? (e.blocked ? "Blocked by the filter lists" : "Allowed")
-                : rule ? "You allowed this domain" : "You blocked this domain");
+        state.setText(rule == null ? (e.blocked ? R.string.qlog_state_blocked_by_lists : R.string.qlog_allowed)
+                : rule ? R.string.qlog_state_you_allowed : R.string.qlog_state_you_blocked);
         state.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
         dim(state);
         content.addView(name);
@@ -325,29 +331,29 @@ public class QueryLogPanel extends LinearLayout {
         MaterialButton action = new MaterialButton(context);
         if (rule == null) {
             boolean allow = e.blocked;
-            action.setText(allow ? "Allow this domain" : "Block this domain");
+            action.setText(allow ? R.string.qlog_action_allow : R.string.qlog_action_block);
             action.setOnClickListener(v -> applyRule(sheet, () -> backend.setRule(e.host, allow),
-                    (allow ? "Allowed " : "Blocked ") + e.host));
+                    context.getString(allow ? R.string.qlog_toast_allowed : R.string.qlog_toast_blocked, e.host)));
         } else {
-            action.setText("Remove my rule");
+            action.setText(R.string.qlog_action_remove);
             action.setOnClickListener(v -> applyRule(sheet, () -> {
                 backend.removeRule(e.host);
                 return e.host;
-            }, "Rule removed for " + e.host));
+            }, context.getString(R.string.qlog_toast_removed, e.host)));
         }
         LayoutParams actionParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         actionParams.topMargin = dp(16);
         content.addView(action, actionParams);
 
         TextView note = new TextView(context);
-        note.setText("A rule covers this domain and its sub domains and applies at once."
-                + " Manage all rules with the rules icon at the top.");
+        note.setText(R.string.qlog_note);
         note.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
         dim(note);
         note.setPadding(0, dp(12), 0, 0);
         content.addView(note);
 
         sheet.setContentView(content);
+        Dialogs.blur(sheet);
         sheet.show();
     }
 
@@ -361,7 +367,7 @@ public class QueryLogPanel extends LinearLayout {
             Messages.show(this, done, Snackbar.LENGTH_SHORT);
             sheet.dismiss();
         } catch (IOException | IllegalArgumentException ex) {
-            Messages.showHere(sheet.getWindow().getDecorView(), "Could not save the rule", Snackbar.LENGTH_SHORT);
+            Messages.showHere(sheet.getWindow().getDecorView(), getContext().getString(R.string.qlog_rule_save_failed), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -437,6 +443,7 @@ public class QueryLogPanel extends LinearLayout {
             dotBg.setShape(GradientDrawable.OVAL);
             View dot = new View(context);
             dot.setBackground(dotBg);
+            dot.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); // the detail line says the state
             LayoutParams dotParams = new LayoutParams(dp(10), dp(10));
             dotParams.rightMargin = dp(16);
             addView(dot, dotParams);
@@ -456,9 +463,13 @@ public class QueryLogPanel extends LinearLayout {
         }
 
         void bind(Entry e) {
-            dotBg.setColor(getContext().getColor(e.blocked ? R.color.brand_red : R.color.state_active));
+            dotBg.setColor(e.blocked ? getContext().getColor(R.color.brand_red) : Colors.active(getContext()));
             host.setText(e.host);
-            detail.setText((e.blocked ? "Blocked" : "Allowed") + " · " + e.time);
+            Context ctx = getContext();
+            String said = ctx.getString(e.blocked ? R.string.qlog_blocked : R.string.qlog_allowed) + " · " + e.time;
+            detail.setText(said);
+            setContentDescription(ctx.getString(R.string.qlog_row_description, e.host,
+                    ctx.getString(e.blocked ? R.string.qlog_said_blocked : R.string.qlog_said_allowed), e.time));
         }
     }
 }

@@ -9,8 +9,13 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
+import com.google.android.material.badge.BadgeDrawable;
+import com.google.android.material.badge.BadgeUtils;
+import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.SpringAnimation;
 
 import com.bridge.filt3r.Effects;
+import com.bridge.filt3r.R;
 import com.google.android.material.color.MaterialColors;
 
 import java.util.ArrayList;
@@ -31,7 +36,13 @@ public class DockedToolbar extends LinearLayout {
     private final IntConsumer onPick;
     private final List<ImageButton> buttons = new ArrayList<>();
     private final List<View> highlights = new ArrayList<>();
+    private final List<FrameLayout> slots = new ArrayList<>();
+    private final List<CharSequence> labels = new ArrayList<>();
+    private final List<BadgeDrawable> badges = new ArrayList<>();
+    private final List<View> dots = new ArrayList<>();
     private final List<ValueAnimator> tints = new ArrayList<>();
+    private final List<SpringAnimation> springsX = new ArrayList<>();
+    private final List<SpringAnimation> springsY = new ArrayList<>();
     private final int iconColor;
     private final int selectedIconColor;
     private final int highlightColor;
@@ -80,9 +91,79 @@ public class DockedToolbar extends LinearLayout {
         slot.addView(b, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
 
         addView(slot, new LayoutParams(dp(48), dp(48)));
+        slots.add(slot);
+        labels.add(label);
+        badges.add(null);
+        dots.add(null);
         buttons.add(b);
         highlights.add(highlight);
         tints.add(null);
+        springsX.add(null);
+        springsY.add(null);
+    }
+
+    /**
+     * Shows a number on an item's icon (nothing when {@code count} is 0). {@code meaning} is what the number
+     * counts, read out after the item name ("Nodes, 5 working").
+     */
+    public void setBadge(int index, int count, String meaning) {
+        if (index < 0 || index >= badges.size()) {
+            return;
+        }
+        if (!isLaidOut()) {
+            post(() -> setBadge(index, count, meaning)); // the badge is placed on the icon, which needs its size
+            return;
+        }
+        BadgeDrawable badge = badges.get(index);
+        ImageButton button = buttons.get(index);
+        if (count <= 0) {
+            if (badge != null) {
+                badge.setVisible(false);
+            }
+            button.setContentDescription(labels.get(index));
+            return;
+        }
+        if (badge == null) {
+            badge = BadgeDrawable.create(getContext());
+            badge.setBackgroundColor(MaterialColors.getColor(getContext(),
+                    androidx.appcompat.R.attr.colorPrimary, 0));
+            badge.setBadgeTextColor(MaterialColors.getColor(getContext(),
+                    com.google.android.material.R.attr.colorOnPrimary, 0));
+            badge.setMaxCharacterCount(3);
+            BadgeUtils.attachBadgeDrawable(badge, button, slots.get(index));
+            badges.set(index, badge);
+        }
+        badge.setVisible(true);
+        badge.setNumber(count);
+        button.setContentDescription(getContext().getString(R.string.docked_toolbar_badge_description, labels.get(index), count, meaning));
+    }
+
+    /** Shows or hides a dot at the top right of an item's icon. {@code meaning} is read out after the name. */
+    public void setDot(int index, boolean on, String meaning) {
+        if (index < 0 || index >= dots.size()) {
+            return;
+        }
+        View dot = dots.get(index);
+        if (dot == null && on) {
+            dot = new View(getContext());
+            GradientDrawable shape = new GradientDrawable();
+            shape.setShape(GradientDrawable.OVAL);
+            shape.setColor(MaterialColors.getColor(getContext(), androidx.appcompat.R.attr.colorPrimary, 0));
+            shape.setStroke(dp(2), MaterialColors.getColor(getContext(),
+                    com.google.android.material.R.attr.colorSurfaceContainer, 0)); // a ring so it stands out
+            dot.setBackground(shape);
+            dot.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(14), dp(14),
+                    Gravity.TOP | Gravity.END);
+            params.topMargin = dp(2);
+            params.rightMargin = dp(2);
+            slots.get(index).addView(dot, params);
+            dots.set(index, dot);
+        }
+        if (dot != null) {
+            dot.setVisibility(on ? VISIBLE : GONE);
+        }
+        buttons.get(index).setContentDescription(on ? getContext().getString(R.string.docked_toolbar_dot_description, labels.get(index), meaning) : labels.get(index));
     }
 
     /** Marks the section at {@code index} as current. */
@@ -112,8 +193,19 @@ public class DockedToolbar extends LinearLayout {
         int ms = Effects.ms(getContext(), Effects.Effect.TRANSITIONS, ANIM_MS);
         View highlight = highlights.get(index);
         ImageButton button = buttons.get(index);
+        button.setSelected(on);
+        button.setStateDescription(on ? getContext().getString(R.string.docked_toolbar_current_section) : null);
         float scale = on ? 1f : 0.6f;
-        highlight.animate().alpha(on ? 1f : 0f).scaleX(scale).scaleY(scale).setDuration(ms).start();
+        SpringAnimation sx = Motion.spring(highlight, DynamicAnimation.SCALE_X, highlight.getScaleX(), scale,
+                true, springsX.get(index));
+        if (sx != null) {
+            springsX.set(index, sx);
+            springsY.set(index, Motion.spring(highlight, DynamicAnimation.SCALE_Y, highlight.getScaleY(), scale,
+                    true, springsY.get(index)));
+            highlight.animate().alpha(on ? 1f : 0f).setDuration(ms).start();
+        } else {
+            highlight.animate().alpha(on ? 1f : 0f).scaleX(scale).scaleY(scale).setDuration(ms).start();
+        }
         ValueAnimator running = tints.get(index);
         if (running != null) {
             running.cancel();

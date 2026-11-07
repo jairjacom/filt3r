@@ -60,5 +60,8 @@ final class Appearance {
         if (dark && settings.pureBlack()) {
             activity.getTheme().applyStyle(R.style.ThemeOverlay_Filt3r_PureBlack, true);
         }
+        if (!Effects.on(activity, Effects.Effect.EXPRESSIVE_BUTTONS)) {
+            activity.getTheme().applyStyle(R.style.ThemeOverlay_Filt3r_ClassicButtons, true);
+        }
     }
 }

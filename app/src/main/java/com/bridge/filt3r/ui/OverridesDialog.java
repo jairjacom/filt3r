@@ -3,6 +3,7 @@ package com.bridge.filt3r.ui;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -11,11 +12,11 @@ import android.widget.TextView;
 import android.app.Activity;
 import com.google.android.material.snackbar.Snackbar;
 
+import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.filter.UserOverrides;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -51,12 +52,13 @@ public final class OverridesDialog {
     }
 
     /** One-line summary for a Settings row. */
-    public static String summary(Backend backend) {
+    public static String summary(Context context, Backend backend) {
         try {
             int n = backend.rules().size();
-            return n == 0 ? "None" : n + (n == 1 ? " rule" : " rules");
+            return n == 0 ? context.getString(R.string.overrides_summary_none)
+                    : context.getResources().getQuantityString(R.plurals.overrides_summary_rules, n, n);
         } catch (IOException e) {
-            return "Could not read";
+            return context.getString(R.string.overrides_summary_unreadable);
         }
     }
 
@@ -68,7 +70,7 @@ public final class OverridesDialog {
         content.setPadding(pad, dp(context, 8), pad, 0);
 
         TextInputLayout field = new TextInputLayout(context);
-        field.setHint("Domain, for example example.com");
+        field.setHint(context.getString(R.string.overrides_domain_hint));
         TextInputEditText edit = new TextInputEditText(field.getContext());
         edit.setSingleLine(true);
         edit.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
@@ -80,16 +82,16 @@ public final class OverridesDialog {
         buttons.setGravity(Gravity.END);
         MaterialButton allow = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        allow.setText("Allow");
+        allow.setText(R.string.overrides_allow);
         MaterialButton block = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        block.setText("Block");
+        block.setText(R.string.overrides_block);
         buttons.addView(allow);
         buttons.addView(block);
         content.addView(buttons);
 
         TextView note = new TextView(context);
-        note.setText("A rule covers the domain and its sub domains.");
+        note.setText(R.string.overrides_note);
         note.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
         dim(note);
         note.setPadding(0, dp(context, 4), 0, dp(context, 8));
@@ -110,18 +112,28 @@ public final class OverridesDialog {
                 try {
                     rules = backend.rules();
                 } catch (IOException e) {
-                    list.addView(label(context, "Could not read the rules."));
+                    list.addView(label(context, context.getString(R.string.overrides_read_failed)));
                     return;
                 }
                 if (rules.isEmpty()) {
-                    list.addView(label(context, "No rules yet."));
+                    list.addView(label(context, context.getString(R.string.overrides_empty)));
                 }
                 for (UserOverrides.Entry e : rules) {
                     list.addView(row(context, e, () -> {
                         try {
                             backend.removeRule(e.host);
+                            Effects.haptic(list, HapticFeedbackConstants.CONFIRM);
+                            Messages.showHere(content, context.getString(R.string.overrides_removed, e.host),
+                                    context.getString(R.string.overrides_undo), () -> {
+                                try {
+                                    backend.setRule(e.host, e.allow);
+                                } catch (IOException | IllegalArgumentException ex) {
+                                    Messages.showHere(content, context.getString(R.string.overrides_restore_failed), Snackbar.LENGTH_SHORT);
+                                }
+                                this.run();
+                            });
                         } catch (IOException ex) {
-                            Messages.showHere(content, "Could not remove the rule", Snackbar.LENGTH_SHORT);
+                            Messages.showHere(content, context.getString(R.string.overrides_remove_failed), Snackbar.LENGTH_SHORT);
                         }
                         this.run();
                     }));
@@ -135,22 +147,24 @@ public final class OverridesDialog {
                 String host = backend.setRule(edit.getText() == null ? "" : edit.getText().toString(), allowIt);
                 edit.setText("");
                 field.setError(null);
-                Messages.showHere(content, (allowIt ? "Allowed " : "Blocked ") + host, Snackbar.LENGTH_SHORT);
+                Effects.haptic(content, HapticFeedbackConstants.CONFIRM);
+                Messages.showHere(content, context.getString(allowIt ? R.string.overrides_allowed : R.string.overrides_blocked, host), Snackbar.LENGTH_SHORT);
                 refill.run();
             } catch (IllegalArgumentException e) {
-                field.setError("Enter a domain name, like example.com");
+                field.setError(context.getString(R.string.overrides_invalid_domain));
+                Effects.haptic(content, HapticFeedbackConstants.REJECT);
             } catch (IOException e) {
-                Messages.showHere(content, "Could not save the rule", Snackbar.LENGTH_SHORT);
+                Messages.showHere(content, context.getString(R.string.overrides_save_failed), Snackbar.LENGTH_SHORT);
             }
         };
         allow.setOnClickListener(add);
         block.setOnClickListener(add);
         refill.run();
 
-        new MaterialAlertDialogBuilder(context)
-                .setTitle("My rules")
+        Dialogs.builder(context)
+                .setTitle(R.string.overrides_title)
                 .setView(content)
-                .setPositiveButton("Close", null)
+                .setPositiveButton(R.string.overrides_close, null)
                 .setOnDismissListener(d -> onClosed.run())
                 .show();
     }
@@ -169,9 +183,9 @@ public final class OverridesDialog {
         row.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView mark = new TextView(context);
-        mark.setText(e.allow ? "Allow" : "Block");
+        mark.setText(e.allow ? R.string.overrides_allow : R.string.overrides_block);
         mark.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
-        mark.setTextColor(context.getColor(e.allow ? R.color.state_active : R.color.brand_red));
+        mark.setTextColor(e.allow ? Colors.active(context) : context.getColor(R.color.brand_red));
         row.addView(mark, new LinearLayout.LayoutParams(dp(context, 52), LinearLayout.LayoutParams.WRAP_CONTENT));
 
         TextView host = new TextView(context);
@@ -183,7 +197,7 @@ public final class OverridesDialog {
 
         ImageButton bin = new ImageButton(context);
         bin.setImageResource(R.drawable.ic_delete);
-        bin.setContentDescription("Remove rule for " + e.host);
+        bin.setContentDescription(context.getString(R.string.overrides_remove_description, e.host));
         bin.setBackground(Ripple.borderless(context));
         bin.setImageTintList(ColorStateList.valueOf(host.getCurrentTextColor()));
         bin.setOnClickListener(v -> remove.run());

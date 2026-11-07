@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
@@ -145,7 +146,10 @@ public class Filt3rVpnService extends VpnService {
     private volatile DNSResolver dnsResolver;
     private volatile NodeRuntime runtime;
 
-    private final TunnelState.Listener widgetListener = state -> Filt3rWidget.refresh(this);
+    private final TunnelState.Listener widgetListener = state -> {
+        Filt3rWidget.refresh(this);
+        Shortcuts.publish(this);
+    };
 
     @Override
     public void onCreate() {
@@ -154,7 +158,7 @@ public class Filt3rVpnService extends VpnService {
         TunnelState.register(widgetListener);
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel(
-                CHANNEL_ID, "Tunnel status", NotificationManager.IMPORTANCE_LOW));
+                CHANNEL_ID, getString(R.string.vpn_channel_name), NotificationManager.IMPORTANCE_LOW));
     }
 
     @Override
@@ -216,7 +220,7 @@ public class Filt3rVpnService extends VpnService {
             manager.setPinListener((gone, dead) -> {
                 settings.setPinnedNode(null);
                 if (dead) {
-                    notice.set("Pinned node " + gone.name + " stopped working; switched to the best node");
+                    notice.set(getString(R.string.vpn_notice_pinned_node_stopped, gone.name));
                 }
             });
             manager.restorePin(settings.pinnedNode());
@@ -340,7 +344,7 @@ public class Filt3rVpnService extends VpnService {
                 Log.i(TAG, "hev started, bridge on loopback");
                 startMaintenance(manager, tester, store, viaNode, testStamp);
                 if (settings.ipBlockEnabled()) {
-                    ipBlockStatus = "Downloading...";
+                    ipBlockStatus = getString(R.string.vpn_ip_block_downloading);
                     startIpBlock(gen, listFetcher, TimeUnit.DAYS.toMillis(settings.listRefreshDays()));
                 } else {
                     ipBlockStatus = "";
@@ -532,6 +536,43 @@ public class Filt3rVpnService extends VpnService {
     }
 
     /**
+     * Re-tests one node (latency, speed and IPv6 if it answers). Like {@link #retestNodes}, {@code done}
+     * runs on the maintenance thread.
+     *
+     * @return false if the tunnel is not running or a re-test is already under way
+     */
+    static boolean retestNode(ShadowsocksNode node, Runnable done) {
+        Filt3rVpnService s = instance;
+        NodeRuntime r = s == null ? null : s.runtime;
+        ScheduledExecutorService maint = s == null ? null : s.maintenance;
+        if (r == null || maint == null || !r.retesting.compareAndSet(false, true)) {
+            return false;
+        }
+        try {
+            maint.execute(() -> {
+                try {
+                    List<ShadowsocksNode> one = List.of(node);
+                    r.tester.testAndRecord(r.manager, one, 1);
+                    for (NodeInfo n : r.manager.snapshot()) {
+                        if (NodeManager.keyOf(n.node).equals(NodeManager.keyOf(node))
+                                && n.state == NodeInfo.State.WORKING) {
+                            r.tester.speedAndRecord(r.manager, one);
+                            r.tester.ipv6AndRecord(r.manager, one, 1);
+                        }
+                    }
+                } finally {
+                    r.retesting.set(false);
+                    done.run();
+                }
+            });
+        } catch (RejectedExecutionException e) { // the tunnel was stopped just now
+            r.retesting.set(false);
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * Pins a node chosen in the Node list; a node that was never tested is tested first. Runs on
      * the maintenance thread, and {@code done} is called there (post to the main thread before
      * touching views). If the node does not answer, nothing is pinned and {@link #takeNotice} says so.
@@ -553,7 +594,7 @@ public class Filt3rVpnService extends VpnService {
                             r.manager.recordTest(node, r.tester.test(node));
                         } catch (IOException | RuntimeException e) {
                             r.manager.recordFailure(node);
-                            notice.set(node.name + " did not answer");
+                            notice.set(s.getString(R.string.vpn_notice_node_no_answer, node.name));
                             return;
                         }
                         if (!r.manager.pin(node)) {
@@ -799,7 +840,7 @@ public class Filt3rVpnService extends VpnService {
             return;
         }
         int gen = generation.get();
-        ipBlockStatus = "Updating...";
+        ipBlockStatus = getString(R.string.vpn_ip_block_updating);
         try {
             ref.execute(() -> loadIpBlock(gen, fetcher, 0));
         } catch (RejectedExecutionException e) {
@@ -819,12 +860,12 @@ public class Filt3rVpnService extends VpnService {
                 bridge.setIpBlockList(list);
                 DNSResponsePatcher.setIpBlockList(list);
             }
-            ipBlockStatus = "Loaded: " + list.size() + " addresses";
+            ipBlockStatus = getString(R.string.vpn_ip_block_loaded, list.size());
             Log.i(TAG, "IP blocklist loaded: " + list.size() + " entries");
         } catch (IOException | RuntimeException | Error e) {
             String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            ipBlockStatus = "Not loaded: " + reason;
-            notice.set("IP blocklist not loaded: " + reason);
+            ipBlockStatus = getString(R.string.vpn_ip_block_not_loaded_status, reason);
+            notice.set(getString(R.string.vpn_notice_ip_block_not_loaded, reason));
             Log.w(TAG, "IP blocklist not loaded: " + e.getClass().getSimpleName() + ": " + e.getMessage());
         }
     }
@@ -841,6 +882,7 @@ public class Filt3rVpnService extends VpnService {
         // The listener's last callback is posted to the main thread and would arrive after the
         // unregister above, so refresh once directly with the final state.
         Filt3rWidget.refresh(this);
+        Shortcuts.publish(this);
     }
 
     @Override
@@ -864,28 +906,32 @@ public class Filt3rVpnService extends VpnService {
         stopEverything(true);
         TunnelState.set(TunnelState.State.FAILED);
         getSystemService(NotificationManager.class).notify(NOTIFICATION_ID,
-                buildNotification("Restart failed: traffic is blocked"));
+                buildNotification(getString(R.string.vpn_notification_restart_failed_title),
+                        getString(R.string.vpn_notification_restart_failed_text)));
     }
 
     private Notification buildNotification() {
-        return buildNotification("filt3r is running");
+        return buildNotification(getString(R.string.vpn_notification_running_title),
+                getString(R.string.vpn_notification_running_text));
     }
 
-    private Notification buildNotification(String title) {
+    private Notification buildNotification(String title, String text) {
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop = PendingIntent.getService(this, 1,
                 new Intent(this, Filt3rVpnService.class).setAction(ACTION_STOP),
                 PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setSmallIcon(R.drawable.ic_tile)
                 .setContentTitle(title)
+                .setContentText(text)
+                .setCategory(Notification.CATEGORY_SERVICE)
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setVisibility(Notification.VISIBILITY_PRIVATE)
                 .addAction(new Notification.Action.Builder(
                         Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-                        "Stop", stop)
+                        getString(R.string.vpn_notification_action_stop), stop)
                         .setAuthenticationRequired(true) // not usable from the lock screen
                         .build())
                 .build();
@@ -898,22 +944,22 @@ public class Filt3rVpnService extends VpnService {
      * @return a short result such as "works, 340 ms"
      * @throws IOException with a reason a user can read
      */
-    static String checkResolver(String stampText) throws IOException {
+    static String checkResolver(Context ctx, String stampText) throws IOException {
         DnsCryptStamp stamp;
         try {
             stamp = DnsCryptStamp.parse(stampText);
         } catch (IllegalArgumentException e) {
-            throw new IOException("not a usable DNSCrypt stamp: " + e.getMessage());
+            throw new IOException(ctx.getString(R.string.vpn_check_bad_stamp, e.getMessage()));
         }
         Filt3rVpnService s = instance;
         NodeRuntime r = s == null ? null : s.runtime;
         if (r == null) {
-            throw new IOException("start the VPN first: resolvers are tested through the node");
+            throw new IOException(ctx.getString(R.string.vpn_check_start_vpn_first));
         }
         try {
-            return "works, " + ResolverTester.test(stamp, r.viaNode) + " ms";
+            return ctx.getString(R.string.vpn_check_works, ResolverTester.test(stamp, r.viaNode));
         } catch (IOException e) {
-            throw new IOException("resolver did not answer (it may use another cipher or no TCP): " + e.getMessage());
+            throw new IOException(ctx.getString(R.string.vpn_check_no_answer, e.getMessage()));
         }
     }
 

@@ -17,8 +17,7 @@ import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.loadingindicator.LoadingIndicator;
 
-import java.util.Locale;
-
+import com.bridge.filt3r.R;
 /**
  * The Status canvas: hero circle, context-aware buttons and three cards (node, traffic, DNS).
  * The activity pushes state with {@link #setState} and calls {@link #update} once a second.
@@ -83,9 +82,9 @@ public class StatusView extends ScrollView {
         // A plain row, not MaterialButtonGroup: the group squashed the Connect button to an empty stub after a disconnect.
         LinearLayout group = new LinearLayout(context);
         group.setOrientation(LinearLayout.HORIZONTAL);
-        connect = button(context, "Connect", false);
-        disconnect = button(context, "Disconnect", false);
-        restart = button(context, "Restart", true);
+        connect = button(context, context.getString(R.string.status_connect), false);
+        disconnect = button(context, context.getString(R.string.status_disconnect), false);
+        restart = button(context, context.getString(R.string.status_restart), true);
         connect.setOnClickListener(v -> actions.connect());
         disconnect.setOnClickListener(v -> actions.disconnect());
         restart.setOnClickListener(v -> actions.restart());
@@ -106,9 +105,9 @@ public class StatusView extends ScrollView {
         slotParams.topMargin = dp(24);
         column.addView(buttonSlot, slotParams);
 
-        nodeCard = new Card(context, "Node");
-        trafficCard = new Card(context, "Traffic");
-        dnsCard = new Card(context, "DNS");
+        nodeCard = new Card(context, context.getString(R.string.status_card_node));
+        trafficCard = new Card(context, context.getString(R.string.status_card_traffic));
+        dnsCard = new Card(context, context.getString(R.string.status_card_dns));
         for (Card c : new Card[] {nodeCard, trafficCard, dnsCard}) {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -149,13 +148,26 @@ public class StatusView extends ScrollView {
         }
     }
 
+    /** Centre of the status shield on screen; false until the screen is laid out. For the splash hand-over. */
+    public boolean heroShieldCenter(int[] out) {
+        return hero.shieldCenter(out);
+    }
+
+    public int heroShieldSize() {
+        return hero.shieldSize();
+    }
+
     public void update(Snapshot s) {
         if (s.nodeName == null) {
             nodeCard.set("—", "", "");
         } else {
-            String ms = s.nodeMs >= 0 ? s.nodeMs + " ms" : "not measured";
-            String v6 = s.nodeIpv6 == null ? "IPv6 checking" : s.nodeIpv6 ? "IPv6 on" : "IPv6 off";
-            nodeCard.set(s.nodeName, ms + "  ·  " + v6, s.nodeIp == null ? "" : "IP " + s.nodeIp);
+            Context ctx = getContext();
+            String ms = s.nodeMs >= 0 ? ctx.getString(R.string.status_node_ms, s.nodeMs)
+                    : ctx.getString(R.string.status_node_not_measured);
+            String v6 = ctx.getString(s.nodeIpv6 == null ? R.string.status_node_ipv6_checking
+                    : s.nodeIpv6 ? R.string.status_node_ipv6_on : R.string.status_node_ipv6_off);
+            nodeCard.set(s.nodeName, ctx.getString(R.string.status_node_detail, ms, v6),
+                    s.nodeIp == null ? "" : ctx.getString(R.string.status_node_ip, s.nodeIp));
         }
 
         sparkline.setVisibility(s.trafficBytes != null
@@ -175,22 +187,26 @@ public class StatusView extends ScrollView {
             lastUp = up;
             lastDown = down;
             lastMs = now;
-            trafficCard.set("↓ " + Format.bytes(downRate) + "/s   ↑ " + Format.bytes(upRate) + "/s",
-                    "Session  ↓ " + Format.bytes(down) + "   ↑ " + Format.bytes(up), "");
+            trafficCard.set(getContext().getString(R.string.status_traffic_rate,
+                            Format.bytes(downRate), Format.bytes(upRate)),
+                    getContext().getString(R.string.status_traffic_session, Format.bytes(down), Format.bytes(up)), "");
             sparkline.add(upRate + downRate);
         }
 
         if (s.dnsCounts == null) {
             dnsCard.set("—", "", "");
         } else {
+            Context ctx = getContext();
             long blocked = s.dnsCounts[0];
             long total = blocked + s.dnsCounts[1];
-            String pct = total == 0 ? "" : String.format(Locale.US, "  (%.0f%%)", 100.0 * blocked / total);
+            String pct = total == 0 ? "" : ctx.getString(R.string.status_dns_percent, 100.0 * blocked / total);
             String resolver = s.resolverName == null ? ""
-                    : "Resolver " + s.resolverName + (s.resolverIp == null ? "" : "  ·  " + s.resolverIp);
+                    : s.resolverIp == null ? ctx.getString(R.string.status_dns_resolver, s.resolverName)
+                    : ctx.getString(R.string.status_dns_resolver_ip, s.resolverName, s.resolverIp);
             String lists = s.filterText == null ? "" : s.filterText;
             String more = resolver.isEmpty() || lists.isEmpty() ? resolver + lists : resolver + "\n" + lists;
-            dnsCard.set("Blocked " + blocked + pct, "Allowed " + s.dnsCounts[1], more);
+            dnsCard.setCount(blocked, n -> ctx.getString(R.string.status_dns_blocked, n) + pct,
+                    ctx.getString(R.string.status_dns_allowed, s.dnsCounts[1]), more);
         }
     }
 
@@ -235,7 +251,9 @@ public class StatusView extends ScrollView {
             label.setText(title);
             dim(label);
             value = new TextView(context);
-            value.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
+            value.setTextAppearance(Effects.on(context, Effects.Effect.BOLD_TYPE)
+                    ? com.google.android.material.R.style.TextAppearance_Material3_TitleLarge_Emphasized
+                    : com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
             detail = new TextView(context);
             detail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
             dim(detail);
@@ -251,28 +269,27 @@ public class StatusView extends ScrollView {
 
         private ValueAnimator ticker;
         private long shown = -1;
-        private final java.util.regex.Pattern COUNT =
-                java.util.regex.Pattern.compile("Blocked (\\d{1,15})(.*)");
 
         void set(String main, String sub, String more) {
+            show(main, -1, null, sub, more);
+        }
+
+        /** A value made of a count that is animated when it changes; {@code render} turns a count into the text. */
+        void setCount(long count, java.util.function.LongFunction<String> render, String sub, String more) {
+            show(render.apply(count), count, render, sub, more);
+        }
+
+        private void show(String main, long target, java.util.function.LongFunction<String> render,
+                          String sub, String more) {
             if (ticker != null) {
                 ticker.cancel();
             }
-            // Only "Blocked 123 (4%)"-style text counts: the number is animated, the rest stays.
-            long target = -1;
-            String tail = "";
-            java.util.regex.Matcher m = COUNT.matcher(main);
-            if (m.matches()) {
-                target = Long.parseLong(m.group(1));
-                tail = m.group(2);
-            }
             if (target >= 0 && shown >= 0 && target != shown
                     && Effects.on(value.getContext(), Effects.Effect.TICKERS)) {
-                final String endTail = tail;
                 ticker = ValueAnimator.ofFloat(shown, target);
                 ticker.setDuration(400);
-                ticker.addUpdateListener(a -> value.setText("Blocked "
-                        + Math.round((float) a.getAnimatedValue()) + endTail));
+                ticker.addUpdateListener(a -> value.setText(
+                        render.apply(Math.round((float) a.getAnimatedValue()))));
                 ticker.addListener(new AnimatorListenerAdapter() {
                     @Override
                     public void onAnimationEnd(Animator animation) {

@@ -59,6 +59,11 @@ public class ExemptAppsPanel extends LinearLayout {
         boolean running();
 
         void restart();
+
+        /** Whether a change is waiting for a restart; shared with Settings so the dock can show a dot. */
+        boolean restartPending();
+
+        void setRestartPending(boolean pending);
     }
 
     /** One installed app with a launcher icon. */
@@ -103,20 +108,20 @@ public class ExemptAppsPanel extends LinearLayout {
         bar.setPadding(dp(4), dp(8), dp(8), dp(8));
         ImageButton back = new ImageButton(context);
         back.setImageResource(R.drawable.ic_back);
-        back.setContentDescription("Back");
+        back.setContentDescription(getContext().getString(R.string.exempt_apps_back_description));
         back.setBackground(Ripple.borderless(context));
         back.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(this,
                 com.google.android.material.R.attr.colorOnSurface)));
         back.setOnClickListener(v -> onClose.run());
         TextView title = new TextView(context);
-        title.setText("Exempt apps");
+        title.setText(R.string.exempt_apps_title);
         title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
         bar.addView(back, new LayoutParams(dp(48), dp(48)));
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         addView(bar);
 
         TextView note = new TextView(context);
-        note.setText("Exempt apps bypass filt3r: real IP, real DNS, no filtering. Use it for calls and messaging.");
+        note.setText(R.string.exempt_apps_note);
         note.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
         dim(note);
         note.setPadding(dp(20), 0, dp(20), dp(8));
@@ -132,25 +137,26 @@ public class ExemptAppsPanel extends LinearLayout {
         bannerBg.setCornerRadius(dp(24));
         banner.setBackground(bannerBg);
         TextView bannerText = new TextView(context);
-        bannerText.setText("Restart to apply");
+        bannerText.setText(R.string.exempt_apps_banner);
         bannerText.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
         MaterialButton restart = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        restart.setText("Restart");
+        restart.setText(R.string.exempt_apps_restart);
         restart.setOnClickListener(v -> {
             banner.setVisibility(GONE);
+            backend.setRestartPending(false);
             backend.restart();
         });
         banner.addView(bannerText, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         banner.addView(restart);
-        banner.setVisibility(GONE);
+        banner.setVisibility(backend.restartPending() && backend.running() ? VISIBLE : GONE);
         LayoutParams bannerParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         bannerParams.setMargins(dp(16), dp(4), dp(16), dp(8));
         addView(banner, bannerParams);
 
         // Search field.
         TextInputLayout searchLayout = new TextInputLayout(context);
-        searchLayout.setHint("Search apps");
+        searchLayout.setHint(getContext().getString(R.string.exempt_apps_search_hint));
         search = new TextInputEditText(searchLayout.getContext());
         search.setSingleLine(true);
         search.addTextChangedListener(new TextWatcher() {
@@ -177,17 +183,21 @@ public class ExemptAppsPanel extends LinearLayout {
         systemRow.setGravity(Gravity.CENTER_VERTICAL);
         systemRow.setPadding(dp(20), dp(4), dp(20), dp(4));
         TextView systemText = new TextView(context);
-        systemText.setText("Show system apps");
+        systemText.setText(R.string.exempt_apps_show_system);
         systemText.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
         showSystem = new MaterialSwitch(context);
-        showSystem.setOnCheckedChangeListener((b, on) -> applyFilter());
+        showSystem.setContentDescription(getContext().getString(R.string.exempt_apps_show_system));
+        showSystem.setOnCheckedChangeListener((b, on) -> {
+            Effects.toggle(showSystem, on);
+            applyFilter();
+        });
         systemRow.addView(systemText, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         systemRow.addView(showSystem);
         systemRow.setOnClickListener(v -> showSystem.toggle());
         addView(systemRow);
 
         empty = new TextView(context);
-        empty.setText("Loading apps...");
+        empty.setText(R.string.exempt_apps_loading);
         empty.setGravity(Gravity.CENTER);
         dim(empty);
         empty.setPadding(dp(16), dp(48), dp(16), dp(16));
@@ -274,7 +284,7 @@ public class ExemptAppsPanel extends LinearLayout {
             empty.animate().alpha(1f).setDuration(Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 200));
         }
         empty.setVisibility(shown.isEmpty() ? VISIBLE : GONE);
-        empty.setText(apps.isEmpty() ? "Loading apps..." : "Nothing matches.");
+        empty.setText(apps.isEmpty() ? R.string.exempt_apps_loading : R.string.exempt_apps_no_match);
     }
 
     private void toggle(App app, boolean on) {
@@ -284,6 +294,7 @@ public class ExemptAppsPanel extends LinearLayout {
             exempt.remove(app.pkg);
         }
         backend.setExemptApps(exempt);
+        backend.setRestartPending(backend.running());
         banner.setVisibility(backend.running() ? VISIBLE : GONE);
     }
 
@@ -370,7 +381,11 @@ public class ExemptAppsPanel extends LinearLayout {
             pkg.setText(app.pkg);
             sw.setOnCheckedChangeListener(null); // a recycled row must not report a change
             sw.setChecked(exempt.contains(app.pkg));
-            sw.setOnCheckedChangeListener((b, on) -> toggle(app, on));
+            sw.setContentDescription(app.label); // the switch is announced with the app's name
+            sw.setOnCheckedChangeListener((b, on) -> {
+                Effects.toggle(sw, on);
+                toggle(app, on);
+            });
         }
     }
 }

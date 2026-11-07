@@ -15,6 +15,11 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.graphics.Color;
+import android.transition.Transition;
+import android.transition.TransitionListenerAdapter;
+import android.transition.TransitionManager;
+import android.widget.FrameLayout;
 import com.google.android.material.snackbar.Snackbar;
 
 import com.bridge.filt3r.Effects;
@@ -25,13 +30,16 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
+import com.google.android.material.shape.ShapeAppearanceModel;
+import com.google.android.material.transition.platform.MaterialContainerTransform;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Full-screen node list: the current node on top, then every node with status, place, latency,
- * IPv6 and speed. Tap a node to pin it (tap the pinned one to unpin); long-press shows its address.
+ * IPv6 and speed. Tap a node to pin it (tap the pinned one to unpin); long-press opens its details.
  */
 public class NodesPanel extends LinearLayout {
 
@@ -42,6 +50,9 @@ public class NodesPanel extends LinearLayout {
 
         /** Starts a re-test; {@code done} runs on a background thread. @return false if not possible now */
         boolean retest(Runnable done);
+
+        /** Re-tests one node; {@code done} runs on a background thread. @return false if not possible now */
+        boolean retestNode(ShadowsocksNode node, Runnable done);
 
         /** Pins the node (testing it first if needed); {@code done} runs on a background thread. */
         boolean pin(ShadowsocksNode node, Runnable done);
@@ -75,6 +86,12 @@ public class NodesPanel extends LinearLayout {
     private final ImageButton retestButton;
     private final ListView list;
     private boolean busy;
+    private final LinearProgressIndicator progress;
+    private FrameLayout detailLayer;
+    private Runnable unblur = () -> { };
+    private View detailCard;
+    private View detailRow;
+    private int panelAccessibility;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -95,17 +112,31 @@ public class NodesPanel extends LinearLayout {
         LinearLayout bar = new LinearLayout(context);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(4), dp(8), dp(8), dp(8));
-        ImageButton back = iconButton(context, R.drawable.ic_back, "Back");
+        ImageButton back = iconButton(context, R.drawable.ic_back, context.getString(R.string.nodes_back));
         back.setOnClickListener(v -> onClose.run());
         TextView title = new TextView(context);
-        title.setText("Nodes");
+        title.setText(R.string.nodes_title);
         title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
-        retestButton = iconButton(context, R.drawable.ic_refresh, "Re-test nodes");
+        retestButton = iconButton(context, R.drawable.ic_refresh, context.getString(R.string.nodes_retest_description));
         retestButton.setOnClickListener(v -> retest());
         bar.addView(back);
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(retestButton);
         addView(bar);
+
+        // Shown while the nodes are re-tested.
+        progress = new LinearProgressIndicator(context);
+        progress.setIndeterminate(true);
+        progress.setVisibility(INVISIBLE);
+        progress.setContentDescription(context.getString(R.string.nodes_testing_description));
+        if (Effects.on(context, Effects.Effect.WAVY_PROGRESS)) {
+            progress.setTrackThickness(dp(6));
+            progress.setWaveAmplitude(dp(3));
+            progress.setWavelengthIndeterminate(dp(40));
+        }
+        LayoutParams progressParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        progressParams.setMargins(dp(20), 0, dp(20), dp(8));
+        addView(progress, progressParams);
 
         // Current node card.
         LinearLayout card = new LinearLayout(context);
@@ -117,7 +148,7 @@ public class NodesPanel extends LinearLayout {
         cardBg.setCornerRadius(dp(24));
         card.setBackground(cardBg);
         TextView label = new TextView(context);
-        label.setText("Current node");
+        label.setText(R.string.nodes_current_label);
         label.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
         dim(label);
         currentName = new TextView(context);
@@ -147,8 +178,8 @@ public class NodesPanel extends LinearLayout {
         sort.setSingleSelection(true);
         sort.setSelectionRequired(true);
         sort.setSpacing(dp(8));
-        MaterialButton byLatency = sortButton(context, "Latency");
-        MaterialButton bySpeed = sortButton(context, "Speed");
+        MaterialButton byLatency = sortButton(context, context.getString(R.string.nodes_sort_latency));
+        MaterialButton bySpeed = sortButton(context, context.getString(R.string.nodes_sort_speed));
         sort.addView(byLatency);
         sort.addView(bySpeed);
         sort.check(backend.sortBySpeed() ? bySpeed.getId() : byLatency.getId());
@@ -163,7 +194,7 @@ public class NodesPanel extends LinearLayout {
         addView(sort, sortParams);
 
         empty = new TextView(context);
-        empty.setText("Connect to see the nodes.");
+        empty.setText(R.string.nodes_empty);
         empty.setGravity(Gravity.CENTER);
         dim(empty);
         empty.setPadding(dp(16), dp(48), dp(16), dp(16));
@@ -176,8 +207,7 @@ public class NodesPanel extends LinearLayout {
         list.setPadding(0, 0, 0, dp(96)); // the toolbar overlays the bottom
         list.setOnItemClickListener((p, v, pos, id) -> onNodeTap(adapter.getItem(pos)));
         list.setOnItemLongClickListener((p, v, pos, id) -> {
-            ShadowsocksNode n = adapter.getItem(pos).node;
-            Messages.show(this, n.host + ":" + n.port);
+            showDetail(v, adapter.getItem(pos));
             return true;
         });
         addView(list, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
@@ -192,12 +222,24 @@ public class NodesPanel extends LinearLayout {
     @Override
     protected void onDetachedFromWindow() {
         handler.removeCallbacks(tick);
+        if (detailLayer != null) {
+            removeDetail(); // no transition: the panel is going away
+        }
         super.onDetachedFromWindow();
+    }
+
+    /** Closes the node details if they are open. Returns false when there was nothing to close. */
+    public boolean handleBack() {
+        if (detailLayer == null) {
+            return false;
+        }
+        closeDetail();
+        return true;
     }
 
     private void onNodeTap(NodeInfo n) {
         if (n.state == NodeInfo.State.BLACKLISTED) {
-            Messages.show(this, "This node failed 3 times in a row; it is skipped for a while and tried again automatically.");
+            Messages.show(this, getContext().getString(R.string.nodes_blacklisted_message));
             return;
         }
         if (n.pinned) {
@@ -206,10 +248,38 @@ public class NodesPanel extends LinearLayout {
             return;
         }
         if (n.state == NodeInfo.State.UNTESTED) {
-            Messages.show(this, "Testing the node first...", Snackbar.LENGTH_SHORT);
+            Messages.show(this, getContext().getString(R.string.nodes_testing_first), Snackbar.LENGTH_SHORT);
         }
         if (!backend.pin(n.node, () -> post(this::reload))) {
-            Messages.show(this, "Connect first.", Snackbar.LENGTH_SHORT);
+            Messages.show(this, getContext().getString(R.string.nodes_connect_first), Snackbar.LENGTH_SHORT);
+        }
+    }
+
+    private void setBusy(boolean on) {
+        busy = on;
+        retestButton.setEnabled(!on);
+        retestButton.setAlpha(on ? 0.4f : 1f);
+        if (on) {
+            progress.show();
+        } else {
+            progress.hide();
+        }
+    }
+
+    private void retestOne(NodeInfo n) {
+        if (busy) {
+            Messages.show(this, getContext().getString(R.string.nodes_already_testing), Snackbar.LENGTH_SHORT);
+            return;
+        }
+        setBusy(true);
+        NodeLocation loc = NodeLocation.parse(n.node.name);
+        Messages.show(this, getContext().getString(R.string.nodes_testing_city, loc.city), Snackbar.LENGTH_SHORT);
+        if (!backend.retestNode(n.node, () -> post(() -> {
+            setBusy(false);
+            reload();
+        }))) {
+            setBusy(false);
+            Messages.show(this, getContext().getString(R.string.nodes_not_possible), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -217,21 +287,15 @@ public class NodesPanel extends LinearLayout {
         if (busy) {
             return;
         }
-        busy = true;
-        retestButton.setEnabled(false);
-        retestButton.setAlpha(0.4f);
-        Messages.show(this, "Re-testing and speed-testing the best nodes...", Snackbar.LENGTH_SHORT);
+        setBusy(true);
+        Messages.show(this, getContext().getString(R.string.nodes_retesting_best), Snackbar.LENGTH_SHORT);
         boolean started = backend.retest(() -> post(() -> {
-            busy = false;
-            retestButton.setEnabled(true);
-            retestButton.setAlpha(1f);
+            setBusy(false);
             reload();
         }));
         if (!started) {
-            busy = false;
-            retestButton.setEnabled(true);
-            retestButton.setAlpha(1f);
-            Messages.show(this, "Not possible now (tunnel off or already testing).", Snackbar.LENGTH_SHORT);
+            setBusy(false);
+            Messages.show(this, getContext().getString(R.string.nodes_not_possible), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -239,9 +303,7 @@ public class NodesPanel extends LinearLayout {
         List<NodeInfo> all = new ArrayList<>(backend.nodes());
         if (all.isEmpty() && busy) {
             // The tunnel stopped while a re-test was queued: its callback will never run.
-            busy = false;
-            retestButton.setEnabled(true);
-            retestButton.setAlpha(1f);
+            setBusy(false);
         }
         NodeInfo current = null;
         for (NodeInfo n : all) {
@@ -276,9 +338,9 @@ public class NodesPanel extends LinearLayout {
         } else {
             NodeLocation loc = NodeLocation.parse(current.node.name);
             currentName.setText(place(loc));
-            currentDetail.setText(details(current));
+            currentDetail.setText(details(getContext(), current));
             currentDetail.setVisibility(VISIBLE);
-            currentIp.setText("IP  " + current.node.host);
+            currentIp.setText(getContext().getString(R.string.nodes_current_ip, current.node.host));
             currentIp.setVisibility(VISIBLE);
         }
         currentTested.setText(backend.lastTestText());
@@ -289,21 +351,231 @@ public class NodesPanel extends LinearLayout {
         return loc.flag.isEmpty() ? loc.city : loc.flag + " " + loc.city;
     }
 
-    private static String details(NodeInfo n) {
+    private static String details(Context ctx, NodeInfo n) {
         StringBuilder sb = new StringBuilder();
         if (n.medianMs >= 0) {
-            sb.append(n.medianMs).append(" ms");
+            sb.append(ctx.getString(R.string.nodes_ms, n.medianMs));
         } else {
-            sb.append("not measured");
+            sb.append(ctx.getString(R.string.nodes_not_measured));
         }
         if (n.speedBps >= 0) {
             sb.append("  ·  ").append(Format.bytes(n.speedBps)).append("/s");
         }
-        sb.append("  ·  ").append(n.ipv6 == null ? "IPv6 checking" : n.ipv6 ? "IPv6 on" : "IPv6 off");
+        sb.append("  ·  ").append(ctx.getString(n.ipv6 == null ? R.string.nodes_ipv6_checking
+                : n.ipv6 ? R.string.nodes_ipv6_on : R.string.nodes_ipv6_off));
         if (n.pinned) {
-            sb.append("  ·  pinned");
+            sb.append("  ·  ").append(ctx.getString(R.string.nodes_pinned));
         }
         return sb.toString();
+    }
+
+    private static String stateText(Context ctx, NodeInfo n) {
+        if (n.current) {
+            return ctx.getString(R.string.nodes_state_in_use);
+        }
+        switch (n.state) {
+            case WORKING:
+                return ctx.getString(R.string.nodes_state_working);
+            case BLACKLISTED:
+                return ctx.getString(R.string.nodes_state_dead);
+            default:
+                return ctx.getString(n.failures > 0 ? R.string.nodes_state_no_answer_yet : R.string.nodes_state_not_tested);
+        }
+    }
+
+    /** Opens the details of a node; the row grows into the card (and shrinks back when it closes). */
+    private void showDetail(View row, NodeInfo n) {
+        if (detailLayer != null || !(getParent() instanceof FrameLayout)) {
+            return;
+        }
+        FrameLayout host = (FrameLayout) getParent();
+        Context context = getContext();
+        FrameLayout layer = new FrameLayout(context);
+        layer.setClickable(true);
+        View scrim = new View(context);
+        scrim.setBackgroundColor(0x66000000);
+        scrim.setAlpha(0f);
+        scrim.setOnClickListener(v -> closeDetail());
+        scrim.setContentDescription(context.getString(R.string.nodes_close_details));
+        layer.addView(scrim, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        LinearLayout card = detailCard(context, n);
+        card.setVisibility(INVISIBLE);
+        FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        cardParams.setMargins(dp(24), dp(24), dp(24), dp(24));
+        layer.addView(card, cardParams);
+        host.addView(layer, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        detailLayer = layer;
+        detailCard = card;
+        detailRow = row;
+        unblur = Dialogs.blurView(this);
+        panelAccessibility = getImportantForAccessibility();
+        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        int ms = Effects.ms(context, Effects.Effect.TRANSITIONS, 300);
+        if (ms == 0) {
+            card.setVisibility(VISIBLE);
+            scrim.setAlpha(1f);
+            return;
+        }
+        layer.addOnLayoutChangeListener(new OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                layer.removeOnLayoutChangeListener(this);
+                morph(host, row, card, ms, null);
+                scrim.animate().alpha(1f).setDuration(ms);
+            }
+        });
+    }
+
+    private void closeDetail() {
+        FrameLayout layer = detailLayer;
+        if (layer == null) {
+            return;
+        }
+        View row = detailRow;
+        View card = detailCard;
+        detailLayer = null;
+        unblur.run();
+        unblur = () -> { };
+        setImportantForAccessibility(panelAccessibility);
+        int ms = Effects.ms(getContext(), Effects.Effect.TRANSITIONS, 250);
+        if (ms == 0 || row == null || !row.isAttachedToWindow() || !(layer.getParent() instanceof FrameLayout)) {
+            if (row != null) {
+                row.setVisibility(VISIBLE);
+            }
+            ((ViewGroup) layer.getParent()).removeView(layer);
+            return;
+        }
+        morph((FrameLayout) layer.getParent(), card, row, ms, () -> {
+            if (layer.getParent() != null) {
+                ((ViewGroup) layer.getParent()).removeView(layer);
+            }
+        });
+        layer.getChildAt(0).animate().alpha(0f).setDuration(ms);
+    }
+
+    /** Removes the details at once (the panel is closing). */
+    private void removeDetail() {
+        FrameLayout layer = detailLayer;
+        detailLayer = null;
+        unblur.run();
+        unblur = () -> { };
+        if (detailRow != null) {
+            detailRow.setVisibility(VISIBLE);
+        }
+        if (layer != null && layer.getParent() != null) {
+            ((ViewGroup) layer.getParent()).removeView(layer);
+        }
+    }
+
+    /** Container transform: {@code from} turns into {@code to}. {@code done} runs when it ends. */
+    private void morph(FrameLayout host, View from, View to, int ms, Runnable done) {
+        MaterialContainerTransform t = new MaterialContainerTransform();
+        t.setStartView(from);
+        t.setEndView(to);
+        t.setScrimColor(Color.TRANSPARENT);
+        t.setAllContainerColors(MaterialColors.getColor(this,
+                com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        t.setFadeMode(MaterialContainerTransform.FADE_MODE_CROSS);
+        ShapeAppearanceModel round = ShapeAppearanceModel.builder().setAllCornerSizes(dp(28)).build();
+        t.setStartShapeAppearanceModel(round);
+        t.setEndShapeAppearanceModel(round);
+        t.setDuration(ms);
+        if (done != null) {
+            t.addListener(new TransitionListenerAdapter() {
+                @Override
+                public void onTransitionEnd(Transition transition) {
+                    done.run();
+                }
+
+                @Override
+                public void onTransitionCancel(Transition transition) {
+                    done.run();
+                }
+            });
+        }
+        TransitionManager.beginDelayedTransition(host, t);
+        to.setVisibility(VISIBLE);
+        from.setVisibility(INVISIBLE);
+    }
+
+    private LinearLayout detailCard(Context context, NodeInfo n) {
+        NodeLocation loc = NodeLocation.parse(n.node.name);
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(VERTICAL);
+        card.setPadding(dp(24), dp(24), dp(24), dp(16));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurfaceContainerHigh));
+        bg.setCornerRadius(dp(28));
+        card.setBackground(bg);
+        card.setAccessibilityPaneTitle(place(loc));
+
+        TextView name = new TextView(context);
+        name.setText(place(loc));
+        name.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall);
+        card.addView(name);
+        card.addView(detailLine(context, context.getString(R.string.nodes_detail_address), n.node.host + ":" + n.node.port));
+        card.addView(detailLine(context, context.getString(R.string.nodes_detail_status), stateText(context, n)));
+        card.addView(detailLine(context, context.getString(R.string.nodes_detail_latency), n.medianMs >= 0
+                ? context.getString(R.string.nodes_ms, n.medianMs) : context.getString(R.string.nodes_detail_not_measured)));
+        card.addView(detailLine(context, context.getString(R.string.nodes_detail_speed), n.speedBps >= 0
+                ? Format.bytes(n.speedBps) + "/s" : context.getString(R.string.nodes_detail_not_measured)));
+        card.addView(detailLine(context, context.getString(R.string.nodes_ipv6), context.getString(n.ipv6 == null
+                ? R.string.nodes_detail_checking : n.ipv6 ? R.string.nodes_detail_on : R.string.nodes_detail_off)));
+        int source = backend.sourceCount() > 1 ? backend.source(n.node) : -1;
+        if (source >= 0) {
+            card.addView(detailLine(context, context.getString(R.string.nodes_detail_subscription),
+                    context.getString(R.string.nodes_sub, source + 1)));
+        }
+
+        LinearLayout buttons = new LinearLayout(context);
+        buttons.setGravity(Gravity.END);
+        MaterialButton close = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        close.setText(R.string.nodes_close);
+        close.setOnClickListener(v -> closeDetail());
+        MaterialButton pin = new MaterialButton(context);
+        pin.setText(n.pinned ? R.string.nodes_unpin : R.string.nodes_pin);
+        pin.setEnabled(n.state != NodeInfo.State.BLACKLISTED);
+        pin.setOnClickListener(v -> {
+            closeDetail();
+            onNodeTap(n);
+        });
+        LayoutParams gap = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        gap.rightMargin = dp(8);
+        MaterialButton test = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        test.setText(R.string.nodes_retest_button);
+        test.setOnClickListener(v -> {
+            closeDetail();
+            retestOne(n);
+        });
+        buttons.addView(close, gap);
+        LayoutParams testGap = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        testGap.rightMargin = dp(8);
+        buttons.addView(test, testGap);
+        buttons.addView(pin);
+        LayoutParams buttonParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        buttonParams.topMargin = dp(16);
+        card.addView(buttons, buttonParams);
+        return card;
+    }
+
+    private View detailLine(Context context, String label, String value) {
+        LinearLayout line = new LinearLayout(context);
+        line.setPadding(0, dp(10), 0, 0);
+        TextView l = new TextView(context);
+        l.setText(label);
+        l.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        dim(l);
+        TextView v = new TextView(context);
+        v.setText(value);
+        v.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        line.addView(l, new LayoutParams(dp(104), LayoutParams.WRAP_CONTENT));
+        line.addView(v, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
+        return line;
     }
 
     private MaterialButton sortButton(Context context, String text) {
@@ -312,6 +584,7 @@ public class NodesPanel extends LinearLayout {
         b.setText(text);
         b.setId(View.generateViewId());
         b.setCheckable(true);
+        Accent.selectable(b);
         return b;
     }
 
@@ -413,6 +686,7 @@ public class NodesPanel extends LinearLayout {
             dotBg.setShape(GradientDrawable.OVAL);
             dot = new View(context);
             dot.setBackground(dotBg);
+            dot.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); // the subtitle says the state
             LayoutParams dotParams = new LayoutParams(dp(10), dp(10));
             dotParams.rightMargin = dp(16);
             addView(dot, dotParams);
@@ -443,6 +717,7 @@ public class NodesPanel extends LinearLayout {
 
             pin = new ImageView(context);
             pin.setImageResource(R.drawable.ic_pin);
+            pin.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); // the row says "pinned"
             pin.setImageTintList(ColorStateList.valueOf(context.getColor(R.color.brand_red)));
             LayoutParams pinParams = new LayoutParams(dp(18), dp(18));
             pinParams.rightMargin = dp(12);
@@ -457,12 +732,13 @@ public class NodesPanel extends LinearLayout {
             latency.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
             ipv6 = new TextView(context);
             ipv6.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall);
-            ipv6.setText("IPv6");
-            ipv6.setTextColor(context.getColor(R.color.state_active));
+            ipv6.setText(R.string.nodes_ipv6);
+            ipv6.setTextColor(Colors.active(context));
             right.addView(latency);
             barBg.setCornerRadius(dp(2));
             bar = new View(context);
             bar.setBackground(barBg);
+            bar.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
             right.addView(bar, new LayoutParams(dp(84), dp(3)));
             right.addView(ipv6);
             addView(right, new LayoutParams(dp(84), LayoutParams.WRAP_CONTENT)); // fixed width: columns line up
@@ -472,7 +748,7 @@ public class NodesPanel extends LinearLayout {
             NodeLocation loc = NodeLocation.parse(n.node.name);
             title.setText(loc.city);
             // The right column shows the metric the list is sorted by; the other one goes under the place.
-            String ms = n.medianMs >= 0 ? n.medianMs + " ms" : "—";
+            String ms = n.medianMs >= 0 ? getContext().getString(R.string.nodes_ms, n.medianMs) : "—";
             String speed = n.speedBps >= 0 ? Format.bytes(n.speedBps) + "/s" : "—";
             StringBuilder sub = new StringBuilder();
             if (!loc.countryCode.isEmpty()) {
@@ -481,7 +757,7 @@ public class NodesPanel extends LinearLayout {
             sub.append(bySpeed ? ms : speed);
             int source = backend.sourceCount() > 1 ? backend.source(n.node) : -1;
             if (source >= 0) {
-                sub.append("  ·  Sub ").append(source + 1);
+                sub.append("  ·  ").append(getContext().getString(R.string.nodes_sub, source + 1));
             }
             subtitle.setText(sub.toString());
             latency.setText(bySpeed ? speed : ms);
@@ -491,7 +767,7 @@ public class NodesPanel extends LinearLayout {
             int color;
             switch (n.state) {
                 case WORKING:
-                    color = getContext().getColor(R.color.state_active);
+                    color = Colors.active(getContext());
                     break;
                 case BLACKLISTED:
                     color = getContext().getColor(R.color.brand_red);
@@ -516,11 +792,11 @@ public class NodesPanel extends LinearLayout {
             String tagText = null;
             int tagColor = color;
             if (n.current) {
-                tagText = "in use";
+                tagText = getContext().getString(R.string.nodes_tag_in_use);
             } else if (n.state == NodeInfo.State.BLACKLISTED) {
-                tagText = "dead";
+                tagText = getContext().getString(R.string.nodes_tag_dead);
             } else if (n.state == NodeInfo.State.UNTESTED) {
-                tagText = n.failures > 0 ? "no answer" : "not tested";
+                tagText = getContext().getString(n.failures > 0 ? R.string.nodes_tag_no_answer : R.string.nodes_tag_not_tested);
                 tagColor = MaterialColors.getColor(this,
                         com.google.android.material.R.attr.colorOnSurfaceVariant);
             }
@@ -532,6 +808,26 @@ public class NodesPanel extends LinearLayout {
                 tagBg.setColor((tagColor & 0x00FFFFFF) | 0x26000000);
                 tag.setVisibility(VISIBLE);
             }
+            StringBuilder said = new StringBuilder(loc.city);
+            if (!loc.countryCode.isEmpty()) {
+                said.append(", ").append(loc.countryCode);
+            }
+            said.append(", ").append(n.medianMs >= 0
+                    ? getContext().getString(R.string.nodes_said_ms, n.medianMs)
+                    : getContext().getString(R.string.nodes_not_measured));
+            if (n.speedBps >= 0) {
+                said.append(", ").append(getContext().getString(R.string.nodes_said_per_second, Format.bytes(n.speedBps)));
+            }
+            if (tagText != null) {
+                said.append(", ").append(tagText);
+            }
+            if (n.pinned) {
+                said.append(", ").append(getContext().getString(R.string.nodes_pinned));
+            }
+            if (Boolean.TRUE.equals(n.ipv6)) {
+                said.append(", ").append(getContext().getString(R.string.nodes_ipv6));
+            }
+            setContentDescription(said.toString());
             setAlpha(n.state == NodeInfo.State.BLACKLISTED ? 0.5f : 1f);
             setBackgroundColor(n.current
                     ? (color & 0x00FFFFFF) | 0x1A000000

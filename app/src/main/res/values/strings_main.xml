@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand -->
+    <string name="main_brand_name" translatable="false">filt3r</string>
+
+    <!-- MainActivity -->
+    <string name="main_section_status">Status</string>
+    <string name="main_section_nodes">Nodes</string>
+    <string name="main_section_exempt_apps">Exempt apps</string>
+    <string name="main_section_query_log">Query log</string>
+    <string name="main_section_settings">Settings</string>
+    <string name="main_filter_updated">Filter lists updated: %1$,d blocked names</string>
+    <plurals name="main_filter_updated_lists_failed">
+        <item quantity="one">; %1$d list failed: %2$s</item>
+        <item quantity="other">; %1$d lists failed: %2$s</item>
+    </plurals>
+    <string name="main_filter_update_failed">Filter update failed: %1$s</string>
+    <string name="main_badge_working">working</string>
+    <string name="main_dot_restart_waiting">restart waiting</string>
+    <plurals name="main_export_saved">
+        <item quantity="one">Saved %1$d entry</item>
+        <item quantity="other">Saved %1$d entries</item>
+    </plurals>
+    <string name="main_export_save_failed">Could not save the file</string>
+    <string name="main_export_nothing_to_save">Nothing to save yet.</string>
+    <string name="main_export_no_blocked">No blocked entries to save.</string>
+    <string name="main_export_no_allowed">No allowed entries to save.</string>
+    <string name="main_nodes_not_tested">Nodes not tested yet</string>
+    <string name="main_nodes_tested">Nodes tested %1$s</string>
+    <string name="main_subscription_not_downloaded">Not downloaded yet</string>
+    <string name="main_subscription_updated">Last updated %1$s</string>
+
+    <!-- FilterStatusText -->
+    <string name="filter_status_downloading">Downloading filter lists (%1$d of %2$d)...</string>
+    <string name="filter_status_ok">"%1$,d blocked names  ·  updated %2$s"</string>
+    <string name="filter_status_duplicates">%1$,d duplicates removed</string>
+    <plurals name="filter_status_lists_failed">
+        <item quantity="one">%1$d list failed: %2$s</item>
+        <item quantity="other">%1$d lists failed: %2$s</item>
+    </plurals>
+    <string name="filter_status_failed">Filter update failed: %1$s</string>
+    <string name="filter_status_still_using">Still using the lists from %1$s (%2$,d names)</string>
+    <string name="filter_status_loading">Loading filter lists...</string>
+    <string name="filter_status_idle">Filter lists are loaded when the VPN starts.</string>
+    <string name="filter_status_retry_in">"  ·  retry in %1$d min"</string>
+    <string name="filter_status_ago_now">just now</string>
+    <string name="filter_status_ago_min">%1$d min ago</string>
+    <string name="filter_status_ago_hours">%1$d h ago</string>
+    <string name="filter_status_ago_days">%1$d days ago</string>
+
+    <!-- FilterEnvironment -->
+    <string name="filter_env_cannot_create">cannot create %1$s</string>
+
+    <!-- Filt3rVpnService -->
+    <string name="vpn_channel_name">Tunnel status</string>
+    <string name="vpn_notice_pinned_node_stopped">Pinned node %1$s stopped working; switched to the best node</string>
+    <string name="vpn_notice_node_no_answer">%1$s did not answer</string>
+    <string name="vpn_notice_ip_block_not_loaded">IP blocklist not loaded: %1$s</string>
+    <string name="vpn_ip_block_downloading">Downloading...</string>
+    <string name="vpn_ip_block_updating">Updating...</string>
+    <string name="vpn_ip_block_loaded">Loaded: %1$d addresses</string>
+    <string name="vpn_ip_block_not_loaded_status">Not loaded: %1$s</string>
+    <string name="vpn_notification_restart_failed_title">Restart failed: traffic is blocked</string>
+    <string name="vpn_notification_restart_failed_text">Open filt3r to connect, or tap Stop.</string>
+    <string name="vpn_notification_running_title">filt3r is running</string>
+    <string name="vpn_notification_running_text">DNS filtering is on.</string>
+    <string name="vpn_notification_action_stop">Stop</string>
+    <string name="vpn_check_bad_stamp">not a usable DNSCrypt stamp: %1$s</string>
+    <string name="vpn_check_start_vpn_first">start the VPN first: resolvers are tested through the node</string>
+    <string name="vpn_check_works">works, %1$d ms</string>
+    <string name="vpn_check_no_answer">resolver did not answer (it may use another cipher or no TCP): %1$s</string>
+
+    <!-- Tile -->
+    <string name="tile_on">On</string>
+    <string name="tile_connecting">Connecting. Tap to cancel.</string>
+    <string name="tile_failed">Failed</string>
+    <string name="tile_off">Off</string>
+
+    <!-- Widget -->
+    <string name="widget_status_on">On</string>
+    <string name="widget_status_connecting">Connecting</string>
+    <string name="widget_status_failed">Failed</string>
+    <string name="widget_status_off">Off</string>
+    <string name="widget_hint_stop">Tap to stop.</string>
+    <string name="widget_hint_cancel">Tap to cancel.</string>
+    <string name="widget_hint_connect">Tap to connect.</string>
+    <string name="widget_content_description">%1$s, %2$s. %3$s</string>
+
+    <!-- Shortcuts -->
+    <string name="shortcut_connect">Connect</string>
+    <string name="shortcut_disconnect">Disconnect</string>
+    <string name="shortcut_nodes">Nodes</string>
+    <string name="shortcut_query_log">Query log</string>
+
+    <!-- HeroView -->
+    <string name="hero_connected">Connected</string>
+    <string name="hero_connecting">Connecting</string>
+    <string name="hero_failed">Failed</string>
+    <string name="hero_off">Off</string>
+
+    <!-- StatusView -->
+    <string name="status_connect">Connect</string>
+    <string name="status_disconnect">Disconnect</string>
+    <string name="status_restart">Restart</string>
+    <string name="status_card_node">Node</string>
+    <string name="status_card_traffic">Traffic</string>
+    <string name="status_card_dns">DNS</string>
+    <string name="status_node_ms">%1$d ms</string>
+    <string name="status_node_not_measured">not measured</string>
+    <string name="status_node_ipv6_checking">IPv6 checking</string>
+    <string name="status_node_ipv6_on">IPv6 on</string>
+    <string name="status_node_ipv6_off">IPv6 off</string>
+    <string name="status_node_detail">"%1$s  ·  %2$s"</string>
+    <string name="status_node_ip">IP %1$s</string>
+    <string name="status_traffic_rate">"↓ %1$s/s   ↑ %2$s/s"</string>
+    <string name="status_traffic_session">"Session  ↓ %1$s   ↑ %2$s"</string>
+    <string name="status_dns_percent">"  (%1$.0f%%)"</string>
+    <string name="status_dns_resolver">Resolver %1$s</string>
+    <string name="status_dns_resolver_ip">"Resolver %1$s  ·  %2$s"</string>
+    <string name="status_dns_blocked">Blocked %1$d</string>
+    <string name="status_dns_allowed">Allowed %1$d</string>
+
+    <!-- NodesPanel -->
+    <string name="nodes_back">Back</string>
+    <string name="nodes_title">Nodes</string>
+    <string name="nodes_retest_description">Re-test nodes</string>
+    <string name="nodes_testing_description">Testing nodes</string>
+    <string name="nodes_current_label">Current node</string>
+    <string name="nodes_sort_latency">Latency</string>
+    <string name="nodes_sort_speed">Speed</string>
+    <string name="nodes_empty">Connect to see the nodes.</string>
+    <string name="nodes_blacklisted_message">This node failed 3 times in a row; it is skipped for a while and tried again automatically.</string>
+    <string name="nodes_testing_first">Testing the node first...</string>
+    <string name="nodes_connect_first">Connect first.</string>
+    <string name="nodes_already_testing">Already testing.</string>
+    <string name="nodes_testing_city">Testing %1$s...</string>
+    <string name="nodes_not_possible">Not possible now (tunnel off or already testing).</string>
+    <string name="nodes_retesting_best">Re-testing and speed-testing the best nodes...</string>
+    <string name="nodes_current_ip">"IP  %1$s"</string>
+    <string name="nodes_ms">%1$d ms</string>
+    <string name="nodes_not_measured">not measured</string>
+    <string name="nodes_ipv6_checking">IPv6 checking</string>
+    <string name="nodes_ipv6_on">IPv6 on</string>
+    <string name="nodes_ipv6_off">IPv6 off</string>
+    <string name="nodes_ipv6">IPv6</string>
+    <string name="nodes_pinned">pinned</string>
+    <string name="nodes_state_in_use">In use</string>
+    <string name="nodes_state_working">Working</string>
+    <string name="nodes_state_dead">Dead: failed 3 times in a row. Skipped for a while, then tried again.</string>
+    <string name="nodes_state_no_answer_yet">No answer yet</string>
+    <string name="nodes_state_not_tested">Not tested</string>
+    <string name="nodes_close_details">Close details</string>
+    <string name="nodes_detail_address">Address</string>
+    <string name="nodes_detail_status">Status</string>
+    <string name="nodes_detail_latency">Latency</string>
+    <string name="nodes_detail_speed">Speed</string>
+    <string name="nodes_detail_not_measured">Not measured</string>
+    <string name="nodes_detail_checking">Checking</string>
+    <string name="nodes_detail_on">On</string>
+    <string name="nodes_detail_off">Off</string>
+    <string name="nodes_detail_subscription">Subscription</string>
+    <string name="nodes_sub">Sub %1$d</string>
+    <string name="nodes_close">Close</string>
+    <string name="nodes_unpin">Unpin</string>
+    <string name="nodes_pin">Pin this node</string>
+    <string name="nodes_retest_button">Re-test</string>
+    <string name="nodes_tag_in_use">in use</string>
+    <string name="nodes_tag_dead">dead</string>
+    <string name="nodes_tag_no_answer">no answer</string>
+    <string name="nodes_tag_not_tested">not tested</string>
+    <string name="nodes_said_ms">%1$d milliseconds</string>
+    <string name="nodes_said_per_second">%1$s per second</string>
+
+    <!-- QueryLogPanel -->
+    <string name="qlog_back">Back</string>
+    <string name="qlog_title">Query log</string>
+    <string name="qlog_clear_description">Clear query log</string>
+    <string name="qlog_clear_title">Clear the query log?</string>
+    <string name="qlog_clear_message">This removes the DNS queries kept on this phone. It cannot be undone.</string>
+    <string name="qlog_clear_confirm">Clear</string>
+    <string name="qlog_rules_description">My rules</string>
+    <string name="qlog_export_description">Save query log as a text file</string>
+    <string name="qlog_switch">Log DNS queries</string>
+    <string name="qlog_search_hint">Search names</string>
+    <string name="qlog_chip_all">All</string>
+    <string name="qlog_blocked">Blocked</string>
+    <string name="qlog_allowed">Allowed</string>
+    <string name="qlog_export_both">Both</string>
+    <string name="qlog_export_title">Save which entries?</string>
+    <string name="qlog_cancel">Cancel</string>
+    <string name="qlog_empty_no_match">Nothing matches.</string>
+    <string name="qlog_empty_no_queries">No queries yet.</string>
+    <string name="qlog_empty_off">The query log is off. Turn it on with the switch above.</string>
+    <string name="qlog_rules_read_failed">Could not read your rules</string>
+    <string name="qlog_state_blocked_by_lists">Blocked by the filter lists</string>
+    <string name="qlog_state_you_allowed">You allowed this domain</string>
+    <string name="qlog_state_you_blocked">You blocked this domain</string>
+    <string name="qlog_action_allow">Allow this domain</string>
+    <string name="qlog_action_block">Block this domain</string>
+    <string name="qlog_action_remove">Remove my rule</string>
+    <string name="qlog_toast_allowed">Allowed %1$s</string>
+    <string name="qlog_toast_blocked">Blocked %1$s</string>
+    <string name="qlog_toast_removed">Rule removed for %1$s</string>
+    <string name="qlog_note">A rule covers this domain and its sub domains and applies at once. Manage all rules with the rules icon at the top.</string>
+    <string name="qlog_rule_save_failed">Could not save the rule</string>
+    <string name="qlog_said_blocked">blocked</string>
+    <string name="qlog_said_allowed">allowed</string>
+    <string name="qlog_row_description">%1$s, %2$s, %3$s. Double tap for options.</string>
+</resources>

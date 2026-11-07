@@ -20,7 +20,7 @@ final class FilterEnvironment extends ExecutionEnvironment {
         // app-private storage; the filter lists and the query log live here
         this.workDir = new File(context.getFilesDir(), "filter");
         if (!workDir.isDirectory() && !workDir.mkdirs()) {
-            throw new IOException("cannot create " + workDir);
+            throw new IOException(this.context.getString(R.string.filter_env_cannot_create, workDir));
         }
     }
 
