@@ -188,6 +188,14 @@
     <string name="settings_about_notices_summary">Third-party notices</string>
     <string name="settings_about_gpl_title">GNU General Public License</string>
     <string name="settings_about_gpl_summary">Version 3, full text</string>
+    <string name="settings_backup_title">Back up settings</string>
+    <string name="settings_backup_summary">Save settings, exempt apps and domain rules to a file</string>
+    <string name="settings_backup_what">The file is plain text. It holds your settings, exempt apps and allow/block rules.</string>
+    <string name="settings_backup_include">Also include subscription addresses and added nodes</string>
+    <string name="settings_backup_warning">These contain secrets: anyone who gets the file can use your subscriptions and nodes. Leave this off unless you need it, and keep the file private.</string>
+    <string name="settings_backup_save">Save file</string>
+    <string name="settings_restore_title">Restore settings</string>
+    <string name="settings_restore_summary">Load a backup file; you see what changes first</string>
     <string name="settings_about_selfcheck_title">Self-check</string>
     <string name="settings_about_selfcheck_summary">Is the node, DNS and filter working? Tap to run</string>
     <string name="settings_selfcheck_running">Checking...</string>

@@ -110,6 +110,12 @@ public class SettingsPanel extends LinearLayout {
         /** The self-check results, one line each (see SelfCheck). Blocks; the panel calls it off the main thread. */
         List<String> selfCheck();
 
+        /** Saves the settings to a file the user picks. {@code includeSecrets}: also the subscription addresses and added nodes. */
+        void exportSettings(boolean includeSecrets);
+
+        /** Lets the user pick a backup file, shows what it would change and applies it only after a confirmation. */
+        void importSettings();
+
         /** "" if none. */
         String filterListUrl();
 
@@ -935,6 +941,14 @@ public class SettingsPanel extends LinearLayout {
                 context.getString(R.string.settings_about_selfcheck_summary));
         selfCheck.setOnClickListener(v -> showSelfCheck());
         card.addView(selfCheck);
+        Row backup = valueRow(context, context.getString(R.string.settings_backup_title),
+                context.getString(R.string.settings_backup_summary));
+        backup.setOnClickListener(v -> showBackupExport());
+        card.addView(backup);
+        Row restore = valueRow(context, context.getString(R.string.settings_restore_title),
+                context.getString(R.string.settings_restore_summary));
+        restore.setOnClickListener(v -> backend.importSettings());
+        card.addView(restore);
         card.addView(note(context, context.getString(R.string.settings_about_version, backend.version())));
         card.addView(note(context, context.getString(R.string.settings_about_protection)));
         card.addView(note(context, context.getString(R.string.settings_about_license)));
@@ -976,6 +990,33 @@ public class SettingsPanel extends LinearLayout {
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("filt3r", text));
                     Messages.show(this, getContext().getString(R.string.settings_about_diag_copied), Snackbar.LENGTH_SHORT);
                 })
+                .show();
+    }
+
+    /** Asks what the backup should hold; the subscription addresses and added nodes are left out unless ticked. */
+    private void showBackupExport() {
+        Context context = getContext();
+        LinearLayout box = new LinearLayout(context);
+        box.setOrientation(VERTICAL);
+        box.setPadding(dp(24), dp(8), dp(24), 0);
+        TextView what = new TextView(context);
+        what.setText(R.string.settings_backup_what);
+        what.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        com.google.android.material.checkbox.MaterialCheckBox include =
+                new com.google.android.material.checkbox.MaterialCheckBox(context);
+        include.setText(R.string.settings_backup_include);
+        TextView warning = new TextView(context);
+        warning.setText(R.string.settings_backup_warning);
+        warning.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall);
+        dim(warning);
+        box.addView(what);
+        box.addView(include);
+        box.addView(warning);
+        Dialogs.builder(context)
+                .setTitle(R.string.settings_backup_title)
+                .setView(box)
+                .setPositiveButton(R.string.settings_backup_save, (d, w) -> backend.exportSettings(include.isChecked()))
+                .setNegativeButton(R.string.qlog_cancel, null)
                 .show();
     }
 

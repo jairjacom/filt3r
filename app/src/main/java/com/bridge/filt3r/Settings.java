@@ -7,7 +7,10 @@ import com.bridge.filt3r.core.socks.FailureMode;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.Set;
 
 /**
@@ -404,5 +407,58 @@ final class Settings {
 
     void setTransitionStyle(int style) {
         prefs.edit().putInt("transition_style", style).apply();
+    }
+
+    /**
+     * The preference keys a settings backup carries. Subscription addresses, the pinned node, hidden
+     * nodes and any history are never in it; subscriptions go in only when the user asks (see SettingsBackup).
+     */
+    private static final Set<String> BACKUP_KEYS = Set.of(KEY_FAILURE_MODE, KEY_QUERY_LOG, KEY_RESOLVER_NAME,
+            KEY_RESOLVER_STAMP, KEY_NODE_SORT_SPEED, KEY_FILTER_URL, KEY_ENABLED_LISTS, KEY_IP_BLOCK,
+            KEY_TEST_CHEAP, KEY_LIST_DAYS, KEY_TOOLBAR_PINNED, KEY_TOOLBAR_STYLE, KEY_THEME_MODE, KEY_PURE_BLACK,
+            KEY_COLOR_SCHEME, KEY_SEED_COLOR, KEY_EFFECTS_LEVEL, "transition_style");
+
+    /** Every backed-up preference that has been set, as String, Boolean, Integer or sorted List of String. */
+    @SuppressWarnings("unchecked")
+    Map<String, Object> backupValues() {
+        Map<String, Object> out = new TreeMap<>();
+        for (Map.Entry<String, ?> e : prefs.getAll().entrySet()) {
+            String key = e.getKey();
+            if (!BACKUP_KEYS.contains(key) && !key.startsWith(KEY_EFFECT_PREFIX)) {
+                continue;
+            }
+            Object v = e.getValue();
+            if (v instanceof Set) {
+                List<String> list = new ArrayList<>((Set<String>) v);
+                Collections.sort(list);
+                out.put(key, list);
+            } else if (v instanceof String || v instanceof Boolean || v instanceof Integer) {
+                out.put(key, v);
+            }
+        }
+        return out;
+    }
+
+    /** Writes values that BackupFormat has already checked; keys not in the map stay as they are. */
+    @SuppressWarnings("unchecked")
+    void restoreValues(Map<String, Object> values) {
+        SharedPreferences.Editor edit = prefs.edit();
+        for (Map.Entry<String, Object> e : values.entrySet()) {
+            String key = e.getKey();
+            if (!BACKUP_KEYS.contains(key) && !key.startsWith(KEY_EFFECT_PREFIX)) {
+                continue;
+            }
+            Object v = e.getValue();
+            if (v instanceof String) {
+                edit.putString(key, (String) v);
+            } else if (v instanceof Boolean) {
+                edit.putBoolean(key, (Boolean) v);
+            } else if (v instanceof Integer) {
+                edit.putInt(key, (Integer) v);
+            } else if (v instanceof List) {
+                edit.putStringSet(key, new HashSet<>((List<String>) v));
+            }
+        }
+        edit.apply();
     }
 }

@@ -26,6 +26,7 @@ import android.widget.EditText;
 
 import androidx.dynamicanimation.animation.DynamicAnimation;
 
+import com.bridge.filt3r.core.backup.BackupFormat;
 import com.bridge.filt3r.core.filter.FilterCatalog;
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.nodes.NodeHistory;
@@ -35,6 +36,7 @@ import com.bridge.filt3r.core.filter.UserOverrides;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.ui.BlurBehind;
+import com.bridge.filt3r.ui.Dialogs;
 import com.bridge.filt3r.ui.DockedToolbar;
 import com.bridge.filt3r.ui.ExemptAppsPanel;
 import com.bridge.filt3r.ui.FloatingToolbar;
@@ -71,6 +73,9 @@ public class MainActivity extends Activity
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
     private static final int REQUEST_EXPORT_LOG = 3;
+    private static final int REQUEST_EXPORT_SETTINGS = 4;
+    private static final int REQUEST_IMPORT_SETTINGS = 5;
+    private boolean backupSecrets;
     private boolean exportBlocked = true;
     private boolean exportAllowed = true;
     private java.util.function.Consumer<Boolean> exportDone;
@@ -602,6 +607,12 @@ public class MainActivity extends Activity
             } else {
                 finishExport(false); // the picker was cancelled
             }
+        } else if (requestCode == REQUEST_EXPORT_SETTINGS && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            writeSettingsBackup(data.getData());
+        } else if (requestCode == REQUEST_IMPORT_SETTINGS && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            readSettingsBackup(data.getData());
         }
     }
 
@@ -612,6 +623,121 @@ public class MainActivity extends Activity
         if (done != null) {
             done.accept(ok);
         }
+    }
+
+    @Override
+    public void exportSettings(boolean includeSecrets) {
+        backupSecrets = includeSecrets;
+        String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
+        Intent pick = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/json")
+                .putExtra(Intent.EXTRA_TITLE, "filt3r-settings-" + stamp + ".json");
+        startActivityForResult(pick, REQUEST_EXPORT_SETTINGS);
+    }
+
+    /** Writes the backup to the picked file, off the main thread (the target may be slow). */
+    private void writeSettingsBackup(Uri uri) {
+        boolean secrets = backupSecrets;
+        Thread t = new Thread(() -> {
+            String result;
+            try {
+                byte[] bytes = SettingsBackup.export(settings, overrides, getFilesDir(), secrets, version())
+                        .getBytes(StandardCharsets.UTF_8);
+                try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                    out.write(bytes);
+                }
+                result = getString(R.string.main_backup_saved);
+            } catch (IOException | RuntimeException e) {
+                result = getString(R.string.main_backup_save_failed);
+            }
+            String shown = result;
+            runOnUiThread(() -> Messages.show(frame, shown));
+        }, "export-settings");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    @Override
+    public void importSettings() {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*");
+        startActivityForResult(pick, REQUEST_IMPORT_SETTINGS);
+    }
+
+    /** Reads and checks the picked file off the main thread; nothing changes until the user confirms. */
+    private void readSettingsBackup(Uri uri) {
+        Thread t = new Thread(() -> {
+            BackupFormat.Backup backup = null;
+            String error = null;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                byte[] bytes = in.readNBytes(BackupFormat.MAX_BYTES + 1);
+                backup = BackupFormat.parse(new String(bytes, StandardCharsets.UTF_8));
+            } catch (IllegalArgumentException e) {
+                error = "file".equals(e.getMessage()) ? getString(R.string.main_backup_not_backup)
+                        : getString(R.string.main_backup_bad_value, e.getMessage());
+            } catch (IOException | RuntimeException e) {
+                error = getString(R.string.main_backup_read_failed);
+            }
+            BackupFormat.Backup checked = backup;
+            String shownError = error;
+            runOnUiThread(() -> {
+                if (shownError != null) {
+                    Messages.show(frame, shownError);
+                } else {
+                    confirmRestore(checked);
+                }
+            });
+        }, "import-settings");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void confirmRestore(BackupFormat.Backup backup) {
+        String secrets = backup.hasSecrets() ? getString(R.string.main_backup_confirm_secrets,
+                backup.subscriptions.size(), backup.manualNodes.size()) : "";
+        String message = backup.exemptApps != null
+                ? getString(R.string.main_backup_confirm_message, backup.settings.size(),
+                        backup.exemptApps.size(), backup.rules.size(), secrets)
+                : getString(R.string.main_backup_confirm_no_apps, backup.settings.size(),
+                        backup.rules.size(), secrets);
+        Dialogs.confirm(this, getString(R.string.main_backup_confirm_title), message,
+                getString(R.string.main_backup_confirm_action), () -> applyBackup(backup));
+    }
+
+    /** Applies the confirmed backup off the main thread (every rule rewrites the rules file). */
+    private void applyBackup(BackupFormat.Backup backup) {
+        Thread t = new Thread(() -> {
+            SettingsBackup.Result result = null;
+            try {
+                result = SettingsBackup.apply(backup, settings, overrides, getFilesDir());
+            } catch (IOException | RuntimeException e) {
+                // reported below
+            }
+            SettingsBackup.Result done = result;
+            runOnUiThread(() -> {
+                if (done == null) {
+                    Messages.show(frame, getString(R.string.main_backup_read_failed));
+                    return;
+                }
+                boolean on = running();
+                com.google.android.material.dialog.MaterialAlertDialogBuilder b = Dialogs.builder(this)
+                        .setTitle(R.string.main_backup_done_title)
+                        .setMessage(getString(R.string.main_backup_done_message, done.rulesApplied, done.rulesSkipped));
+                if (on) {
+                    b.setPositiveButton(R.string.main_backup_restart_now, (d, w) -> restart())
+                            .setNegativeButton(R.string.main_backup_later, null);
+                } else {
+                    b.setPositiveButton(android.R.string.ok, null);
+                }
+                // The look may have changed: rebuild the screen once the dialog is gone.
+                b.setOnDismissListener(d -> recreate());
+                b.show();
+            });
+        }, "apply-backup");
+        t.setDaemon(true);
+        t.start();
     }
 
     /** The kept query lines of the kinds the user chose to save, oldest first. */
