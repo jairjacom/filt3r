@@ -28,6 +28,8 @@ import androidx.dynamicanimation.animation.DynamicAnimation;
 
 import com.bridge.filt3r.core.filter.FilterCatalog;
 import com.bridge.filt3r.core.nodes.NodeInfo;
+import com.bridge.filt3r.core.nodes.NodeHistory;
+import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.filter.UserOverrides;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
@@ -42,6 +44,8 @@ import com.bridge.filt3r.ui.NodesPanel;
 import com.bridge.filt3r.ui.QueryLogPanel;
 import com.bridge.filt3r.ui.SettingsPanel;
 import com.bridge.filt3r.ui.Messages;
+import com.bridge.filt3r.ui.Dialogs;
+import com.bridge.filt3r.ui.StatusSheets;
 import com.bridge.filt3r.ui.StatusView;
 import com.bridge.filt3r.ui.SwipeRule;
 
@@ -446,6 +450,11 @@ public class MainActivity extends Activity
         if (TunnelState.get() != TunnelState.State.RUNNING) {
             return;
         }
+        status.update(snapshot());
+    }
+
+    /** Everything the Status screen and the traffic window show, read from the service now. */
+    private StatusView.Snapshot snapshot() {
         StatusView.Snapshot s = new StatusView.Snapshot();
         NodeInfo node = Filt3rVpnService.currentNode();
         if (node != null) {
@@ -453,16 +462,83 @@ public class MainActivity extends Activity
             s.nodeMs = node.medianMs;
             s.nodeIpv6 = node.ipv6;
             s.nodeIp = node.node.host;
+            if (settings.historyEnabled()) {
+                NodeHistory history = NodeHistories.get(this);
+                NodeHistory.Stats stats = history.stats(NodeManager.keyOf(node.node));
+                s.nodeConnections = stats.connections;
+                s.nodeTotalMs = stats.totalMs;
+                s.nodeFailovers = history.summary().failovers;
+            }
         }
         s.trafficBytes = Filt3rVpnService.trafficBytes();
         s.dnsCounts = Filt3rVpnService.dnsCounts();
+        TrafficHistory.Snap graph = TrafficHistory.snapshot();
+        s.graphDown = graph.down;
+        s.graphUp = graph.up;
+        s.peakBps = graph.peakBps;
+        s.sessionStartMs = graph.startMs;
         String[] resolver = Filt3rVpnService.resolver();
         if (resolver != null) {
             s.resolverName = resolver[0];
             s.resolverIp = resolver[1];
         }
-        s.filterText = FilterStatusText.describe(this, filter, true, System.currentTimeMillis());
-        status.update(s);
+        s.filterText = FilterStatusText.describe(this, FilterStatus.get(), true, System.currentTimeMillis());
+        return s;
+    }
+
+    @Override
+    public void openNodeLookup() {
+        NodeInfo node = Filt3rVpnService.currentNode();
+        if (node == null || TunnelState.get() != TunnelState.State.RUNNING) {
+            Messages.show(frame, getString(R.string.lookup_connect_first), Snackbar.LENGTH_SHORT);
+            return;
+        }
+        StatusSheets.showLookup(this, node.node.host, Filt3rVpnService::lookupIp, () -> openSection(1));
+    }
+
+    @Override
+    public void openTrafficDetails() {
+        if (TunnelState.get() != TunnelState.State.RUNNING) {
+            Messages.show(frame, getString(R.string.traffic_not_running), Snackbar.LENGTH_SHORT);
+            return;
+        }
+        StatusSheets.showTraffic(this, this::snapshot);
+    }
+
+    @Override
+    public void resetCounters() {
+        if (TunnelState.get() != TunnelState.State.RUNNING) {
+            return;
+        }
+        Dialogs.confirm(this, getString(R.string.traffic_reset_title), getString(R.string.traffic_reset_message),
+                getString(R.string.traffic_reset_action), () -> {
+                    Filt3rVpnService.resetCounters();
+                    Effects.haptic(frame, HapticFeedbackConstants.CONFIRM);
+                    Messages.show(frame, getString(R.string.traffic_reset_done), Snackbar.LENGTH_SHORT);
+                });
+    }
+
+    @Override
+    public void openDnsSettings() {
+        openSection(4);
+        if (panel instanceof SettingsPanel) {
+            ((SettingsPanel) panel).openPage(SettingsPanel.PAGE_DNS);
+        }
+    }
+
+    @Override
+    public void openDnsDetails() {
+        StatusSheets.showDns(this, settings.queryLogEnabled(), QueryLogs.get(this).lines(), () -> {
+            settings.setQueryLogEnabled(true);
+            Messages.show(frame, getString(R.string.dns_sheet_log_on), Snackbar.LENGTH_SHORT);
+        }, this::openBlockedLog);
+    }
+
+    private void openBlockedLog() {
+        openSection(3);
+        if (panel instanceof QueryLogPanel) {
+            ((QueryLogPanel) panel).showBlockedOnly();
+        }
     }
 
     @Override
@@ -1056,6 +1132,24 @@ public class MainActivity extends Activity
     @Override
     public void setQueryLogEnabled(boolean on) {
         settings.setQueryLogEnabled(on);
+    }
+
+    @Override
+    public boolean historyEnabled() {
+        return settings.historyEnabled();
+    }
+
+    @Override
+    public void setHistoryEnabled(boolean on) {
+        settings.setHistoryEnabled(on);
+        if (!on) {
+            NodeHistories.get(this).clear();
+        }
+    }
+
+    @Override
+    public void clearHistory() {
+        NodeHistories.get(this).clear();
     }
 
     @Override

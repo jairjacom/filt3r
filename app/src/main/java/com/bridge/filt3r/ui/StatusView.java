@@ -10,6 +10,10 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
+import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.SpringAnimation;
 
 import com.google.android.material.button.MaterialButton;
 import com.bridge.filt3r.Effects;
@@ -37,12 +41,29 @@ public class StatusView extends ScrollView {
         public long[] trafficBytes;   // {up, down} since start
         public long[] dnsCounts;      // {blocked, allowed}
         public String filterText;     // filter-list status, may be several lines
+        public float[] graphDown;     // bytes per second, oldest first
+        public float[] graphUp;
+        public long peakBps;          // fastest combined speed since the start or the last reset
+        public long sessionStartMs;   // wall clock; 0 if unknown
+        public int nodeConnections = -1; // times this node carried traffic in 7 days; -1 while the node history is off
+        public long nodeTotalMs;      // time on this node in 7 days
+        public int nodeFailovers;     // times in 7 days a node took over because another died
     }
 
     public interface Actions {
         void connect();
         void disconnect();
         void restart();
+        /** Node card tap: the IP lookup. */
+        void openNodeLookup();
+        /** Traffic card tap: the expanded graph. */
+        void openTrafficDetails();
+        /** Traffic card long-press: start the session counters again. */
+        void resetCounters();
+        /** DNS card tap: Settings, DNS and filtering. */
+        void openDnsSettings();
+        /** DNS card long-press: the most blocked names. */
+        void openDnsDetails();
     }
 
     private final HeroView hero;
@@ -53,7 +74,7 @@ public class StatusView extends ScrollView {
     private final Card nodeCard;
     private final Card trafficCard;
     private final Card dnsCard;
-    private final Sparkline sparkline;
+    private final TrafficGraph graph;
 
     private long lastUp = -1;
     private long lastDown = -1;
@@ -105,17 +126,20 @@ public class StatusView extends ScrollView {
         slotParams.topMargin = dp(24);
         column.addView(buttonSlot, slotParams);
 
-        nodeCard = new Card(context, context.getString(R.string.status_card_node));
-        trafficCard = new Card(context, context.getString(R.string.status_card_traffic));
-        dnsCard = new Card(context, context.getString(R.string.status_card_dns));
+        nodeCard = new Card(context, context.getString(R.string.status_card_node), true);
+        trafficCard = new Card(context, context.getString(R.string.status_card_traffic), false);
+        dnsCard = new Card(context, context.getString(R.string.status_card_dns), true);
+        nodeCard.onTap(actions::openNodeLookup, null);
+        trafficCard.onTap(actions::openTrafficDetails, actions::resetCounters);
+        dnsCard.onTap(actions::openDnsSettings, actions::openDnsDetails);
         for (Card c : new Card[] {nodeCard, trafficCard, dnsCard}) {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             p.topMargin = dp(12);
             column.addView(c.card, p);
         }
-        sparkline = new Sparkline(context);
-        trafficCard.box.addView(sparkline, new LinearLayout.LayoutParams(
+        graph = new TrafficGraph(context, false);
+        trafficCard.box.addView(graph, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         addView(column, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
         setState(State.STOPPED);
@@ -158,45 +182,63 @@ public class StatusView extends ScrollView {
     }
 
     public void update(Snapshot s) {
+        Context ctx = getContext();
         if (s.nodeName == null) {
             nodeCard.set("—", "", "");
         } else {
-            Context ctx = getContext();
             String ms = s.nodeMs >= 0 ? ctx.getString(R.string.status_node_ms, s.nodeMs)
                     : ctx.getString(R.string.status_node_not_measured);
             String v6 = ctx.getString(s.nodeIpv6 == null ? R.string.status_node_ipv6_checking
                     : s.nodeIpv6 ? R.string.status_node_ipv6_on : R.string.status_node_ipv6_off);
-            nodeCard.set(s.nodeName, ctx.getString(R.string.status_node_detail, ms, v6),
-                    s.nodeIp == null ? "" : ctx.getString(R.string.status_node_ip, s.nodeIp));
+            StringBuilder more = new StringBuilder();
+            if (s.nodeIp != null) {
+                more.append(ctx.getString(R.string.status_node_ip, s.nodeIp));
+            }
+            if (s.nodeConnections >= 0) {
+                if (more.length() > 0) {
+                    more.append('\n');
+                }
+                more.append(ctx.getResources().getQuantityString(R.plurals.status_node_history, s.nodeConnections,
+                        s.nodeConnections, Format.duration(ctx, s.nodeTotalMs)));
+                if (s.nodeFailovers > 0) {
+                    more.append('\n').append(ctx.getResources().getQuantityString(R.plurals.status_node_failovers,
+                            s.nodeFailovers, s.nodeFailovers));
+                }
+            }
+            nodeCard.set(s.nodeName, ctx.getString(R.string.status_node_detail, ms, v6), more.toString());
         }
 
-        sparkline.setVisibility(s.trafficBytes != null
-                && Effects.on(getContext(), Effects.Effect.SPARKLINE) ? VISIBLE : GONE);
+        boolean graphOn = s.trafficBytes != null && Effects.on(ctx, Effects.Effect.SPARKLINE);
+        graph.setVisibility(graphOn ? VISIBLE : GONE);
         if (s.trafficBytes == null) {
             trafficCard.set("—", "", "");
             lastUp = -1;
             lastDown = -1;
-            sparkline.clear();
+            graph.setData(new float[0], new float[0]);
         } else {
             long now = System.currentTimeMillis();
             long up = s.trafficBytes[0];
             long down = s.trafficBytes[1];
             double secs = Math.max(0.001, (now - lastMs) / 1000.0);
-            long upRate = lastUp < 0 ? 0 : (long) ((up - lastUp) / secs);
-            long downRate = lastDown < 0 ? 0 : (long) ((down - lastDown) / secs);
+            long upRate = lastUp < 0 || up < lastUp ? 0 : (long) ((up - lastUp) / secs);
+            long downRate = lastDown < 0 || down < lastDown ? 0 : (long) ((down - lastDown) / secs);
             lastUp = up;
             lastDown = down;
             lastMs = now;
-            trafficCard.set(getContext().getString(R.string.status_traffic_rate,
-                            Format.bytes(downRate), Format.bytes(upRate)),
-                    getContext().getString(R.string.status_traffic_session, Format.bytes(down), Format.bytes(up)), "");
-            sparkline.add(upRate + downRate);
+            String facts = s.sessionStartMs > 0
+                    ? ctx.getString(R.string.status_traffic_facts, Format.bytes(s.peakBps),
+                            Format.duration(ctx, Math.max(0, now - s.sessionStartMs)))
+                    : "";
+            trafficCard.set(ctx.getString(R.string.status_traffic_rate, Format.bytes(downRate), Format.bytes(upRate)),
+                    ctx.getString(R.string.status_traffic_session, Format.bytes(down), Format.bytes(up)), facts);
+            if (graphOn && s.graphDown != null && s.graphUp != null) {
+                graph.setData(s.graphDown, s.graphUp);
+            }
         }
 
         if (s.dnsCounts == null) {
             dnsCard.set("—", "", "");
         } else {
-            Context ctx = getContext();
             long blocked = s.dnsCounts[0];
             long total = blocked + s.dnsCounts[1];
             String pct = total == 0 ? "" : ctx.getString(R.string.status_dns_percent, 100.0 * blocked / total);
@@ -235,8 +277,13 @@ public class StatusView extends ScrollView {
         private final TextView detail;
         private final TextView extra;
         private final LinearLayout box;
+        private final boolean pulses;
+        private SpringAnimation springX;
+        private SpringAnimation springY;
+        private String lastMain;
 
-        Card(Context context, String title) {
+        Card(Context context, String title, boolean pulses) {
+            this.pulses = pulses;
             card = new MaterialCardView(context);
             card.setCardElevation(0f);
             card.setRadius(dp(24));
@@ -267,6 +314,51 @@ public class StatusView extends ScrollView {
             card.addView(box);
         }
 
+        /**
+         * Makes the card tappable (either action may be null). The card springs in while pressed and
+         * ticks when it is tapped or held.
+         */
+        void onTap(Runnable tap, Runnable hold) {
+            card.setClickable(true);
+            card.setFocusable(true);
+            if (tap != null) {
+                card.setOnClickListener(v -> {
+                    Effects.haptic(card, HapticFeedbackConstants.CONTEXT_CLICK);
+                    tap.run();
+                });
+            }
+            if (hold != null) {
+                card.setOnLongClickListener(v -> {
+                    Effects.haptic(card, HapticFeedbackConstants.LONG_PRESS);
+                    hold.run();
+                    return true;
+                });
+            }
+            card.setOnTouchListener((v, e) -> {
+                int action = e.getActionMasked();
+                if (action == MotionEvent.ACTION_DOWN) {
+                    scaleTo(0.97f);
+                } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                    scaleTo(1f);
+                }
+                return false; // the click and long-press still follow
+            });
+        }
+
+        private void scaleTo(float to) {
+            springX = Motion.spring(card, DynamicAnimation.SCALE_X, card.getScaleX(), to, true, springX);
+            springY = Motion.spring(card, DynamicAnimation.SCALE_Y, card.getScaleY(), to, true, springY);
+        }
+
+        /** A small bounce when the number changed. */
+        private void pulse() {
+            if (!pulses || !Effects.on(card.getContext(), Effects.Effect.TICKERS)) {
+                return;
+            }
+            springX = Motion.spring(card, DynamicAnimation.SCALE_X, 1.04f, 1f, true, springX);
+            springY = Motion.spring(card, DynamicAnimation.SCALE_Y, 1.04f, 1f, true, springY);
+        }
+
         private ValueAnimator ticker;
         private long shown = -1;
 
@@ -281,6 +373,12 @@ public class StatusView extends ScrollView {
 
         private void show(String main, long target, java.util.function.LongFunction<String> render,
                           String sub, String more) {
+            boolean changed = target >= 0 ? shown >= 0 && target != shown
+                    : lastMain != null && !main.equals(lastMain);
+            if (changed) {
+                pulse();
+            }
+            lastMain = main;
             if (ticker != null) {
                 ticker.cancel();
             }

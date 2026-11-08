@@ -143,6 +143,12 @@
     <string name="settings_privacy_clear_message">This removes the DNS queries kept on this phone. It cannot be undone.</string>
     <string name="settings_privacy_clear_action">Clear</string>
     <string name="settings_privacy_cleared">Query log cleared</string>
+    <string name="settings_privacy_history">Node history</string>
+    <string name="settings_privacy_history_summary">Keeps which node carried your traffic and when, for 7 days, so the Status cards can show how often you used it. Turning it off deletes it.</string>
+    <string name="settings_privacy_history_clear">Clear node history</string>
+    <string name="settings_privacy_history_clear_title">Clear the node history?</string>
+    <string name="settings_privacy_history_clear_message">This removes the record of which nodes you used. It cannot be undone.</string>
+    <string name="settings_privacy_history_cleared">Node history cleared</string>
     <string name="settings_scheme_default">filt3r default</string>
     <string name="settings_scheme_standard">Standard</string>
     <string name="settings_scheme_vibrant">Vibrant</string>

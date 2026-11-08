@@ -140,6 +140,13 @@ public class SettingsPanel extends LinearLayout {
 
         void clearQueryLog();
 
+        boolean historyEnabled();
+
+        /** Turning it off also deletes what was kept. */
+        void setHistoryEnabled(boolean on);
+
+        void clearHistory();
+
         boolean toolbarPinned();
 
         void setToolbarPinned(boolean pinned);
@@ -640,6 +647,23 @@ public class SettingsPanel extends LinearLayout {
             }
         });
         card.addView(alwaysOn);
+        card.addView(switchRow(context, context.getString(R.string.settings_privacy_history),
+                context.getString(R.string.settings_privacy_history_summary),
+                backend.historyEnabled(), backend::setHistoryEnabled));
+        MaterialButton clearHistory = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        clearHistory.setText(R.string.settings_privacy_history_clear);
+        clearHistory.setOnClickListener(v -> Dialogs.confirm(getContext(),
+                context.getString(R.string.settings_privacy_history_clear_title),
+                context.getString(R.string.settings_privacy_history_clear_message),
+                context.getString(R.string.settings_privacy_clear_action), () -> {
+                    backend.clearHistory();
+                    Effects.haptic(clearHistory, HapticFeedbackConstants.CONFIRM);
+                    Messages.show(this, context.getString(R.string.settings_privacy_history_cleared), Snackbar.LENGTH_SHORT);
+                }));
+        LayoutParams clearHistoryParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        clearHistoryParams.setMargins(dp(16), 0, dp(16), dp(8));
+        card.addView(clearHistory, clearHistoryParams);
     }
 
     private static final String[] SCHEME_KEYS = {"default", "standard", "vibrant", "expressive", "dynamic"};
