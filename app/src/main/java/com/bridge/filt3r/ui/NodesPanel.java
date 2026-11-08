@@ -115,6 +115,7 @@ public class NodesPanel extends LinearLayout {
     private final ImageButton retestButton;
     private final ListView list;
     private boolean busy;
+    private boolean onlyMine; // show only the nodes the user added with +
     private final LinearProgressIndicator progress;
     private FrameLayout detailLayer;
     private Runnable unblur = () -> { };
@@ -224,9 +225,20 @@ public class NodesPanel extends LinearLayout {
                 reload();
             }
         });
+        MaterialButton mine = sortButton(context, context.getString(R.string.nodes_filter_mine));
+        mine.addOnCheckedChangeListener((b, checked) -> {
+            onlyMine = checked;
+            reload();
+        });
+        LinearLayout sortRow = new LinearLayout(context);
+        sortRow.setGravity(Gravity.CENTER_VERTICAL);
+        sortRow.addView(sort);
+        LayoutParams mineParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        mineParams.leftMargin = dp(8);
+        sortRow.addView(mine, mineParams);
         LayoutParams sortParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         sortParams.setMargins(dp(16), 0, dp(16), dp(8));
-        addView(sort, sortParams);
+        addView(sortRow, sortParams);
 
         TextInputLayout searchLayout = new TextInputLayout(context);
         searchLayout.setHint(context.getString(R.string.nodes_search_hint));
@@ -418,11 +430,23 @@ public class NodesPanel extends LinearLayout {
                 return byState != 0 ? byState : Long.compare(b.speedBps, a.speedBps);
             });
         }
+        // Nodes the user added come first, so a new one is easy to find; the order inside each group stays.
+        List<NodeInfo> mineFirst = new ArrayList<>();
+        List<NodeInfo> others = new ArrayList<>();
+        for (NodeInfo n : all) {
+            (backend.source(n.node) == Backend.SOURCE_MANUAL ? mineFirst : others).add(n);
+        }
+        all = new ArrayList<>(mineFirst);
+        if (!onlyMine) {
+            all.addAll(others);
+        }
         if (current != null && all.remove(current)) {
             all.add(0, current); // the node in use is always the first row
         }
+        boolean nothingAdded = onlyMine && mineFirst.isEmpty() && !others.isEmpty();
         adapter.set(all);
-        empty.setText(everything.isEmpty() ? R.string.nodes_empty : R.string.nodes_no_match);
+        empty.setText(everything.isEmpty() ? R.string.nodes_empty
+                : nothingAdded ? R.string.nodes_none_added : R.string.nodes_no_match);
         if (all.isEmpty() && empty.getVisibility() != VISIBLE
                 && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
             empty.setAlpha(0f);
