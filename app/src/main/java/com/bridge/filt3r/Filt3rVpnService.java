@@ -10,8 +10,10 @@ import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.VpnService;
 import android.os.FileObserver;
+import android.os.BatteryManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
@@ -847,6 +849,10 @@ public class Filt3rVpnService extends VpnService {
         refresher = ref;
         maint.scheduleWithFixedDelay(() -> {
             try {
+                if (new Settings(this).testOnlyWhenCheap() && !cheapToTest()) {
+                    Log.i(TAG, "node round skipped: metered network and not charging");
+                    return;
+                }
                 r.testRound(ROUND_TOP, ROUND_RANDOM);
                 probeIpv6();
             } catch (RuntimeException | Error e) {
@@ -861,6 +867,18 @@ public class Filt3rVpnService extends VpnService {
                 Log.w(TAG, "refresh failed: " + e);
             }
         }, FIRST_MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
+    }
+
+    /** True on an unmetered network (normally Wi-Fi) or while charging: the hourly node tests cost data and battery. */
+    private boolean cheapToTest() {
+        ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+        Network active = cm == null ? null : cm.getActiveNetwork();
+        NetworkCapabilities caps = active == null ? null : cm.getNetworkCapabilities(active);
+        if (caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) {
+            return true;
+        }
+        BatteryManager battery = getSystemService(BatteryManager.class);
+        return battery != null && battery.isCharging();
     }
 
     /**

@@ -93,6 +93,10 @@ public class SettingsPanel extends LinearLayout {
 
         void setFailClosed(boolean closed);
 
+        boolean testOnlyWhenCheap();
+
+        void setTestOnlyWhenCheap(boolean on);
+
         String resolverName();
 
         /** The built-in resolver first, then the ones that passed the last test (fastest first). */
@@ -354,6 +358,9 @@ public class SettingsPanel extends LinearLayout {
                     backend.setFailClosed(on);
                     markChanged();
                 }));
+        card.addView(switchRow(context, context.getString(R.string.settings_connection_test_cheap),
+                context.getString(R.string.settings_connection_test_cheap_summary),
+                backend.testOnlyWhenCheap(), backend::setTestOnlyWhenCheap));
     }
 
     private void buildDns(Context context) {

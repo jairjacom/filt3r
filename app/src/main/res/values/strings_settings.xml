@@ -223,6 +223,8 @@
     <string name="settings_connection_subscription_note">Paste the address of a Shadowsocks subscription. Nodes come from every subscription that is switched on; switch the others off to use just one.</string>
     <string name="settings_connection_fail_closed">Block traffic when no node works</string>
     <string name="settings_connection_fail_closed_off">Off: connect directly instead, which shows your real IP.</string>
+    <string name="settings_connection_test_cheap">Test nodes only on Wi-Fi or while charging</string>
+    <string name="settings_connection_test_cheap_summary">Skips the hourly node test on mobile data when the phone is not charging. The search at start, failover and Re-test are not affected.</string>
     <plurals name="overrides_summary_rules">
         <item quantity="one">%1$d rule</item>
         <item quantity="other">%1$d rules</item>

@@ -64,6 +64,7 @@ final class Settings {
     private static final String KEY_FILTER_URL = "filter_url";
     private static final String KEY_ENABLED_LISTS = "enabled_lists";
     private static final String KEY_IP_BLOCK = "ip_block";
+    private static final String KEY_TEST_CHEAP = "test_only_cheap";
     private static final String KEY_LIST_DAYS = "list_refresh_days";
     private static final String KEY_TOOLBAR_PINNED = "toolbar_pinned";
     private static final String KEY_TOOLBAR_STYLE = "toolbar_style";
@@ -234,6 +235,15 @@ final class Settings {
 
     void setIpBlockEnabled(boolean on) {
         prefs.edit().putBoolean(KEY_IP_BLOCK, on).apply();
+    }
+
+    /** True to run the hourly node tests only on an unmetered network or while charging. Off by default. */
+    boolean testOnlyWhenCheap() {
+        return prefs.getBoolean(KEY_TEST_CHEAP, false);
+    }
+
+    void setTestOnlyWhenCheap(boolean on) {
+        prefs.edit().putBoolean(KEY_TEST_CHEAP, on).apply();
     }
 
     /** Days between updates of the block lists and the IP blocklist. Applies at the next (re)start. */

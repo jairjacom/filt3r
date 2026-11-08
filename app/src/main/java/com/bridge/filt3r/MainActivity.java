@@ -1057,6 +1057,16 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public boolean testOnlyWhenCheap() {
+        return settings.testOnlyWhenCheap();
+    }
+
+    @Override
+    public void setTestOnlyWhenCheap(boolean on) {
+        settings.setTestOnlyWhenCheap(on);
+    }
+
+    @Override
     public String resolverName() {
         return settings.resolverName();
     }
