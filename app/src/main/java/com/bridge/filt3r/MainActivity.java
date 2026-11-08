@@ -1377,6 +1377,33 @@ public class MainActivity extends Activity
         return NodeStore.sourceCount();
     }
 
+    @Override
+    public int addManualNode(ShadowsocksNode node) {
+        // A link without a name gets its address as the name, so the list row is not blank.
+        ShadowsocksNode named = node.name.isEmpty()
+                ? ShadowsocksNode.of(node.suite.methodName, node.password, node.host, node.port, node.host) : node;
+        try {
+            if (!ManualNodes.add(getFilesDir(), named)) {
+                return NodesPanel.Backend.ADD_DUPLICATE;
+            }
+        } catch (IOException e) {
+            return NodesPanel.Backend.ADD_FAILED;
+        }
+        Filt3rVpnService.reloadNodes(named);
+        return NodesPanel.Backend.ADD_OK;
+    }
+
+    @Override
+    public void removeManualNode(ShadowsocksNode node) {
+        try {
+            ManualNodes.remove(getFilesDir(), node);
+        } catch (IOException e) {
+            Messages.show(frame, getString(R.string.nodes_add_failed));
+            return;
+        }
+        Filt3rVpnService.reloadNodes(null);
+    }
+
     // ---- Appearance (SettingsPanel.Backend). Colour changes restart the activity; the panel reopens. ----
 
     @Override

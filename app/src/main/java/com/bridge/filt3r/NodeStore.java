@@ -61,6 +61,11 @@ final class NodeStore {
                 }
             }
         }
+        for (ShadowsocksNode n : ManualNodes.read(dir)) {
+            if (all.putIfAbsent(n.host + ":" + n.port, n) == null) {
+                owner.put(NodeManager.keyOf(n), ManualNodes.SOURCE);
+            }
+        }
         sources = owner;
         sourceKinds = new java.util.HashSet<>(owner.values()).size();
         return new ArrayList<>(all.values());

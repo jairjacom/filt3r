@@ -622,6 +622,27 @@ public class Filt3rVpnService extends VpnService {
     }
 
     /**
+     * Re-reads every saved node into the running list (after a pasted node was added or removed) and,
+     * for an added node, tests it. Does nothing while the tunnel is down: the next start loads the file.
+     */
+    static void reloadNodes(ShadowsocksNode added) {
+        Filt3rVpnService s = instance;
+        NodeRuntime r = s == null ? null : s.runtime;
+        ScheduledExecutorService maint = s == null ? null : s.maintenance;
+        if (r == null || maint == null) {
+            return;
+        }
+        try {
+            maint.execute(() -> r.manager.setNodes(r.store.load()));
+        } catch (RejectedExecutionException e) { // the tunnel was stopped just now
+            return;
+        }
+        if (added != null) {
+            retestNode(added, () -> { });
+        }
+    }
+
+    /**
      * Pins a node chosen in the Node list; a node that was never tested is tested first. Runs on
      * the maintenance thread, and {@code done} is called there (post to the main thread before
      * touching views). If the node does not answer, nothing is pinned and {@link #takeNotice} says so.
