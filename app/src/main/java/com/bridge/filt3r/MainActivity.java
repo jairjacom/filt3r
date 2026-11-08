@@ -1338,6 +1338,11 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public List<String> selfCheck() {
+        return SelfCheck.run(this, settings);
+    }
+
+    @Override
     public String filterStatus() {
         return FilterStatusText.describe(this, FilterStatus.get(), running(), System.currentTimeMillis(), true);
     }

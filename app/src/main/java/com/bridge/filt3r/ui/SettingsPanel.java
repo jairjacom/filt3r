@@ -103,6 +103,9 @@ public class SettingsPanel extends LinearLayout {
         /** Tests a stamp through the node. Blocks; the panel calls it off the main thread. */
         String checkResolver(String stamp) throws IOException;
 
+        /** The self-check results, one line each (see SelfCheck). Blocks; the panel calls it off the main thread. */
+        List<String> selfCheck();
+
         /** "" if none. */
         String filterListUrl();
 
@@ -921,6 +924,10 @@ public class SettingsPanel extends LinearLayout {
 
     private void buildAbout(Context context) {
         LinearLayout card = group(null);
+        Row selfCheck = valueRow(context, context.getString(R.string.settings_about_selfcheck_title),
+                context.getString(R.string.settings_about_selfcheck_summary));
+        selfCheck.setOnClickListener(v -> showSelfCheck());
+        card.addView(selfCheck);
         card.addView(note(context, context.getString(R.string.settings_about_version, backend.version())));
         card.addView(note(context, context.getString(R.string.settings_about_protection)));
         card.addView(note(context, context.getString(R.string.settings_about_license)));
@@ -963,6 +970,33 @@ public class SettingsPanel extends LinearLayout {
                     Messages.show(this, getContext().getString(R.string.settings_about_diag_copied), Snackbar.LENGTH_SHORT);
                 })
                 .show();
+    }
+
+    /** Runs the self-check off the main thread and shows the checklist in a dialog. */
+    private void showSelfCheck() {
+        Context context = getContext();
+        TextView body = new TextView(context);
+        body.setText(R.string.settings_selfcheck_running);
+        body.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        body.setTextIsSelectable(true);
+        body.setPadding(dp(24), dp(8), dp(24), dp(8));
+        ScrollView scroll = new ScrollView(context);
+        scroll.addView(body);
+        Dialogs.builder(context)
+                .setTitle(R.string.settings_about_selfcheck_title)
+                .setView(scroll)
+                .setPositiveButton(R.string.settings_close, null)
+                .show();
+        Thread t = new Thread(() -> {
+            List<String> lines = backend.selfCheck();
+            StringBuilder text = new StringBuilder();
+            for (String line : lines) {
+                text.append(text.length() == 0 ? "" : "\n\n").append(line);
+            }
+            body.post(() -> body.setText(text));
+        }, "self-check");
+        t.setDaemon(true);
+        t.start();
     }
 
     /** Shows the saved crash report so it can be copied; the file is kept until the user clears it. */
