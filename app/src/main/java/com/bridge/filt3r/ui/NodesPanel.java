@@ -1,6 +1,7 @@
 package com.bridge.filt3r.ui;
 
 import android.content.Context;
+import android.animation.ObjectAnimator;
 import android.text.TextUtils;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
@@ -109,6 +110,7 @@ public class NodesPanel extends LinearLayout {
     private int panelAccessibility;
     private String query = "";
     private final MaterialButton showHidden;
+    private ObjectAnimator retestSpin;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -195,8 +197,8 @@ public class NodesPanel extends LinearLayout {
         sort.setSingleSelection(true);
         sort.setSelectionRequired(true);
         sort.setSpacing(dp(8));
-        MaterialButton byLatency = sortButton(context, context.getString(R.string.nodes_sort_latency));
-        MaterialButton bySpeed = sortButton(context, context.getString(R.string.nodes_sort_speed));
+        MaterialButton byLatency = sortButton(context, context.getString(R.string.nodes_sort_latency), R.drawable.ic_clock);
+        MaterialButton bySpeed = sortButton(context, context.getString(R.string.nodes_sort_speed), R.drawable.ic_bolt);
         sort.addView(byLatency);
         sort.addView(bySpeed);
         sort.check(backend.sortBySpeed() ? bySpeed.getId() : byLatency.getId());
@@ -321,19 +323,28 @@ public class NodesPanel extends LinearLayout {
         }
     }
 
-    private void retestOne(NodeInfo n) {
+    /** Re-tests one node from its details card: the button shows a spinner, then a check, then the card closes. */
+    private void retestFromCard(NodeInfo n, ProgressButton button) {
         if (busy) {
             Messages.show(this, getContext().getString(R.string.nodes_already_testing), Snackbar.LENGTH_SHORT);
             return;
         }
+        View cardAtStart = detailCard;
         setBusy(true);
-        NodeLocation loc = NodeLocation.parse(n.node.name);
-        Messages.show(this, getContext().getString(R.string.nodes_testing_city, loc.city), Snackbar.LENGTH_SHORT);
-        if (!backend.retestNode(n.node, () -> post(() -> {
+        button.busy();
+        boolean started = backend.retestNode(n.node, () -> post(() -> {
             setBusy(false);
+            button.finish(true);
             reload();
-        }))) {
+            postDelayed(() -> {
+                if (detailCard == cardAtStart) {
+                    closeDetail(); // the row behind shows the new result
+                }
+            }, 1000);
+        }));
+        if (!started) {
             setBusy(false);
+            button.finish(false);
             Messages.show(this, getContext().getString(R.string.nodes_not_possible), Snackbar.LENGTH_SHORT);
         }
     }
@@ -343,13 +354,16 @@ public class NodesPanel extends LinearLayout {
             return;
         }
         setBusy(true);
+        retestSpin = ActionMorph.busy(retestButton);
         Messages.show(this, getContext().getString(R.string.nodes_retesting_best), Snackbar.LENGTH_SHORT);
         boolean started = backend.retest(() -> post(() -> {
             setBusy(false);
+            ActionMorph.finish(retestButton, retestSpin, true, R.drawable.ic_refresh);
             reload();
         }));
         if (!started) {
             setBusy(false);
+            ActionMorph.finish(retestButton, retestSpin, false, R.drawable.ic_refresh);
             Messages.show(this, getContext().getString(R.string.nodes_not_possible), Snackbar.LENGTH_SHORT);
         }
     }
@@ -615,13 +629,8 @@ public class NodesPanel extends LinearLayout {
         });
         LayoutParams gap = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         gap.rightMargin = dp(8);
-        MaterialButton test = new MaterialButton(context, null,
-                com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        test.setText(R.string.nodes_retest_button);
-        test.setOnClickListener(v -> {
-            closeDetail();
-            retestOne(n);
-        });
+        ProgressButton test = new ProgressButton(context, context.getString(R.string.nodes_retest_button));
+        test.setOnClick(v -> retestFromCard(n, test));
         buttons.addView(close, gap);
         LayoutParams testGap = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         testGap.rightMargin = dp(8);
@@ -664,13 +673,14 @@ public class NodesPanel extends LinearLayout {
         return line;
     }
 
-    private MaterialButton sortButton(Context context, String text) {
+    private MaterialButton sortButton(Context context, String text, int icon) {
         MaterialButton b = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         b.setText(text);
         b.setId(View.generateViewId());
         b.setCheckable(true);
         Accent.selectable(b);
+        Accent.morphIcon(b, icon);
         return b;
     }
 

@@ -253,6 +253,12 @@
     <string name="qlog_switch">Log DNS queries</string>
     <string name="qlog_search_hint">Search names</string>
     <string name="qlog_chip_all">All</string>
+    <string name="qlog_chip_top">Top</string>
+    <string name="qlog_top_summary">"Blocked %1$d  ·  Allowed %2$d"</string>
+    <string name="qlog_menu_copy">Copy name</string>
+    <string name="qlog_menu_only">Show only this domain</string>
+    <string name="qlog_menu_rule">Allow or block this domain</string>
+    <string name="qlog_copied">Copied</string>
     <string name="qlog_blocked">Blocked</string>
     <string name="qlog_allowed">Allowed</string>
     <string name="qlog_export_both">Both</string>
