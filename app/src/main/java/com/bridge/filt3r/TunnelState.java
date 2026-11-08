@@ -17,6 +17,7 @@ final class TunnelState {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final CopyOnWriteArrayList<Listener> LISTENERS = new CopyOnWriteArrayList<>();
     private static volatile State state = State.STOPPED;
+    private static volatile long pausedUntil;
 
     private TunnelState() {}
 
@@ -26,9 +27,28 @@ final class TunnelState {
 
     static void set(State next) {
         state = next;
+        if (next != State.RUNNING) {
+            pausedUntil = 0; // a pause belongs to one running tunnel
+        }
+        notifyListeners(next);
+    }
+
+    /** Wall-clock end of the filtering pause, or 0 when filtering is on. */
+    static long pausedUntil() {
+        long until = pausedUntil;
+        return until > System.currentTimeMillis() ? until : 0;
+    }
+
+    /** Records the pause and tells the listeners, so the screen, tile and widget refresh. */
+    static void setPausedUntil(long until) {
+        pausedUntil = until;
+        notifyListeners(state);
+    }
+
+    private static void notifyListeners(State current) {
         MAIN.post(() -> {
             for (Listener l : LISTENERS) {
-                l.onTunnelState(next);
+                l.onTunnelState(current);
             }
         });
     }

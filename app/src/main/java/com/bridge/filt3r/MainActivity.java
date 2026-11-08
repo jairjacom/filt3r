@@ -314,6 +314,8 @@ public class MainActivity extends Activity
             openSection(1);
         } else if (ACTION_OPEN_LOG.equals(action)) {
             openSection(3);
+        } else if (android.service.quicksettings.TileService.ACTION_QS_TILE_PREFERENCES.equals(action)) {
+            status.showPauseChoices(); // the tile was long-pressed
         }
     }
 
@@ -411,6 +413,7 @@ public class MainActivity extends Activity
     @Override
     public void onTunnelState(TunnelState.State state) {
         status.setState(StatusView.State.valueOf(state.name()));
+        status.setPausedUntil(TunnelState.pausedUntil());
         if (state != TunnelState.State.RUNNING && state != TunnelState.State.STARTING) {
             setRestartPending(false); // a fresh start applies every change
         }
@@ -562,6 +565,18 @@ public class MainActivity extends Activity
         startForegroundService(new Intent(this, Filt3rVpnService.class)
                 .setAction(Filt3rVpnService.ACTION_RESTART));
         closePanelAnimated(); // back to Status, where the reconnect shows
+    }
+
+    @Override
+    public void pause(int minutes) {
+        startService(new Intent(this, Filt3rVpnService.class)
+                .setAction(Filt3rVpnService.ACTION_PAUSE)
+                .putExtra(Filt3rVpnService.EXTRA_MINUTES, minutes));
+    }
+
+    @Override
+    public void resume() {
+        startService(new Intent(this, Filt3rVpnService.class).setAction(Filt3rVpnService.ACTION_RESUME));
     }
 
     @Override

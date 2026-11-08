@@ -71,6 +71,10 @@
     <string name="vpn_notification_running_title">filt3r is running</string>
     <string name="vpn_notification_running_text">DNS filtering is on.</string>
     <string name="vpn_notification_action_stop">Stop</string>
+    <string name="vpn_notification_paused_title">Filtering is paused</string>
+    <string name="vpn_notification_paused_text">Nothing is blocked until %1$s.</string>
+    <string name="vpn_notification_action_pause">Pause %1$d min</string>
+    <string name="vpn_notification_action_resume">Resume</string>
     <string name="vpn_check_bad_stamp">not a usable DNSCrypt stamp: %1$s</string>
     <string name="vpn_check_start_vpn_first">start the VPN first: resolvers are tested through the node</string>
     <string name="vpn_check_works">works, %1$d ms</string>
@@ -78,6 +82,7 @@
 
     <!-- Tile -->
     <string name="tile_on">On</string>
+    <string name="tile_paused">Filtering paused</string>
     <string name="tile_connecting">Connecting. Tap to cancel.</string>
     <string name="tile_failed">Failed</string>
     <string name="tile_off">Off</string>
@@ -103,11 +108,18 @@
     <string name="hero_connecting">Connecting</string>
     <string name="hero_failed">Failed</string>
     <string name="hero_off">Off</string>
+    <string name="hero_paused">Paused</string>
 
     <!-- StatusView -->
     <string name="status_connect">Connect</string>
     <string name="status_disconnect">Disconnect</string>
     <string name="status_restart">Restart</string>
+    <string name="status_pause">Pause filtering</string>
+    <string name="status_pause_title">Pause filtering for how long?</string>
+    <string name="status_pause_minutes">%1$d minutes</string>
+    <string name="status_pause_hour">1 hour</string>
+    <string name="status_resume">Resume filtering  ·  %1$s</string>
+    <string name="status_pause_not_running">Connect first, then you can pause filtering.</string>
     <string name="status_card_node">Node</string>
     <string name="status_card_traffic">Traffic</string>
     <string name="status_card_dns">DNS</string>

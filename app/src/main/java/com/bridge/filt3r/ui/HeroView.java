@@ -102,6 +102,15 @@ public class HeroView extends FrameLayout {
         setMode(Mode.OFF);
     }
 
+    /** While filtering is paused the connected hero reads "Paused" in the warning colour. No effect in other modes. */
+    public void setPaused(boolean paused) {
+        if (mode != Mode.ACTIVE) {
+            return;
+        }
+        word.setText(paused ? R.string.hero_paused : R.string.hero_connected);
+        fadeColor(paused ? Colors.warning(getContext()) : Colors.active(getContext()));
+    }
+
     public void setMode(Mode newMode) {
         Mode before = mode;
         mode = newMode;
