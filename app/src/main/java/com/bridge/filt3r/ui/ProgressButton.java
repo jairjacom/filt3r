@@ -9,7 +9,6 @@ import android.widget.ImageView;
 
 import com.bridge.filt3r.R;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.color.MaterialColors;
 import com.google.android.material.progressindicator.CircularProgressIndicator;
 
 /**
@@ -43,8 +42,7 @@ final class ProgressButton extends FrameLayout {
 
         check = new ImageView(context);
         check.setImageResource(R.drawable.ic_check);
-        check.setImageTintList(ColorStateList.valueOf(MaterialColors.getColor(this,
-                com.google.android.material.R.attr.colorPrimary)));
+        check.setImageTintList(ColorStateList.valueOf(Colors.active(context)));
         check.setVisibility(GONE);
         check.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         addView(check, new LayoutParams((int) (20 * density), (int) (20 * density), Gravity.CENTER));
