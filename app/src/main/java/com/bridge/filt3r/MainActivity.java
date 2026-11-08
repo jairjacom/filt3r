@@ -484,6 +484,7 @@ public class MainActivity extends Activity
     public void restart() {
         startForegroundService(new Intent(this, Filt3rVpnService.class)
                 .setAction(Filt3rVpnService.ACTION_RESTART));
+        closePanelAnimated(); // back to Status, where the reconnect shows
     }
 
     @Override
@@ -817,6 +818,29 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public java.util.Set<String> hiddenNodes() {
+        return settings.hiddenNodes();
+    }
+
+    @Override
+    public void hideNode(ShadowsocksNode node) {
+        java.util.Set<String> keys = settings.hiddenNodes();
+        keys.add(com.bridge.filt3r.core.nodes.NodeManager.keyOf(node));
+        settings.setHiddenNodes(keys);
+        if (running()) {
+            setRestartPending(true);
+        }
+    }
+
+    @Override
+    public void showHiddenNodes() {
+        settings.setHiddenNodes(new java.util.HashSet<>());
+        if (running()) {
+            setRestartPending(true);
+        }
+    }
+
+    @Override
     public String lastTestText() {
         long t = Filt3rVpnService.lastNodeTestMs();
         return t <= 0 ? getString(R.string.main_nodes_not_tested)
@@ -857,19 +881,27 @@ public class MainActivity extends Activity
     }
 
     @Override
-    public void setSubscription(int slot, String url, int hours) {
+    public String setSubscription(int slot, String url, int hours) {
+        String clean;
+        try {
+            clean = Settings.normalizeSubscriptionUrl(this, url);
+        } catch (IllegalArgumentException e) {
+            return e.getMessage(); // nothing is saved and the cached node list stays
+        }
         String old = null;
         for (Settings.Subscription s : settings.subscriptions()) {
             if (s.slot == slot) {
                 old = s.url;
             }
         }
-        settings.setSubscription(slot, url, hours);
-        if (old != null && !old.equals(url.trim())) {
+        settings.setSubscription(slot, clean, hours);
+        if (old != null && !old.equals(clean)) {
             // The old subscription's node list holds its URL (often a token) and every node password.
             new File(getFilesDir(), "nodes_" + slot + ".txt").delete();
             new File(getFilesDir(), "nodes_" + slot + ".tmp").delete();
+            NodeStore.clearError(slot);
         }
+        return null;
     }
 
     @Override
@@ -890,8 +922,17 @@ public class MainActivity extends Activity
     @Override
     public String subscriptionUpdated(int slot) {
         long t = NodeStore.updatedAt(getFilesDir(), slot);
-        return t <= 0 ? getString(R.string.main_subscription_not_downloaded)
-                : getString(R.string.main_subscription_updated, FilterStatusText.ago(this, t, System.currentTimeMillis()));
+        StringBuilder sb = new StringBuilder(t <= 0 ? getString(R.string.main_subscription_not_downloaded)
+                : getString(R.string.main_subscription_updated, FilterStatusText.ago(this, t, System.currentTimeMillis())));
+        int count = NodeStore.cachedCount(getFilesDir(), slot);
+        if (count > 0) {
+            sb.append(" · ").append(getResources().getQuantityString(R.plurals.main_subscription_nodes, count, count));
+        }
+        String error = NodeStore.lastError(slot);
+        if (error != null) {
+            sb.append('\n').append(getString(R.string.main_subscription_failed, error));
+        }
+        return sb.toString();
     }
 
     @Override
@@ -1113,6 +1154,56 @@ public class MainActivity extends Activity
         } catch (android.content.pm.PackageManager.NameNotFoundException e) {
             return "";
         }
+    }
+
+    @Override
+    public String diagnostics() {
+        int working = 0;
+        int blacklisted = 0;
+        int untested = 0;
+        NodeInfo current = null;
+        for (NodeInfo n : Filt3rVpnService.nodeStatus()) {
+            if (n.state == NodeInfo.State.WORKING) {
+                working++;
+            } else if (n.state == NodeInfo.State.BLACKLISTED) {
+                blacklisted++;
+            } else {
+                untested++;
+            }
+            if (n.current) {
+                current = n;
+            }
+        }
+        int slotsUsed = 0;
+        int slotsOn = 0;
+        for (Settings.Subscription s : settings.subscriptions()) {
+            slotsUsed++;
+            if (s.enabled) {
+                slotsOn++;
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("filt3r ").append(version()).append('\n');
+        sb.append("Android ").append(android.os.Build.VERSION.RELEASE).append(" (API ")
+                .append(android.os.Build.VERSION.SDK_INT).append("), ")
+                .append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append('\n');
+        sb.append("Tunnel: ").append(TunnelState.get()).append('\n');
+        sb.append("Nodes: ").append(working).append(" working, ").append(untested).append(" untested, ")
+                .append(blacklisted).append(" blocked\n");
+        if (current != null) {
+            sb.append("Current node: ").append(current.medianMs).append(" ms, IPv6 ")
+                    .append(current.ipv6 == null ? "unknown" : current.ipv6 ? "yes" : "no").append('\n');
+        }
+        sb.append("Subscriptions: ").append(slotsUsed).append(" set, ").append(slotsOn).append(" on\n");
+        sb.append("Failure mode: ").append(settings.failureMode()).append('\n');
+        sb.append("Query log: ").append(settings.queryLogEnabled() ? "on" : "off").append('\n');
+        sb.append("Toolbar: ").append(settings.toolbarStyle()).append('\n');
+        sb.append("Filters: ").append(filterStatus()).append('\n');
+        String crash = CrashLog.read(this);
+        if (crash != null) {
+            sb.append("\nLast crash:\n").append(crash.replaceAll("(?i)https?://\\S+", "<address>")).append('\n');
+        }
+        return sb.toString();
     }
 
     @Override

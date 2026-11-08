@@ -29,6 +29,11 @@
     <string name="main_nodes_tested">Nodes tested %1$s</string>
     <string name="main_subscription_not_downloaded">Not downloaded yet</string>
     <string name="main_subscription_updated">Last updated %1$s</string>
+    <plurals name="main_subscription_nodes">
+        <item quantity="one">%1$d node</item>
+        <item quantity="other">%1$d nodes</item>
+    </plurals>
+    <string name="main_subscription_failed">Last update failed: %1$s</string>
 
     <!-- FilterStatusText -->
     <string name="filter_status_downloading">Downloading filter lists (%1$d of %2$d)...</string>
@@ -55,6 +60,7 @@
     <string name="vpn_channel_name">Tunnel status</string>
     <string name="vpn_notice_pinned_node_stopped">Pinned node %1$s stopped working; switched to the best node</string>
     <string name="vpn_notice_node_no_answer">%1$s did not answer</string>
+    <string name="vpn_notice_node_switched">Switched to %1$s because %2$s stopped working</string>
     <string name="vpn_notice_ip_block_not_loaded">IP blocklist not loaded: %1$s</string>
     <string name="vpn_ip_block_downloading">Downloading...</string>
     <string name="vpn_ip_block_updating">Updating...</string>
@@ -129,6 +135,18 @@
     <string name="nodes_sort_latency">Latency</string>
     <string name="nodes_sort_speed">Speed</string>
     <string name="nodes_empty">Connect to see the nodes.</string>
+    <string name="nodes_search_hint">Search nodes</string>
+    <string name="nodes_no_match">No node matches.</string>
+    <string name="nodes_show_hidden">Show hidden nodes (%1$d)</string>
+    <string name="nodes_hide_button">Hide this node</string>
+    <string name="nodes_hide_title">Hide this node?</string>
+    <string name="nodes_hide_message">It leaves the list and is never used, starting with the next restart. You can bring hidden nodes back from the Nodes screen.</string>
+    <string name="nodes_hide_action">Hide</string>
+    <string name="nodes_hidden_done">Hidden. It is skipped from the next start.</string>
+    <string name="nodes_unhide_title">Show hidden nodes?</string>
+    <string name="nodes_unhide_message">All hidden nodes come back after the next restart.</string>
+    <string name="nodes_unhide_action">Show</string>
+    <string name="nodes_unhidden_done">They come back after the next restart.</string>
     <string name="nodes_blacklisted_message">This node failed 3 times in a row; it is skipped for a while and tried again automatically.</string>
     <string name="nodes_testing_first">Testing the node first...</string>
     <string name="nodes_connect_first">Connect first.</string>

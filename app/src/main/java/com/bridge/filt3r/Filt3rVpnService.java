@@ -215,7 +215,7 @@ public class Filt3rVpnService extends VpnService {
             DnsCryptStamp testStamp = DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
             Settings settings = new Settings(this);
             QueryLog queryLog = QueryLogs.get(this);
-            NodeStore store = new NodeStore(getFilesDir(), settings.activeSubscriptions());
+            NodeStore store = new NodeStore(getFilesDir(), settings.activeSubscriptions(), settings.hiddenNodes());
             NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
             manager.setPinListener((gone, dead) -> {
                 settings.setPinnedNode(null);
@@ -237,6 +237,10 @@ public class Filt3rVpnService extends VpnService {
                     queryLog.add(host, blocked);
                 });
                 nodes = manager;
+                synchronized (lastNodeLock) {
+                    lastNode = null;
+                    lastPinned = false;
+                }
                 watchNetwork(manager);
             }
 
@@ -437,9 +441,26 @@ public class Filt3rVpnService extends VpnService {
         }
     }
 
+    private final Object lastNodeLock = new Object();
+    private ShadowsocksNode lastNode; // the node that carried traffic before this change; null at a fresh start
+    private boolean lastPinned;
+
     private void onCurrentNodeChanged(ShadowsocksNode node) {
         NodeManager m = nodes;
         Log.i(TAG, "current node changed: " + (node == null ? "none" : "ok") + (m == null ? "" : ", " + m.summary()));
+        if (node != null) {
+            // Tell the user when an unpinned node died and another took over. A pin, an unpin and a
+            // dead pinned node are the user's doing or have their own notice.
+            boolean pinnedNow = m != null && m.pinnedKey() != null;
+            synchronized (lastNodeLock) {
+                if (lastNode != null && !pinnedNow && !lastPinned
+                        && !NodeManager.keyOf(lastNode).equals(NodeManager.keyOf(node))) {
+                    notice.compareAndSet(null, getString(R.string.vpn_notice_node_switched, node.name, lastNode.name));
+                }
+                lastNode = node;
+                lastPinned = pinnedNow;
+            }
+        }
         applyIpv6();
         if (m != null && m.currentIpv6Unknown()) {
             probeIpv6();

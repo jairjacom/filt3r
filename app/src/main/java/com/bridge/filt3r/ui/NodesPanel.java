@@ -21,6 +21,12 @@ import android.transition.TransitionListenerAdapter;
 import android.transition.TransitionManager;
 import android.widget.FrameLayout;
 import com.google.android.material.snackbar.Snackbar;
+import android.text.Editable;
+import android.text.TextWatcher;
+import com.bridge.filt3r.core.nodes.NodeManager;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
+import java.util.Locale;
 
 import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.R;
@@ -71,6 +77,15 @@ public class NodesPanel extends LinearLayout {
 
         /** "Nodes tested 4 h ago", or a line saying they were not tested yet. */
         String lastTestText();
+
+        /** Keys (host:port) of the nodes the user hid. */
+        java.util.Set<String> hiddenNodes();
+
+        /** Hides the node: it is left out of the list and never used from the next start. */
+        void hideNode(ShadowsocksNode node);
+
+        /** Brings every hidden node back from the next start. */
+        void showHiddenNodes();
     }
 
     private static final long REFRESH_MS = 2000;
@@ -92,6 +107,8 @@ public class NodesPanel extends LinearLayout {
     private View detailCard;
     private View detailRow;
     private int panelAccessibility;
+    private String query = "";
+    private final MaterialButton showHidden;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -192,6 +209,44 @@ public class NodesPanel extends LinearLayout {
         LayoutParams sortParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         sortParams.setMargins(dp(16), 0, dp(16), dp(8));
         addView(sort, sortParams);
+
+        TextInputLayout searchLayout = new TextInputLayout(context);
+        searchLayout.setHint(context.getString(R.string.nodes_search_hint));
+        TextInputEditText search = new TextInputEditText(searchLayout.getContext());
+        search.setSingleLine(true);
+        search.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                query = s.toString();
+                reload();
+            }
+        });
+        searchLayout.addView(search, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        LayoutParams searchParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        searchParams.setMargins(dp(16), 0, dp(16), dp(8));
+        addView(searchLayout, searchParams);
+
+        showHidden = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        showHidden.setVisibility(GONE);
+        showHidden.setOnClickListener(v -> Dialogs.confirm(getContext(),
+                context.getString(R.string.nodes_unhide_title), context.getString(R.string.nodes_unhide_message),
+                context.getString(R.string.nodes_unhide_action), () -> {
+                    backend.showHiddenNodes();
+                    reload();
+                    Messages.show(this, context.getString(R.string.nodes_unhidden_done), Snackbar.LENGTH_SHORT);
+                }));
+        LayoutParams hiddenParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        hiddenParams.setMargins(dp(16), 0, dp(16), dp(8));
+        addView(showHidden, hiddenParams);
 
         empty = new TextView(context);
         empty.setText(R.string.nodes_empty);
@@ -300,17 +355,32 @@ public class NodesPanel extends LinearLayout {
     }
 
     private void reload() {
-        List<NodeInfo> all = new ArrayList<>(backend.nodes());
-        if (all.isEmpty() && busy) {
+        List<NodeInfo> everything = new ArrayList<>(backend.nodes());
+        if (everything.isEmpty() && busy) {
             // The tunnel stopped while a re-test was queued: its callback will never run.
             setBusy(false);
         }
         NodeInfo current = null;
-        for (NodeInfo n : all) {
+        for (NodeInfo n : everything) {
             if (n.current) {
                 current = n;
             }
         }
+        java.util.Set<String> hidden = backend.hiddenNodes();
+        String q = query.trim().toLowerCase(Locale.ROOT);
+        List<NodeInfo> all = new ArrayList<>();
+        for (NodeInfo n : everything) {
+            if (hidden.contains(NodeManager.keyOf(n.node)) && !n.current) {
+                continue; // hidden nodes stay out of sight; the one in use stays until the next start
+            }
+            if (!q.isEmpty() && !n.node.name.toLowerCase(Locale.ROOT).contains(q)
+                    && !n.node.host.toLowerCase(Locale.ROOT).contains(q)) {
+                continue;
+            }
+            all.add(n);
+        }
+        showHidden.setVisibility(hidden.isEmpty() ? GONE : VISIBLE);
+        showHidden.setText(getContext().getString(R.string.nodes_show_hidden, hidden.size()));
         if (backend.sortBySpeed()) {
             // Stable: nodes with the same speed (or none) keep their latency order; state groups stay.
             all.sort((a, b) -> {
@@ -318,11 +388,11 @@ public class NodesPanel extends LinearLayout {
                 return byState != 0 ? byState : Long.compare(b.speedBps, a.speedBps);
             });
         }
-        if (current != null) {
-            all.remove(current);
+        if (current != null && all.remove(current)) {
             all.add(0, current); // the node in use is always the first row
         }
         adapter.set(all);
+        empty.setText(everything.isEmpty() ? R.string.nodes_empty : R.string.nodes_no_match);
         if (all.isEmpty() && empty.getVisibility() != VISIBLE
                 && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
             empty.setAlpha(0f);
@@ -344,7 +414,7 @@ public class NodesPanel extends LinearLayout {
             currentIp.setVisibility(VISIBLE);
         }
         currentTested.setText(backend.lastTestText());
-        currentTested.setVisibility(all.isEmpty() ? GONE : VISIBLE);
+        currentTested.setVisibility(everything.isEmpty() ? GONE : VISIBLE);
     }
 
     private static String place(NodeLocation loc) {
@@ -560,6 +630,22 @@ public class NodesPanel extends LinearLayout {
         LayoutParams buttonParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         buttonParams.topMargin = dp(16);
         card.addView(buttons, buttonParams);
+
+        MaterialButton hide = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        hide.setText(R.string.nodes_hide_button);
+        hide.setOnClickListener(v -> {
+            closeDetail();
+            Dialogs.confirm(getContext(), context.getString(R.string.nodes_hide_title),
+                    context.getString(R.string.nodes_hide_message), context.getString(R.string.nodes_hide_action), () -> {
+                        backend.hideNode(n.node);
+                        reload();
+                        Messages.show(this, context.getString(R.string.nodes_hidden_done), Snackbar.LENGTH_SHORT);
+                    });
+        });
+        LayoutParams hideParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        hideParams.topMargin = dp(8);
+        card.addView(hide, hideParams);
         return card;
     }
 
