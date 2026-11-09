@@ -34,7 +34,9 @@ import com.google.android.material.textfield.TextInputLayout;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Full-screen settings. A home page lists Connection, DNS and filtering, Privacy, Appearance and
@@ -71,7 +73,8 @@ public class SettingsPanel extends LinearLayout {
 
         int subscriptionHours(int slot);
 
-        void setSubscription(int slot, String url, int hours);
+        /** Saves the address. @return an error message to show, or null if it was saved (nothing changes on an error) */
+        String setSubscription(int slot, String url, int hours);
 
         /** Whether a change is waiting for a restart; kept by the activity so the dock can show a dot. */
         boolean restartPending();
@@ -151,6 +154,9 @@ public class SettingsPanel extends LinearLayout {
 
         String version();
 
+        /** A plain-text summary for bug reports: versions, state and counts. No addresses, tokens or passwords. */
+        String diagnostics();
+
         /** 0 follow the system, 1 light, 2 dark. Applies at once. */
         int themeMode();
 
@@ -193,6 +199,7 @@ public class SettingsPanel extends LinearLayout {
     private Row blockEntry;
     private int page = PAGE_HOME;
     private final List<Runnable> pendingCommits = new ArrayList<>(); // text fields: saved on blur, Done or page change
+    private final Set<TextInputLayout> invalidFields = new HashSet<>(); // fields whose text was refused
     private final LinearLayout banner;
     private boolean changed;
     private TextView filterStatus;
@@ -238,10 +245,14 @@ public class SettingsPanel extends LinearLayout {
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         restart.setText(R.string.settings_restart_button);
         restart.setOnClickListener(v -> {
-            changed = false;
-            backend.setRestartPending(false);
-            updateBanner();
-            backend.restart();
+            commitEdits();
+            if (invalidFields.isEmpty()) {
+                restartNow();
+            } else {
+                Dialogs.confirm(context, context.getString(R.string.settings_restart_unsaved_title),
+                        context.getString(R.string.settings_restart_unsaved_message),
+                        context.getString(R.string.settings_restart_unsaved_action), this::restartNow);
+            }
         });
         banner.addView(bannerText, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         banner.addView(restart);
@@ -297,8 +308,12 @@ public class SettingsPanel extends LinearLayout {
             updated.setPadding(dp(20), 0, dp(20), dp(4));
             updated.setVisibility(url[0].isEmpty() ? GONE : VISIBLE);
             watchCommit(field, text -> {
+                String error = backend.setSubscription(slot, text.trim(), hours[0]);
+                setFieldError(field, error);
+                if (error != null) {
+                    return; // the last good address stays saved
+                }
                 url[0] = text.trim();
-                backend.setSubscription(slot, url[0], hours[0]);
                 updated.setText(backend.subscriptionUpdated(slot));
                 updated.setVisibility(url[0].isEmpty() ? GONE : VISIBLE);
                 markChanged();
@@ -306,7 +321,10 @@ public class SettingsPanel extends LinearLayout {
             interval.setOnClickListener(v -> chooseInterval(hours[0], h -> {
                 hours[0] = h;
                 interval.setSummary(intervalText(h));
-                backend.setSubscription(slot, url[0], h);
+                String error = backend.setSubscription(slot, url[0], h);
+                if (error != null) {
+                    return;
+                }
                 markChanged();
             }));
             card.addView(field, fieldParams());
@@ -397,7 +415,7 @@ public class SettingsPanel extends LinearLayout {
         lists.getEditText().setSingleLine(false);
         watchCommit(lists, text -> {
             String error = backend.setFilterListUrl(text);
-            lists.setError(error);
+            setFieldError(lists, error);
             if (error == null) {
                 markChanged();
             }
@@ -611,6 +629,17 @@ public class SettingsPanel extends LinearLayout {
         LayoutParams clearParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         clearParams.setMargins(dp(16), 0, dp(16), dp(8));
         card.addView(clear, clearParams);
+
+        Row alwaysOn = valueRow(context, context.getString(R.string.settings_privacy_always_on),
+                context.getString(R.string.settings_privacy_always_on_summary));
+        alwaysOn.setOnClickListener(v -> {
+            try {
+                getContext().startActivity(new android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS));
+            } catch (android.content.ActivityNotFoundException e) {
+                Messages.show(this, context.getString(R.string.settings_privacy_always_on_missing), Snackbar.LENGTH_SHORT);
+            }
+        });
+        card.addView(alwaysOn);
     }
 
     private static final String[] SCHEME_KEYS = {"default", "standard", "vibrant", "expressive", "dynamic"};
@@ -882,6 +911,34 @@ public class SettingsPanel extends LinearLayout {
             crash.setOnClickListener(v -> showCrash());
             card.addView(crash);
         }
+        Row diag = valueRow(context, context.getString(R.string.settings_about_diag_title),
+                context.getString(R.string.settings_about_diag_summary));
+        diag.setOnClickListener(v -> showDiagnostics());
+        card.addView(diag);
+    }
+
+    /** Shows the diagnostics text, which can be read first and then copied for a bug report. */
+    private void showDiagnostics() {
+        String text = backend.diagnostics();
+        TextView body = new TextView(getContext());
+        body.setText(text);
+        body.setTextIsSelectable(true);
+        body.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall);
+        body.setTypeface(android.graphics.Typeface.MONOSPACE);
+        body.setPadding(dp(20), dp(8), dp(20), dp(8));
+        ScrollView scroll = new ScrollView(getContext());
+        scroll.addView(body);
+        Dialogs.builder(getContext())
+                .setTitle(R.string.settings_about_diag_title)
+                .setView(scroll)
+                .setNegativeButton(R.string.settings_close, null)
+                .setPositiveButton(R.string.settings_about_diag_copy, (d, w) -> {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                            getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("filt3r", text));
+                    Messages.show(this, getContext().getString(R.string.settings_about_diag_copied), Snackbar.LENGTH_SHORT);
+                })
+                .show();
     }
 
     /** Shows the saved crash report so it can be copied; the file is kept until the user clears it. */
@@ -1065,6 +1122,23 @@ public class SettingsPanel extends LinearLayout {
 
     private interface SwitchListener {
         void onChecked(boolean on);
+    }
+
+    /** Shows (or clears) a field's error and remembers which fields hold text that was not saved. */
+    private void setFieldError(TextInputLayout field, String error) {
+        field.setError(error);
+        if (error == null) {
+            invalidFields.remove(field);
+        } else {
+            invalidFields.add(field);
+        }
+    }
+
+    private void restartNow() {
+        changed = false;
+        backend.setRestartPending(false);
+        updateBanner();
+        backend.restart();
     }
 
     /**

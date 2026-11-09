@@ -87,6 +87,17 @@
     <string name="exempt_apps_loading">Loading apps...</string>
     <string name="exempt_apps_no_match">Nothing matches.</string>
     <string name="settings_filter_url_https_only">Only https:// addresses work: %1$s</string>
+    <string name="settings_subscription_url_invalid">Enter one complete address that starts with https://</string>
+    <string name="settings_restart_unsaved_title">Not saved</string>
+    <string name="settings_restart_unsaved_message">A field has an address that is not valid, so it was not saved. Restart anyway?</string>
+    <string name="settings_restart_unsaved_action">Restart</string>
+    <string name="settings_privacy_always_on">Always-on VPN</string>
+    <string name="settings_privacy_always_on_summary">Opens Android\'s VPN settings, where you can switch on Always-on VPN and Block connections without VPN.</string>
+    <string name="settings_privacy_always_on_missing">This phone has no VPN settings page to open.</string>
+    <string name="settings_about_diag_title">Copy diagnostics</string>
+    <string name="settings_about_diag_summary">Versions, state and counts for a bug report. No addresses or passwords.</string>
+    <string name="settings_about_diag_copy">Copy</string>
+    <string name="settings_about_diag_copied">Copied</string>
     <string name="settings_title">Settings</string>
     <string name="settings_page_connection">Connection</string>
     <string name="settings_page_dns">DNS and filtering</string>

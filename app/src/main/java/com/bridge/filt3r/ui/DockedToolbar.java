@@ -64,6 +64,7 @@ public class DockedToolbar extends LinearLayout {
                 com.google.android.material.R.attr.colorSurfaceContainer, 0));
         bg.setCornerRadius(dp(40));
         setBackground(bg);
+        setElevation(dp(6)); // the same shadow as the floating toolbar's pill
     }
 
     /** Adds an item. Its index is the order of calls. */

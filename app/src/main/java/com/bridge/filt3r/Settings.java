@@ -58,6 +58,7 @@ final class Settings {
     private static final String KEY_RESOLVER_NAME = "resolver_name";
     private static final String KEY_RESOLVER_STAMP = "resolver_stamp";
     private static final String KEY_PINNED_NODE = "pinned_node";
+    private static final String KEY_HIDDEN_NODES = "hidden_nodes";
     private static final String KEY_NODE_SORT_SPEED = "node_sort_speed";
     private static final String KEY_FILTER_URL = "filter_url";
     private static final String KEY_ENABLED_LISTS = "enabled_lists";
@@ -162,6 +163,15 @@ final class Settings {
         prefs.edit().putString(KEY_PINNED_NODE, key).apply();
     }
 
+    /** Keys (see NodeManager.keyOf) of the nodes the user hid: they are left out of the list and never used. Applies at the next start. */
+    Set<String> hiddenNodes() {
+        return new HashSet<>(prefs.getStringSet(KEY_HIDDEN_NODES, new HashSet<>()));
+    }
+
+    void setHiddenNodes(Set<String> keys) {
+        prefs.edit().putStringSet(KEY_HIDDEN_NODES, new HashSet<>(keys)).apply();
+    }
+
     /** True to sort the Nodes panel by measured speed instead of latency. */
     boolean nodeSortBySpeed() {
         return prefs.getBoolean(KEY_NODE_SORT_SPEED, false);
@@ -245,6 +255,39 @@ final class Settings {
             out.append(url);
         }
         return out.toString();
+    }
+
+    /**
+     * A subscription address: empty (clears the slot) or one complete https:// address with a host
+     * and no spaces. Returns it trimmed.
+     *
+     * @throws IllegalArgumentException with a message for the field
+     */
+    static String normalizeSubscriptionUrl(Context context, String text) {
+        String url = text.trim();
+        if (url.isEmpty()) {
+            return url;
+        }
+        boolean https = url.regionMatches(true, 0, "https://", 0, 8);
+        int end = url.length();
+        for (int i = 8; https && i < url.length(); i++) {
+            char c = url.charAt(i);
+            if (c == '/' || c == '?' || c == '#') {
+                end = i;
+                break;
+            }
+        }
+        String host = https ? url.substring(8, end) : "";
+        boolean spaces = false;
+        for (int i = 0; i < url.length(); i++) {
+            if (Character.isWhitespace(url.charAt(i))) {
+                spaces = true;
+            }
+        }
+        if (!https || host.isEmpty() || host.startsWith(".") || spaces) {
+            throw new IllegalArgumentException(context.getString(R.string.settings_subscription_url_invalid));
+        }
+        return url;
     }
 
     /** True to keep the floating toolbar always visible instead of hiding when idle. */

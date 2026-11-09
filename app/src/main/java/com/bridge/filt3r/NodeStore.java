@@ -30,10 +30,12 @@ final class NodeStore {
 
     private final File dir;
     private final List<Settings.Subscription> subscriptions;
+    private final java.util.Set<String> hidden;
 
-    NodeStore(File filesDir, List<Settings.Subscription> subscriptions) {
+    NodeStore(File filesDir, List<Settings.Subscription> subscriptions, java.util.Set<String> hidden) {
         this.dir = filesDir;
         this.subscriptions = subscriptions;
+        this.hidden = hidden;
     }
 
     boolean hasSubscriptions() {
@@ -48,6 +50,9 @@ final class NodeStore {
             for (String line : cachedLines(s)) {
                 try {
                     ShadowsocksNode n = ShadowsocksNode.parse(line);
+                    if (hidden.contains(NodeManager.keyOf(n))) {
+                        continue;
+                    }
                     if (all.putIfAbsent(n.host + ":" + n.port, n) == null) {
                         owner.put(NodeManager.keyOf(n), s.slot);
                     }
@@ -79,6 +84,43 @@ final class NodeStore {
     static long updatedAt(File filesDir, int slot) {
         File f = new File(filesDir, "nodes_" + slot + ".txt");
         return f.isFile() ? f.lastModified() : 0;
+    }
+
+    private static final java.util.Map<Integer, String> ERRORS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Why the slot's last download failed (a short text without addresses), or null if it did not fail. */
+    static String lastError(int slot) {
+        return ERRORS.get(slot);
+    }
+
+    /** Forgets a failure, for a slot whose address changed. */
+    static void clearError(int slot) {
+        ERRORS.remove(slot);
+    }
+
+    private static String shorten(Exception e) {
+        String text = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+        text = text.replaceAll("(?i)https?://\\S+", "<address>").trim();
+        return text.length() > 80 ? text.substring(0, 80) + "..." : text;
+    }
+
+    /** How many nodes the slot's cache holds (0 if it has none). */
+    static int cachedCount(File filesDir, int slot) {
+        File f = new File(filesDir, "nodes_" + slot + ".txt");
+        if (!f.isFile()) {
+            return 0;
+        }
+        int count = 0;
+        try {
+            for (String line : Files.readAllLines(f.toPath(), StandardCharsets.UTF_8)) {
+                if (!line.trim().isEmpty() && !line.startsWith("#")) {
+                    count++;
+                }
+            }
+        } catch (IOException e) {
+            return 0;
+        }
+        return count;
     }
 
     /** True if a subscription has no cache yet or its cache is older than its update interval. */
@@ -114,8 +156,10 @@ final class NodeStore {
                     throw new IOException("subscription held no usable node");
                 }
                 save(s, resolved);
+                ERRORS.remove(s.slot);
                 ok++;
             } catch (IOException | IllegalArgumentException e) {
+                ERRORS.put(s.slot, shorten(e));
                 last = e instanceof IOException ? (IOException) e : new IOException(e.getMessage());
             }
         }
