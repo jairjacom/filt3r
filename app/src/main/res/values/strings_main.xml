@@ -245,7 +245,7 @@
     <string name="nodes_state_dead">Dead: failed 3 times in a row. Skipped for a while, then tried again.</string>
     <string name="nodes_state_no_answer_yet">No answer yet</string>
     <string name="nodes_state_not_tested">Not tested</string>
-    <string name="nodes_filter_mine">Added by me</string>
+    <string name="nodes_filter_mine">Mine</string>
     <string name="nodes_none_added">You have not added a node yet. Copy an ss:// link and tap + to add one.</string>
     <string name="nodes_close_details">Close details</string>
     <string name="nodes_detail_address">Address</string>
