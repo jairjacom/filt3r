@@ -73,6 +73,7 @@ public class MainActivity extends Activity
     private static final int REQUEST_EXPORT_LOG = 3;
     private boolean exportBlocked = true;
     private boolean exportAllowed = true;
+    private java.util.function.Consumer<Boolean> exportDone;
     static final String ACTION_CONNECT = "com.bridge.filt3r.action.CONNECT";
     static final String ACTION_DISCONNECT = "com.bridge.filt3r.action.DISCONNECT";
     static final String ACTION_OPEN_NODES = "com.bridge.filt3r.action.OPEN_NODES";
@@ -580,9 +581,21 @@ public class MainActivity extends Activity
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQUEST_VPN && resultCode == RESULT_OK) {
             startVpn();
-        } else if (requestCode == REQUEST_EXPORT_LOG && resultCode == RESULT_OK
-                && data != null && data.getData() != null) {
-            writeQueryLog(data.getData());
+        } else if (requestCode == REQUEST_EXPORT_LOG) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                writeQueryLog(data.getData());
+            } else {
+                finishExport(false); // the picker was cancelled
+            }
+        }
+    }
+
+    /** Tells the query log screen how the export ended, so its icon can show the result. */
+    private void finishExport(boolean ok) {
+        java.util.function.Consumer<Boolean> done = exportDone;
+        exportDone = null;
+        if (done != null) {
+            done.accept(ok);
         }
     }
 
@@ -610,14 +623,21 @@ public class MainActivity extends Activity
         int count = lines.size();
         Thread t = new Thread(() -> {
             String result;
+            boolean ok;
             try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
                 out.write(bytes);
                 result = getResources().getQuantityString(R.plurals.main_export_saved, count, count);
+                ok = true;
             } catch (IOException | RuntimeException e) {
                 result = getString(R.string.main_export_save_failed);
+                ok = false;
             }
             String shown = result;
-            runOnUiThread(() -> Messages.show(frame, shown));
+            boolean saved = ok;
+            runOnUiThread(() -> {
+                Messages.show(frame, shown);
+                finishExport(saved);
+            });
         }, "export-log");
         t.setDaemon(true);
         t.start();
@@ -1163,16 +1183,18 @@ public class MainActivity extends Activity
     }
 
     @Override
-    public void exportQueryLog(boolean blocked, boolean allowed) {
+    public void exportQueryLog(boolean blocked, boolean allowed, java.util.function.Consumer<Boolean> done) {
         String kind = blocked && allowed ? "" : blocked ? "blocked-" : "allowed-";
         if (exportLines(blocked, allowed).isEmpty()) {
             Messages.show(frame, getString(blocked && allowed ? R.string.main_export_nothing_to_save
                     : blocked ? R.string.main_export_no_blocked : R.string.main_export_no_allowed),
                     Snackbar.LENGTH_SHORT);
+            done.accept(false);
             return;
         }
         exportBlocked = blocked;
         exportAllowed = allowed;
+        exportDone = done;
         // The system picker lets the user choose the folder and name; no storage permission is needed.
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
         Intent pick = new Intent(Intent.ACTION_CREATE_DOCUMENT)

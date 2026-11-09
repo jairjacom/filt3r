@@ -1,6 +1,7 @@
 package com.bridge.filt3r.ui;
 
 import android.content.Context;
+import android.animation.ObjectAnimator;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
@@ -52,9 +53,10 @@ public class QueryLogPanel extends LinearLayout {
 
         /**
          * Lets the user pick a place and saves the kept lines of the chosen kinds there as a .txt file.
-         * At least one of the two is true.
+         * At least one of the two is true. {@code done} gets true when the file was written, false if
+         * nothing was saved (cancelled, nothing to save or an error).
          */
-        void exportQueryLog(boolean blocked, boolean allowed);
+        void exportQueryLog(boolean blocked, boolean allowed, java.util.function.Consumer<Boolean> done);
     }
 
     private static final long REFRESH_MS = 2000;
@@ -63,17 +65,24 @@ public class QueryLogPanel extends LinearLayout {
     private static final int ALL = 0;
     private static final int BLOCKED = 1;
     private static final int ALLOWED = 2;
+    private static final int TOP = 3; // names grouped and counted, most asked first
 
     /** One parsed log line. */
     private static final class Entry {
         final String time;
         final boolean blocked;
         final String host;
+        final String summary; // for the Top view: "Blocked 3 · Allowed 1"; null for a single query
 
         Entry(String time, boolean blocked, String host) {
+            this(time, blocked, host, null);
+        }
+
+        Entry(String time, boolean blocked, String host, String summary) {
             this.time = time;
             this.blocked = blocked;
             this.host = host;
+            this.summary = summary;
         }
     }
 
@@ -83,6 +92,8 @@ public class QueryLogPanel extends LinearLayout {
     private final TextView empty;
     private final TextInputEditText search;
     private int mode = ALL;
+    private ImageButton exportButton;
+    private ObjectAnimator exportSpin;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -119,9 +130,9 @@ public class QueryLogPanel extends LinearLayout {
         ImageButton rules = iconButton(context, R.drawable.ic_rules, context.getString(R.string.qlog_rules_description));
         rules.setOnClickListener(v -> OverridesDialog.show(context, backend, () -> { }));
         bar.addView(rules);
-        ImageButton export = iconButton(context, R.drawable.ic_export, context.getString(R.string.qlog_export_description));
-        export.setOnClickListener(v -> askExport());
-        bar.addView(export);
+        exportButton = iconButton(context, R.drawable.ic_export, context.getString(R.string.qlog_export_description));
+        exportButton.setOnClickListener(v -> askExport());
+        bar.addView(exportButton);
         bar.addView(clear);
         addView(bar);
 
@@ -174,18 +185,21 @@ public class QueryLogPanel extends LinearLayout {
         chips.setSingleSelection(true);
         chips.setSelectionRequired(true);
         chips.setSpacing(dp(8));
-        MaterialButton all = chip(context, context.getString(R.string.qlog_chip_all));
-        MaterialButton blocked = chip(context, context.getString(R.string.qlog_blocked));
-        MaterialButton allowed = chip(context, context.getString(R.string.qlog_allowed));
+        MaterialButton all = chip(context, context.getString(R.string.qlog_chip_all), R.drawable.ic_list);
+        MaterialButton blocked = chip(context, context.getString(R.string.qlog_blocked), R.drawable.ic_block);
+        MaterialButton allowed = chip(context, context.getString(R.string.qlog_allowed), R.drawable.ic_check);
+        MaterialButton top = chip(context, context.getString(R.string.qlog_chip_top), R.drawable.ic_chart);
         chips.addView(all);
         chips.addView(blocked);
         chips.addView(allowed);
+        chips.addView(top);
         chips.check(all.getId());
         chipGroup = chips;
         blockedChip = blocked;
         chips.addOnButtonCheckedListener((group, id, checked) -> {
             if (checked) {
-                mode = id == blocked.getId() ? BLOCKED : id == allowed.getId() ? ALLOWED : ALL;
+                mode = id == blocked.getId() ? BLOCKED : id == allowed.getId() ? ALLOWED
+                        : id == top.getId() ? TOP : ALL;
                 reload();
             }
         });
@@ -205,6 +219,10 @@ public class QueryLogPanel extends LinearLayout {
         list.setClipToPadding(false);
         list.setPadding(0, 0, 0, dp(96)); // the toolbar overlays the bottom
         list.setOnItemClickListener((p, v, pos, id) -> showRuleSheet(adapter.getItem(pos)));
+        list.setOnItemLongClickListener((p, v, pos, id) -> {
+            showRowMenu(adapter.getItem(pos));
+            return true;
+        });
         addView(list, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
         reload();
     }
@@ -231,9 +249,16 @@ public class QueryLogPanel extends LinearLayout {
                 context.getString(R.string.qlog_export_both)};
         Dialogs.builder(context)
                 .setTitle(R.string.qlog_export_title)
-                .setItems(choices, (d, which) -> backend.exportQueryLog(which != 1, which != 0))
+                .setItems(choices, (d, which) -> exportWithSpin(which != 1, which != 0))
                 .setNegativeButton(R.string.qlog_cancel, null)
                 .show();
+    }
+
+    /** The export icon spins while the file is picked and written, then shows a check. */
+    private void exportWithSpin(boolean blocked, boolean allowed) {
+        exportSpin = ActionMorph.busy(exportButton);
+        backend.exportQueryLog(blocked, allowed, ok -> post(
+                () -> ActionMorph.finish(exportButton, exportSpin, ok, R.drawable.ic_export)));
     }
 
     @Override
@@ -247,15 +272,19 @@ public class QueryLogPanel extends LinearLayout {
                 : search.getText().toString().trim().toLowerCase(Locale.ROOT);
         List<String> lines = backend.queryLines();
         List<Entry> shown = new ArrayList<>();
-        for (int i = lines.size() - 1; i >= 0; i--) { // newest first
-            Entry e = parse(lines.get(i));
-            if (e == null || mode == BLOCKED && !e.blocked || mode == ALLOWED && e.blocked) {
-                continue;
+        if (mode == TOP) {
+            shown = top(lines, needle);
+        } else {
+            for (int i = lines.size() - 1; i >= 0; i--) { // newest first
+                Entry e = parse(lines.get(i));
+                if (e == null || mode == BLOCKED && !e.blocked || mode == ALLOWED && e.blocked) {
+                    continue;
+                }
+                if (!needle.isEmpty() && !e.host.toLowerCase(Locale.ROOT).contains(needle)) {
+                    continue;
+                }
+                shown.add(e);
             }
-            if (!needle.isEmpty() && !e.host.toLowerCase(Locale.ROOT).contains(needle)) {
-                continue;
-            }
-            shown.add(e);
         }
         adapter.set(shown);
         if (!shown.isEmpty()) {
@@ -271,6 +300,31 @@ public class QueryLogPanel extends LinearLayout {
                     : backend.queryLogEnabled() ? R.string.qlog_empty_no_queries
                     : R.string.qlog_empty_off);
         }
+    }
+
+    /** Every name once, most asked first, with how many times it was blocked and allowed. */
+    private List<Entry> top(List<String> lines, String needle) {
+        java.util.Map<String, int[]> counts = new java.util.HashMap<>(); // name -> {blocked, allowed}
+        for (String line : lines) {
+            Entry e = parse(line);
+            if (e == null || !needle.isEmpty() && !e.host.toLowerCase(Locale.ROOT).contains(needle)) {
+                continue;
+            }
+            counts.computeIfAbsent(e.host, k -> new int[2])[e.blocked ? 0 : 1]++;
+        }
+        List<java.util.Map.Entry<String, int[]>> sorted = new ArrayList<>(counts.entrySet());
+        sorted.sort((a, b) -> {
+            int totalA = a.getValue()[0] + a.getValue()[1];
+            int totalB = b.getValue()[0] + b.getValue()[1];
+            return totalA != totalB ? Integer.compare(totalB, totalA) : a.getKey().compareTo(b.getKey());
+        });
+        List<Entry> out = new ArrayList<>();
+        for (java.util.Map.Entry<String, int[]> m : sorted) {
+            int[] c = m.getValue();
+            out.add(new Entry("", c[0] >= c[1], m.getKey(),
+                    getContext().getString(R.string.qlog_top_summary, c[0], c[1])));
+        }
+        return out;
     }
 
     /** "MM-dd HH:mm:ss ALLOWED name" -> Entry; null for a line that does not fit. */
@@ -291,14 +345,38 @@ public class QueryLogPanel extends LinearLayout {
         return new Entry(time, verdict.equals("BLOCKED"), rest.substring(space + 1));
     }
 
-    private MaterialButton chip(Context context, String text) {
+    private MaterialButton chip(Context context, String text, int icon) {
         MaterialButton b = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         b.setText(text);
         b.setId(View.generateViewId());
         b.setCheckable(true);
         Accent.selectable(b);
+        Accent.morphIcon(b, icon);
         return b;
+    }
+
+    /** Long-press menu of one row: copy the name, show only that name, or open its rules. */
+    private void showRowMenu(Entry e) {
+        Context context = getContext();
+        String[] items = {context.getString(R.string.qlog_menu_copy), context.getString(R.string.qlog_menu_only),
+                context.getString(R.string.qlog_menu_rule)};
+        Dialogs.builder(context)
+                .setTitle(e.host)
+                .setItems(items, (d, which) -> {
+                    if (which == 0) {
+                        android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                                context.getSystemService(Context.CLIPBOARD_SERVICE);
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("filt3r", e.host));
+                        Messages.show(this, context.getString(R.string.qlog_copied), Snackbar.LENGTH_SHORT);
+                    } else if (which == 1) {
+                        search.setText(e.host);
+                    } else {
+                        showRuleSheet(e);
+                    }
+                })
+                .setNegativeButton(R.string.qlog_cancel, null)
+                .show();
     }
 
     private ImageButton iconButton(Context context, int res, String description) {
@@ -409,7 +487,8 @@ public class QueryLogPanel extends LinearLayout {
             for (int i = 0; i < a.size(); i++) {
                 Entry x = a.get(i);
                 Entry y = b.get(i);
-                if (x.blocked != y.blocked || !x.time.equals(y.time) || !x.host.equals(y.host)) {
+                if (x.blocked != y.blocked || !x.time.equals(y.time) || !x.host.equals(y.host)
+                        || !java.util.Objects.equals(x.summary, y.summary)) {
                     return false;
                 }
             }
@@ -476,10 +555,12 @@ public class QueryLogPanel extends LinearLayout {
             dotBg.setColor(e.blocked ? getContext().getColor(R.color.brand_red) : Colors.active(getContext()));
             host.setText(e.host);
             Context ctx = getContext();
-            String said = ctx.getString(e.blocked ? R.string.qlog_blocked : R.string.qlog_allowed) + " · " + e.time;
+            String said = e.summary != null ? e.summary
+                    : ctx.getString(e.blocked ? R.string.qlog_blocked : R.string.qlog_allowed) + " · " + e.time;
             detail.setText(said);
             setContentDescription(ctx.getString(R.string.qlog_row_description, e.host,
-                    ctx.getString(e.blocked ? R.string.qlog_said_blocked : R.string.qlog_said_allowed), e.time));
+                    ctx.getString(e.blocked ? R.string.qlog_said_blocked : R.string.qlog_said_allowed),
+                    e.summary != null ? e.summary : e.time));
         }
     }
 }
