@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.0.6
+
+- Pause filtering for 5, 15 or 60 minutes from Status, the notification or the Quick Settings tile. The tunnel stays up and filtering comes back on its own.
+- Status cards are tappable: look up where your node is, see a bigger traffic graph, and open the most blocked names. Optional node history stays on your phone and is off by default.
+- Add your own node by copying an ss:// link and tapping + on Nodes. Your nodes show first, under a Mine filter, and you can copy a node's link or remove your own.
+- Settings backup and restore through the file picker. Subscription addresses and added nodes are left out unless you tick the box.
+- Self-check under Settings > About lists what may stop filt3r from working, and Copy diagnostics gives you a report to share.
+- Test nodes only on Wi-Fi or while charging, if you want to save mobile data.
+- Nodes: search, hide a node, and a notice when another node takes over.
+- Query log: a Top view of the most blocked names, a menu when you hold a line, and clearer buttons.
+- Subscriptions are checked when you enter the address and tell you how the update went. Restarting returns you to Status, and a warning appears before you restart.
+- Settings has an Always-on VPN row. The toolbar shadow and the pill icons were polished.
+
 ## v0.0.5
 
 - Redesigned look: the status circle changes shape as the connection changes, and screens move with springy motion. New visual effects can be switched on or off in Settings.
