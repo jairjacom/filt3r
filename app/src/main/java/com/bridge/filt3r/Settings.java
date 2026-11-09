@@ -54,6 +54,7 @@ final class Settings {
     private static final String FILE = "filt3r";
     private static final String KEY_FAILURE_MODE = "failure_mode";
     private static final String KEY_QUERY_LOG = "query_log";
+    private static final String KEY_NODE_HISTORY = "node_history";
     private static final String KEY_EXEMPT_APPS = "exempt_apps";
     private static final String KEY_RESOLVER_NAME = "resolver_name";
     private static final String KEY_RESOLVER_STAMP = "resolver_stamp";
@@ -152,6 +153,15 @@ final class Settings {
 
     void setQueryLogEnabled(boolean on) {
         prefs.edit().putBoolean(KEY_QUERY_LOG, on).apply();
+    }
+
+    /** True to keep which node carried traffic and when, for 7 days. Off until the user turns it on. */
+    boolean historyEnabled() {
+        return prefs.getBoolean(KEY_NODE_HISTORY, false);
+    }
+
+    void setHistoryEnabled(boolean on) {
+        prefs.edit().putBoolean(KEY_NODE_HISTORY, on).apply();
     }
 
     /** Key of the pinned node (see NodeManager.keyOf), or null. Applies once that node has answered a test. */

@@ -9,7 +9,7 @@ import java.util.Map;
  * A small JSON reader for subscription files (core has no Android imports, so no org.json).
  * Gives Map, List, String, Double, Boolean or null. Throws IllegalArgumentException on bad input.
  */
-final class MiniJson {
+public final class MiniJson {
 
     private static final int MAX_DEPTH = 16;
 
@@ -20,7 +20,7 @@ final class MiniJson {
         this.s = s;
     }
 
-    static Object parse(String text) {
+    public static Object parse(String text) {
         MiniJson p = new MiniJson(text);
         Object v = p.value(0);
         p.skipSpace();

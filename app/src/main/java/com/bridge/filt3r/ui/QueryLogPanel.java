@@ -181,6 +181,8 @@ public class QueryLogPanel extends LinearLayout {
         chips.addView(blocked);
         chips.addView(allowed);
         chips.check(all.getId());
+        chipGroup = chips;
+        blockedChip = blocked;
         chips.addOnButtonCheckedListener((group, id, checked) -> {
             if (checked) {
                 mode = id == blocked.getId() ? BLOCKED : id == allowed.getId() ? ALLOWED : ALL;
@@ -205,6 +207,14 @@ public class QueryLogPanel extends LinearLayout {
         list.setOnItemClickListener((p, v, pos, id) -> showRuleSheet(adapter.getItem(pos)));
         addView(list, new LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f));
         reload();
+    }
+
+    private MaterialButtonToggleGroup chipGroup;
+    private MaterialButton blockedChip;
+
+    /** Switches to the Blocked filter; the DNS card's "View blocked" opens the log this way. */
+    public void showBlockedOnly() {
+        chipGroup.check(blockedChip.getId());
     }
 
     @Override

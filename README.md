@@ -38,3 +38,8 @@ Settings > About.
 filt3r sends no data to its author. It talks to your Shadowsocks nodes, your DNS resolver, and the
 subscription and block-list URLs you configure. Block lists are downloaded through your node, so the
 servers hosting them see the node's address, not yours. All block lists start switched off.
+
+The node lookup on the Status screen is the one exception to "only your own URLs". When you tap the Node
+card, filt3r asks ipwho.is (or ipapi.co if that one fails) where the node's address is. The request goes
+through your node, so those services see the node's address, not yours. Nothing is looked up unless you
+tap. The optional node history stays on the phone, is off by default and can be cleared in Settings > Privacy.

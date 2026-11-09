@@ -29,6 +29,7 @@ import com.bridge.filt3r.core.filter.DNSResolver;
 import com.bridge.filt3r.core.filter.DNSResponsePatcher;
 import com.bridge.filt3r.core.filter.IpBlockList;
 import com.bridge.filt3r.core.http.HttpsFetcher;
+import com.bridge.filt3r.core.http.IpLookup;
 import com.bridge.filt3r.core.nodes.FailoverDialer;
 import com.bridge.filt3r.core.nodes.FailoverUpstream;
 import com.bridge.filt3r.core.nodes.NodeInfo;
@@ -122,6 +123,10 @@ public class Filt3rVpnService extends VpnService {
     private static final AtomicLong dnsBlocked = new AtomicLong();
     private static final AtomicLong dnsAllowed = new AtomicLong();
     private static final AtomicReference<String> notice = new AtomicReference<>();
+    private static volatile long baseUp; // hev counters at the last "reset session counters"
+    private static volatile long baseDown;
+    private final Object historyLock = new Object();
+    private String historyLastKey; // the node last written to the node history; null at a fresh start
     private static volatile String ipBlockStatus = "";
     private static volatile String[] resolverInfo; // {name, ip} of the DNS resolver in use, null while down
 
@@ -232,6 +237,12 @@ public class Filt3rVpnService extends VpnService {
                 }
                 dnsBlocked.set(0);
                 dnsAllowed.set(0);
+                baseUp = 0;
+                baseDown = 0;
+                TrafficHistory.clear(System.currentTimeMillis());
+                synchronized (historyLock) {
+                    historyLastKey = null;
+                }
                 DNSResponsePatcher.setObserver((host, blocked) -> {
                     (blocked ? dnsBlocked : dnsAllowed).incrementAndGet();
                     queryLog.add(host, blocked);
@@ -355,6 +366,7 @@ public class Filt3rVpnService extends VpnService {
                 }
                 starting = false;
                 TunnelState.set(TunnelState.State.RUNNING);
+                handler.postDelayed(sampleTick, TrafficHistory.INTERVAL_MS);
             }
         } catch (IOException | android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
             if (gen == generation.get()) {
@@ -461,6 +473,7 @@ public class Filt3rVpnService extends VpnService {
                 lastPinned = pinnedNow;
             }
         }
+        recordNode(node);
         applyIpv6();
         if (m != null && m.currentIpv6Unknown()) {
             probeIpv6();
@@ -984,8 +997,13 @@ public class Filt3rVpnService extends VpnService {
         }
     }
 
-    /** Session traffic through the tunnel as {up, down} bytes, or null while the tunnel is down. */
+    /** Session traffic through the tunnel as {up, down} bytes since the last reset, or null while the tunnel is down. */
     static long[] trafficBytes() {
+        long[] raw = rawTraffic();
+        return raw == null ? null : new long[] {Math.max(0, raw[0] - baseUp), Math.max(0, raw[1] - baseDown)};
+    }
+
+    private static long[] rawTraffic() {
         Filt3rVpnService s = instance;
         if (s == null || s.bridge == null) {
             return null;
@@ -1002,6 +1020,79 @@ public class Filt3rVpnService extends VpnService {
     /** DNS decisions this session as {blocked, allowed}. */
     static long[] dnsCounts() {
         return new long[] {dnsBlocked.get(), dnsAllowed.get()};
+    }
+
+    /** Starts the traffic and DNS counters and the peak speed again from zero (the graph stays). */
+    static void resetCounters() {
+        long[] raw = rawTraffic();
+        if (raw != null) {
+            baseUp = raw[0];
+            baseDown = raw[1];
+        }
+        dnsBlocked.set(0);
+        dnsAllowed.set(0);
+        TrafficHistory.resetPeak(System.currentTimeMillis());
+    }
+
+    /**
+     * Looks an IP up through the node ({@code ip} null asks for the address the world sees). Blocks
+     * on the network: call it from a thread of your own.
+     *
+     * @throws IOException if the tunnel is down or both providers failed
+     */
+    static IpLookup.Result lookupIp(String ip) throws IOException {
+        Filt3rVpnService s = instance;
+        NodeRuntime r = s == null ? null : s.runtime;
+        if (r == null) {
+            throw new IOException("not connected");
+        }
+        return IpLookup.lookup(r.fetcher::get, ip);
+    }
+
+    /** One speed sample every few seconds while the tunnel runs; stopEverything cancels it with the other handler work. */
+    private final Runnable sampleTick = new Runnable() {
+        @Override
+        public void run() {
+            if (TunnelState.get() == TunnelState.State.RUNNING
+                    && Effects.on(Filt3rVpnService.this, Effects.Effect.SPARKLINE)) {
+                long[] raw = rawTraffic();
+                if (raw != null) {
+                    TrafficHistory.sample(raw[0], raw[1], System.currentTimeMillis());
+                }
+            }
+            handler.postDelayed(this, TrafficHistory.INTERVAL_MS);
+        }
+    };
+
+    /** Writes the node that just became current to the node history (only when the user switched it on). */
+    private void recordNode(ShadowsocksNode node) {
+        if (node == null || !new Settings(this).historyEnabled()) {
+            return;
+        }
+        String key = NodeManager.keyOf(node);
+        boolean failover = false;
+        synchronized (historyLock) {
+            if (historyLastKey != null && !historyLastKey.equals(key)) {
+                failover = true; // unless the node we left was fine: the user pinned another one
+                NodeManager m = nodes;
+                if (m != null) {
+                    for (NodeInfo n : m.snapshot()) {
+                        if (NodeManager.keyOf(n.node).equals(historyLastKey)) {
+                            failover = n.state != NodeInfo.State.WORKING;
+                        }
+                    }
+                }
+            }
+            historyLastKey = key;
+        }
+        NodeHistories.get(this).recordStart(key, failover);
+    }
+
+    private void recordNodeStop() {
+        synchronized (historyLock) {
+            historyLastKey = null;
+        }
+        NodeHistories.get(this).recordStop();
     }
 
     /** The node carrying traffic now, or null while the tunnel is down or no node is chosen. */
@@ -1141,6 +1232,7 @@ public class Filt3rVpnService extends VpnService {
                 DNSFilterManager.requestAbort(); // first: the cut below must read as an abort, not as a failed list
                 lists.cancel(); // a list download blocked on the network ends now, so the filter can stop
             }
+            recordNodeStop();
             nodes = null;
             nodeTester = null;
             dnsResolver = null;
