@@ -225,10 +225,7 @@ public class NodesPanel extends LinearLayout {
                 reload();
             }
         });
-        MaterialButton mine = sortButton(context, context.getString(R.string.nodes_filter_mine));
-        mine.setIcon(context.getDrawable(R.drawable.ic_person));
-        mine.setIconTint(mine.getTextColors());
-        mine.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
+        MaterialButton mine = sortButton(context, context.getString(R.string.nodes_filter_mine), R.drawable.ic_person);
         mine.addOnCheckedChangeListener((b, checked) -> {
             onlyMine = checked;
             reload();
