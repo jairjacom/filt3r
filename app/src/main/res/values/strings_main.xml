@@ -25,6 +25,20 @@
     <string name="main_export_nothing_to_save">Nothing to save yet.</string>
     <string name="main_export_no_blocked">No blocked entries to save.</string>
     <string name="main_export_no_allowed">No allowed entries to save.</string>
+    <string name="main_backup_saved">Settings saved.</string>
+    <string name="main_backup_save_failed">Could not save the settings file.</string>
+    <string name="main_backup_read_failed">Could not read that file.</string>
+    <string name="main_backup_not_backup">That is not a filt3r settings backup.</string>
+    <string name="main_backup_bad_value">The backup has a value that is not allowed (%1$s). Nothing was changed.</string>
+    <string name="main_backup_confirm_title">Restore these settings?</string>
+    <string name="main_backup_confirm_message">"This backup changes %1$d settings, replaces the exempt apps list (%2$d apps) and adds %3$d domain rules.%4$s\n\nValues on this phone that the file does not mention stay as they are."</string>
+    <string name="main_backup_confirm_no_apps">"This backup changes %1$d settings and adds %2$d domain rules; the exempt apps list is not in the file.%3$s\n\nValues on this phone that the file does not mention stay as they are."</string>
+    <string name="main_backup_confirm_secrets">"\n\nIt also contains %1$d subscription addresses and %2$d added nodes. These are secrets from whoever made the file."</string>
+    <string name="main_backup_confirm_action">Restore</string>
+    <string name="main_backup_done_title">Settings restored</string>
+    <string name="main_backup_done_message">"%1$d domain rules added, %2$d skipped. Connection and DNS changes apply after a restart."</string>
+    <string name="main_backup_restart_now">Restart now</string>
+    <string name="main_backup_later">Later</string>
     <string name="main_nodes_not_tested">Nodes not tested yet</string>
     <string name="main_nodes_tested">Nodes tested %1$s</string>
     <string name="main_subscription_not_downloaded">Not downloaded yet</string>
@@ -71,6 +85,10 @@
     <string name="vpn_notification_running_title">filt3r is running</string>
     <string name="vpn_notification_running_text">DNS filtering is on.</string>
     <string name="vpn_notification_action_stop">Stop</string>
+    <string name="vpn_notification_paused_title">Filtering is paused</string>
+    <string name="vpn_notification_paused_text">Nothing is blocked until %1$s.</string>
+    <string name="vpn_notification_action_pause">Pause %1$d min</string>
+    <string name="vpn_notification_action_resume">Resume</string>
     <string name="vpn_check_bad_stamp">not a usable DNSCrypt stamp: %1$s</string>
     <string name="vpn_check_start_vpn_first">start the VPN first: resolvers are tested through the node</string>
     <string name="vpn_check_works">works, %1$d ms</string>
@@ -78,6 +96,7 @@
 
     <!-- Tile -->
     <string name="tile_on">On</string>
+    <string name="tile_paused">Filtering paused</string>
     <string name="tile_connecting">Connecting. Tap to cancel.</string>
     <string name="tile_failed">Failed</string>
     <string name="tile_off">Off</string>
@@ -103,11 +122,18 @@
     <string name="hero_connecting">Connecting</string>
     <string name="hero_failed">Failed</string>
     <string name="hero_off">Off</string>
+    <string name="hero_paused">Paused</string>
 
     <!-- StatusView -->
     <string name="status_connect">Connect</string>
     <string name="status_disconnect">Disconnect</string>
     <string name="status_restart">Restart</string>
+    <string name="status_pause">Pause filtering</string>
+    <string name="status_pause_title">Pause filtering for how long?</string>
+    <string name="status_pause_minutes">%1$d minutes</string>
+    <string name="status_pause_hour">1 hour</string>
+    <string name="status_resume">Resume filtering  ·  %1$s</string>
+    <string name="status_pause_not_running">Connect first, then you can pause filtering.</string>
     <string name="status_card_node">Node</string>
     <string name="status_card_traffic">Traffic</string>
     <string name="status_card_dns">DNS</string>
@@ -219,6 +245,8 @@
     <string name="nodes_state_dead">Dead: failed 3 times in a row. Skipped for a while, then tried again.</string>
     <string name="nodes_state_no_answer_yet">No answer yet</string>
     <string name="nodes_state_not_tested">Not tested</string>
+    <string name="nodes_filter_mine">Mine</string>
+    <string name="nodes_none_added">You have not added a node yet. Copy an ss:// link and tap + to add one.</string>
     <string name="nodes_close_details">Close details</string>
     <string name="nodes_detail_address">Address</string>
     <string name="nodes_detail_status">Status</string>
@@ -234,6 +262,26 @@
     <string name="nodes_unpin">Unpin</string>
     <string name="nodes_pin">Pin this node</string>
     <string name="nodes_retest_button">Re-test</string>
+    <string name="nodes_add_description">Add a node from the clipboard</string>
+    <string name="nodes_add_clipboard_empty">The clipboard holds no ss:// link. Copy a node link, then tap + again.</string>
+    <string name="nodes_add_bad">That is not a usable node link: %1$s</string>
+    <string name="nodes_add_hostname">This node uses a host name. Only IP addresses work for added nodes, because a name lookup would happen outside the VPN.</string>
+    <string name="nodes_add_title">Add this node?</string>
+    <string name="nodes_add_message">Server %1$s, port %2$d, method %3$s. The password is not shown.</string>
+    <string name="nodes_add_action">Add</string>
+    <string name="nodes_added">Node added. It is tested and ranked like the others.</string>
+    <string name="nodes_add_duplicate">That node is already in your added nodes.</string>
+    <string name="nodes_add_failed">Could not save the node.</string>
+    <string name="nodes_manual_tag">Added by you</string>
+    <string name="nodes_copy_link">Copy link</string>
+    <string name="nodes_copy_title">Copy this node link?</string>
+    <string name="nodes_copy_message">The link contains the node\'s password. Anyone who sees it can use the node. Paste it only where you trust, and clear the clipboard afterwards.</string>
+    <string name="nodes_copy_action">Copy</string>
+    <string name="nodes_copied">Link copied. It is marked as sensitive.</string>
+    <string name="nodes_remove">Remove</string>
+    <string name="nodes_remove_title">Remove this node?</string>
+    <string name="nodes_remove_message">It is deleted from your added nodes. Subscription nodes cannot be removed here.</string>
+    <string name="nodes_removed">Node removed.</string>
     <string name="nodes_tag_in_use">in use</string>
     <string name="nodes_tag_dead">dead</string>
     <string name="nodes_tag_no_answer">no answer</string>

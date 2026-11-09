@@ -6,8 +6,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A small JSON reader for subscription files (core has no Android imports, so no org.json).
- * Gives Map, List, String, Double, Boolean or null. Throws IllegalArgumentException on bad input.
+ * A small JSON reader and writer (core has no Android imports, so no org.json). Used for subscription
+ * files and settings backups. Reads to Map, List, String, Double, Boolean or null. Throws
+ * IllegalArgumentException on bad input.
  */
 public final class MiniJson {
 
@@ -28,6 +29,98 @@ public final class MiniJson {
             throw p.error("trailing data");
         }
         return v;
+    }
+
+    /**
+     * Writes a Map (String keys), List, String, Boolean, Number or null as indented JSON.
+     *
+     * @throws IllegalArgumentException for any other type
+     */
+    public static String write(Object value) {
+        StringBuilder out = new StringBuilder();
+        write(out, value, 0);
+        return out.append('\n').toString();
+    }
+
+    private static void write(StringBuilder out, Object v, int depth) {
+        if (v == null) {
+            out.append("null");
+        } else if (v instanceof String) {
+            quote(out, (String) v);
+        } else if (v instanceof Boolean) {
+            out.append(v);
+        } else if (v instanceof Double || v instanceof Float) {
+            double d = ((Number) v).doubleValue();
+            if (Double.isNaN(d) || Double.isInfinite(d)) {
+                throw new IllegalArgumentException("not a JSON number");
+            }
+            out.append(d == Math.rint(d) && Math.abs(d) < 1e15 ? String.valueOf((long) d) : String.valueOf(d));
+        } else if (v instanceof Number) {
+            out.append(((Number) v).longValue());
+        } else if (v instanceof Map) {
+            Map<?, ?> m = (Map<?, ?>) v;
+            if (m.isEmpty()) {
+                out.append("{}");
+                return;
+            }
+            out.append("{\n");
+            int i = 0;
+            for (Map.Entry<?, ?> e : m.entrySet()) {
+                if (!(e.getKey() instanceof String)) {
+                    throw new IllegalArgumentException("JSON keys must be strings");
+                }
+                indent(out, depth + 1);
+                quote(out, (String) e.getKey());
+                out.append(": ");
+                write(out, e.getValue(), depth + 1);
+                out.append(++i < m.size() ? ",\n" : "\n");
+            }
+            indent(out, depth);
+            out.append('}');
+        } else if (v instanceof List) {
+            List<?> l = (List<?>) v;
+            if (l.isEmpty()) {
+                out.append("[]");
+                return;
+            }
+            out.append("[\n");
+            for (int i = 0; i < l.size(); i++) {
+                indent(out, depth + 1);
+                write(out, l.get(i), depth + 1);
+                out.append(i + 1 < l.size() ? ",\n" : "\n");
+            }
+            indent(out, depth);
+            out.append(']');
+        } else {
+            throw new IllegalArgumentException("cannot write " + v.getClass().getSimpleName());
+        }
+    }
+
+    private static void indent(StringBuilder out, int depth) {
+        for (int i = 0; i < depth; i++) {
+            out.append("  ");
+        }
+    }
+
+    private static void quote(StringBuilder out, String s) {
+        out.append('"');
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': out.append("\\\""); break;
+                case '\\': out.append("\\\\"); break;
+                case '\n': out.append("\\n"); break;
+                case '\r': out.append("\\r"); break;
+                case '\t': out.append("\\t"); break;
+                default:
+                    if (c < 0x20) {
+                        out.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        out.append(c);
+                    }
+            }
+        }
+        out.append('"');
     }
 
     private Object value(int depth) {

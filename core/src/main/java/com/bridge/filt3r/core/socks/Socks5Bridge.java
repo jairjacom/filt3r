@@ -326,7 +326,8 @@ public final class Socks5Bridge {
         }
         InetAddress addr = InetAddress.getByAddress(ip);
         IpBlockList blockedIps = ipBlock;
-        if (blockedIps != null && blockedIps.isBlocked(addr)) {
+        if (blockedIps != null && !com.bridge.filt3r.core.filter.DNSResponsePatcher.isPaused()
+                && blockedIps.isBlocked(addr)) {
             // Refused before any node is dialled, so the FAIL_OPEN fallback cannot reach it either.
             reply(out, REP_NOT_ALLOWED, 0);
             refusedIpBlock.incrementAndGet();

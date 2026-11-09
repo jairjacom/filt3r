@@ -83,6 +83,22 @@ public class DNSResponsePatcher {
 	}
 
 
+	private static volatile long pausedUntilMs = 0;
+
+	/**
+	 * Until this wall-clock time (ms) every name and address is let through and logged as allowed; the
+	 * tunnel stays up. 0 ends the pause. The deadline is checked on each query, so a sleeping phone or
+	 * a late timer cannot keep filtering off past it. It lives in memory only, so a restart is never paused.
+	 */
+	public static void setPausedUntil(long epochMs) {
+		pausedUntilMs = epochMs;
+	}
+
+	public static boolean isPaused() {
+		long until = pausedUntilMs;
+		return until != 0 && System.currentTimeMillis() < until;
+	}
+
 	public static byte[] patchResponse(String client, byte[] response, int offs) throws IOException {
 
 		try {
@@ -140,7 +156,7 @@ public class DNSResponsePatcher {
 							buf.put(ipv4_blocked);
 						else if (type == 28) // IPV6
 							buf.put(ipv6_blocked);
-				} else if (checkIP || (ipBlock != null && (len == 4 || len == 16))) { //check if resolved IP is filtered or on the IP blocklist
+				} else if (!isPaused() && (checkIP || (ipBlock != null && (len == 4 || len == 16)))) { //check if resolved IP is filtered or on the IP blocklist
 					byte[] answer = new byte[len];
 					buf.get(answer);
 					buf.position(buf.position() - len);
@@ -188,7 +204,7 @@ public class DNSResponsePatcher {
 	protected static boolean filter(String host, boolean log) {
 		boolean result;
 
-		if (FILTER == null)
+		if (FILTER == null || isPaused())
 			result = false;
 		else
 			result = FILTER.contains(host);

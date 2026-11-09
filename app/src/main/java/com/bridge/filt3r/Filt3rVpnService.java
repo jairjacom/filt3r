@@ -10,8 +10,10 @@ import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.VpnService;
 import android.os.FileObserver;
+import android.os.BatteryManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
@@ -85,6 +87,10 @@ public class Filt3rVpnService extends VpnService {
     private static final long CONFIG_BACKSTOP_MS = 5000;
     static final String ACTION_STOP = "com.bridge.filt3r.STOP";
     static final String ACTION_RESTART = "com.bridge.filt3r.RESTART";
+    static final String ACTION_PAUSE = "com.bridge.filt3r.PAUSE";
+    static final String ACTION_RESUME = "com.bridge.filt3r.RESUME";
+    static final String EXTRA_MINUTES = "minutes";
+    static final int NOTIFICATION_PAUSE_MINUTES = 15;
     private static final String CHANNEL_ID = "tunnel";
     private static final int NOTIFICATION_ID = 1;
     private static final String BOOTSTRAP_DOH = "https://1.1.1.1/dns-query";
@@ -178,6 +184,13 @@ public class Filt3rVpnService extends VpnService {
         if (ACTION_STOP.equals(action)) {
             shutdown(TunnelState.State.STOPPED);
             return START_NOT_STICKY;
+        }
+        if (ACTION_PAUSE.equals(action) || ACTION_RESUME.equals(action)) {
+            if (tun != null && TunnelState.get() == TunnelState.State.RUNNING) {
+                setPause(ACTION_PAUSE.equals(action)
+                        ? intent.getIntExtra(EXTRA_MINUTES, NOTIFICATION_PAUSE_MINUTES) : 0);
+            }
+            return tun != null ? START_STICKY : START_NOT_STICKY;
         }
         if (ACTION_REFRESH_RESOLVERS.equals(action)) {
             NodeRuntime r = runtime;
@@ -367,6 +380,8 @@ public class Filt3rVpnService extends VpnService {
                 starting = false;
                 TunnelState.set(TunnelState.State.RUNNING);
                 handler.postDelayed(sampleTick, TrafficHistory.INTERVAL_MS);
+                // the running notification carries the Pause action, which the starting one does not
+                getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, buildNotification());
             }
         } catch (IOException | android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
             if (gen == generation.get()) {
@@ -607,6 +622,27 @@ public class Filt3rVpnService extends VpnService {
     }
 
     /**
+     * Re-reads every saved node into the running list (after a pasted node was added or removed) and,
+     * for an added node, tests it. Does nothing while the tunnel is down: the next start loads the file.
+     */
+    static void reloadNodes(ShadowsocksNode added) {
+        Filt3rVpnService s = instance;
+        NodeRuntime r = s == null ? null : s.runtime;
+        ScheduledExecutorService maint = s == null ? null : s.maintenance;
+        if (r == null || maint == null) {
+            return;
+        }
+        try {
+            maint.execute(() -> r.manager.setNodes(r.store.load()));
+        } catch (RejectedExecutionException e) { // the tunnel was stopped just now
+            return;
+        }
+        if (added != null) {
+            retestNode(added, () -> { });
+        }
+    }
+
+    /**
      * Pins a node chosen in the Node list; a node that was never tested is tested first. Runs on
      * the maintenance thread, and {@code done} is called there (post to the main thread before
      * touching views). If the node does not answer, nothing is pinned and {@link #takeNotice} says so.
@@ -834,6 +870,10 @@ public class Filt3rVpnService extends VpnService {
         refresher = ref;
         maint.scheduleWithFixedDelay(() -> {
             try {
+                if (new Settings(this).testOnlyWhenCheap() && !cheapToTest()) {
+                    Log.i(TAG, "node round skipped: metered network and not charging");
+                    return;
+                }
                 r.testRound(ROUND_TOP, ROUND_RANDOM);
                 probeIpv6();
             } catch (RuntimeException | Error e) {
@@ -848,6 +888,18 @@ public class Filt3rVpnService extends VpnService {
                 Log.w(TAG, "refresh failed: " + e);
             }
         }, FIRST_MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
+    }
+
+    /** True on an unmetered network (normally Wi-Fi) or while charging: the hourly node tests cost data and battery. */
+    private boolean cheapToTest() {
+        ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+        Network active = cm == null ? null : cm.getActiveNetwork();
+        NetworkCapabilities caps = active == null ? null : cm.getNetworkCapabilities(active);
+        if (caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) {
+            return true;
+        }
+        BatteryManager battery = getSystemService(BatteryManager.class);
+        return battery != null && battery.isCharging();
     }
 
     /**
@@ -945,9 +997,36 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private Notification buildNotification() {
-        return buildNotification(getString(R.string.vpn_notification_running_title),
-                getString(R.string.vpn_notification_running_text));
+        long until = TunnelState.pausedUntil();
+        if (until == 0) {
+            return buildNotification(getString(R.string.vpn_notification_running_title),
+                    getString(R.string.vpn_notification_running_text));
+        }
+        return buildNotification(getString(R.string.vpn_notification_paused_title),
+                getString(R.string.vpn_notification_paused_text,
+                        java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(new java.util.Date(until))));
     }
+
+    /**
+     * Lets everything through for {@code minutes} (0 = filtering back on). The filter itself checks the
+     * deadline on every query, so the timer here only refreshes the screen and the notification.
+     */
+    private void setPause(int minutes) {
+        handler.removeCallbacks(resumeTask);
+        long until = minutes > 0 ? System.currentTimeMillis() + minutes * 60_000L : 0;
+        DNSResponsePatcher.setPausedUntil(until);
+        TunnelState.setPausedUntil(until);
+        if (until != 0) {
+            handler.postDelayed(resumeTask, minutes * 60_000L);
+        }
+        getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, buildNotification());
+    }
+
+    private final Runnable resumeTask = () -> {
+        if (TunnelState.get() == TunnelState.State.RUNNING) {
+            setPause(0);
+        }
+    };
 
     private Notification buildNotification(String title, String text) {
         PendingIntent open = PendingIntent.getActivity(this, 0,
@@ -955,7 +1034,13 @@ public class Filt3rVpnService extends VpnService {
         PendingIntent stop = PendingIntent.getService(this, 1,
                 new Intent(this, Filt3rVpnService.class).setAction(ACTION_STOP),
                 PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this, CHANNEL_ID)
+        boolean paused = TunnelState.pausedUntil() != 0;
+        PendingIntent pause = PendingIntent.getService(this, 2,
+                new Intent(this, Filt3rVpnService.class)
+                        .setAction(paused ? ACTION_RESUME : ACTION_PAUSE)
+                        .putExtra(EXTRA_MINUTES, NOTIFICATION_PAUSE_MINUTES),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Notification.Builder b = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_tile)
                 .setContentTitle(title)
                 .setContentText(text)
@@ -967,8 +1052,16 @@ public class Filt3rVpnService extends VpnService {
                         Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
                         getString(R.string.vpn_notification_action_stop), stop)
                         .setAuthenticationRequired(true) // not usable from the lock screen
-                        .build())
-                .build();
+                        .build());
+        if (TunnelState.get() == TunnelState.State.RUNNING) {
+            b.addAction(new Notification.Action.Builder(
+                    Icon.createWithResource(this, android.R.drawable.ic_media_pause),
+                    paused ? getString(R.string.vpn_notification_action_resume)
+                            : getString(R.string.vpn_notification_action_pause, NOTIFICATION_PAUSE_MINUTES), pause)
+                    .setAuthenticationRequired(true)
+                    .build());
+        }
+        return b.build();
     }
 
     /**
@@ -1243,6 +1336,7 @@ public class Filt3rVpnService extends VpnService {
             resolverInfo = null;
             DNSFilterManager.setUrlOpener(null);
             handler.removeCallbacksAndMessages(null);
+            DNSResponsePatcher.setPausedUntil(0);
             TProxyService.TProxyStopService();
             deleteConfig();
             Socks5Bridge b = bridge;

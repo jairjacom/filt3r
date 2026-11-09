@@ -62,7 +62,7 @@ public class Filt3rTileService extends TileService implements TunnelState.Listen
         switch (state) {
             case RUNNING:
                 tile.setState(Tile.STATE_ACTIVE);
-                tile.setSubtitle(getString(R.string.tile_on));
+                tile.setSubtitle(getString(TunnelState.pausedUntil() != 0 ? R.string.tile_paused : R.string.tile_on));
                 break;
             case STARTING:
                 tile.setState(Tile.STATE_INACTIVE);

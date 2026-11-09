@@ -42,10 +42,19 @@ final class NodeStore {
         return !subscriptions.isEmpty();
     }
 
-    /** The cached nodes of all subscriptions, without duplicates; the first subscription to list a node owns it. */
+    /**
+     * The saved nodes of the user first, then the cached nodes of all subscriptions, without duplicates:
+     * a node the user added owns its server and port, even if a subscription lists it too, so it shows as
+     * "Added by you" and sits at the top; otherwise the first subscription to list a node owns it.
+     */
     List<ShadowsocksNode> load() {
         Map<String, ShadowsocksNode> all = new LinkedHashMap<>();
         Map<String, Integer> owner = new HashMap<>();
+        for (ShadowsocksNode n : ManualNodes.read(dir)) {
+            if (all.putIfAbsent(n.host + ":" + n.port, n) == null) {
+                owner.put(NodeManager.keyOf(n), ManualNodes.SOURCE);
+            }
+        }
         for (Settings.Subscription s : subscriptions) {
             for (String line : cachedLines(s)) {
                 try {

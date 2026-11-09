@@ -64,12 +64,31 @@ public class StatusView extends ScrollView {
         void openDnsSettings();
         /** DNS card long-press: the most blocked names. */
         void openDnsDetails();
+
+        /** Lets everything through for this many minutes while the tunnel stays up. */
+        void pause(int minutes);
+
+        /** Ends a pause now. */
+        void resume();
     }
 
     private final HeroView hero;
     private final MaterialButton connect;
     private final MaterialButton disconnect;
     private final MaterialButton restart;
+    private final MaterialButton pause;
+    private final Actions actions;
+    private State state = State.STOPPED;
+    private long pausedUntil;
+    private final Runnable pauseTick = new Runnable() {
+        @Override
+        public void run() {
+            refreshPause();
+            if (pausedUntil > System.currentTimeMillis()) {
+                postDelayed(this, 1000);
+            }
+        }
+    };
     private final LoadingIndicator loading;
     private final Card nodeCard;
     private final Card trafficCard;
@@ -82,6 +101,7 @@ public class StatusView extends ScrollView {
 
     public StatusView(Context context, Actions actions) {
         super(context);
+        this.actions = actions;
         setFillViewport(true);
         setVerticalScrollBarEnabled(false);
 
@@ -125,6 +145,19 @@ public class StatusView extends ScrollView {
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
         slotParams.topMargin = dp(24);
         column.addView(buttonSlot, slotParams);
+        pause = button(context, context.getString(R.string.status_pause), true);
+        pause.setVisibility(GONE);
+        pause.setOnClickListener(v -> {
+            if (pausedUntil > System.currentTimeMillis()) {
+                actions.resume();
+            } else {
+                showPauseChoices();
+            }
+        });
+        LinearLayout.LayoutParams pauseParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        pauseParams.topMargin = dp(8);
+        column.addView(pause, pauseParams);
 
         nodeCard = new Card(context, context.getString(R.string.status_card_node), true);
         trafficCard = new Card(context, context.getString(R.string.status_card_traffic), false);
@@ -146,6 +179,7 @@ public class StatusView extends ScrollView {
     }
 
     public void setState(State state) {
+        this.state = state;
         switch (state) {
             case RUNNING:
                 hero.setMode(HeroView.Mode.ACTIVE);
@@ -165,11 +199,54 @@ public class StatusView extends ScrollView {
         disconnect.setVisibility(state == State.RUNNING ? VISIBLE : GONE);
         restart.setVisibility(state == State.RUNNING ? VISIBLE : GONE);
         loading.setVisibility(state == State.STARTING ? VISIBLE : GONE);
+        pause.setVisibility(state == State.RUNNING ? VISIBLE : GONE);
         if (state != State.RUNNING) {
+            pausedUntil = 0;
+            refreshPause();
             lastUp = -1;
             lastDown = -1;
             update(new Snapshot());
         }
+    }
+
+    /** The end of the filtering pause (wall-clock ms), or 0 when filtering is on. Drives the hero and the button. */
+    public void setPausedUntil(long until) {
+        pausedUntil = state == State.RUNNING ? until : 0;
+        refreshPause();
+        removeCallbacks(pauseTick);
+        if (pausedUntil > System.currentTimeMillis()) {
+            postDelayed(pauseTick, 1000);
+        }
+    }
+
+    private void refreshPause() {
+        long left = pausedUntil - System.currentTimeMillis();
+        boolean paused = left > 0;
+        hero.setPaused(paused);
+        if (paused) {
+            long secs = (left + 999) / 1000;
+            pause.setText(getContext().getString(R.string.status_resume,
+                    String.format(java.util.Locale.getDefault(), "%d:%02d", secs / 60, secs % 60)));
+        } else {
+            pause.setText(R.string.status_pause);
+        }
+    }
+
+    /** Asks for how long to pause; the tile's long-press opens this too. */
+    public void showPauseChoices() {
+        Context context = getContext();
+        if (state != State.RUNNING) {
+            Messages.show(this, context.getString(R.string.status_pause_not_running));
+            return;
+        }
+        int[] minutes = {5, 15, 60};
+        String[] labels = {context.getString(R.string.status_pause_minutes, 5),
+                context.getString(R.string.status_pause_minutes, 15), context.getString(R.string.status_pause_hour)};
+        Dialogs.builder(context)
+                .setTitle(R.string.status_pause_title)
+                .setItems(labels, (d, which) -> actions.pause(minutes[which]))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     /** Centre of the status shield on screen; false until the screen is laid out. For the splash hand-over. */

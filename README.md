@@ -43,3 +43,6 @@ The node lookup on the Status screen is the one exception to "only your own URLs
 card, filt3r asks ipwho.is (or ipapi.co if that one fails) where the node's address is. The request goes
 through your node, so those services see the node's address, not yours. Nothing is looked up unless you
 tap. The optional node history stays on the phone, is off by default and can be cleared in Settings > Privacy.
+
+The app reads the clipboard only when you tap + on the Nodes screen. A settings backup is a plain file you
+save yourself; it holds subscription addresses and added nodes only if you tick the box that says so.

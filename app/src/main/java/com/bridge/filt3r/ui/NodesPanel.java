@@ -87,6 +87,19 @@ public class NodesPanel extends LinearLayout {
 
         /** Brings every hidden node back from the next start. */
         void showHiddenNodes();
+
+        /** What {@link #source} returns for a node the user pasted. */
+        int SOURCE_MANUAL = 99;
+
+        int ADD_OK = 0;
+        int ADD_DUPLICATE = 1;
+        int ADD_FAILED = 2;
+
+        /** Saves a pasted node in its own file and puts it in the running list. @return an ADD_ constant */
+        int addManualNode(ShadowsocksNode node);
+
+        /** Deletes a pasted node. Subscription nodes cannot be removed. */
+        void removeManualNode(ShadowsocksNode node);
     }
 
     private static final long REFRESH_MS = 2000;
@@ -102,6 +115,7 @@ public class NodesPanel extends LinearLayout {
     private final ImageButton retestButton;
     private final ListView list;
     private boolean busy;
+    private boolean onlyMine; // show only the nodes the user added with +
     private final LinearProgressIndicator progress;
     private FrameLayout detailLayer;
     private Runnable unblur = () -> { };
@@ -138,8 +152,11 @@ public class NodesPanel extends LinearLayout {
         title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
         retestButton = iconButton(context, R.drawable.ic_refresh, context.getString(R.string.nodes_retest_description));
         retestButton.setOnClickListener(v -> retest());
+        ImageButton add = iconButton(context, R.drawable.ic_add, context.getString(R.string.nodes_add_description));
+        add.setOnClickListener(v -> addFromClipboard());
         bar.addView(back);
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
+        bar.addView(add);
         bar.addView(retestButton);
         addView(bar);
 
@@ -208,9 +225,20 @@ public class NodesPanel extends LinearLayout {
                 reload();
             }
         });
+        MaterialButton mine = sortButton(context, context.getString(R.string.nodes_filter_mine), R.drawable.ic_person);
+        mine.addOnCheckedChangeListener((b, checked) -> {
+            onlyMine = checked;
+            reload();
+        });
+        LinearLayout sortRow = new LinearLayout(context);
+        sortRow.setGravity(Gravity.CENTER_VERTICAL);
+        sortRow.addView(sort);
+        LayoutParams mineParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        mineParams.leftMargin = dp(8);
+        sortRow.addView(mine, mineParams);
         LayoutParams sortParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         sortParams.setMargins(dp(16), 0, dp(16), dp(8));
-        addView(sort, sortParams);
+        addView(sortRow, sortParams);
 
         TextInputLayout searchLayout = new TextInputLayout(context);
         searchLayout.setHint(context.getString(R.string.nodes_search_hint));
@@ -402,11 +430,23 @@ public class NodesPanel extends LinearLayout {
                 return byState != 0 ? byState : Long.compare(b.speedBps, a.speedBps);
             });
         }
+        // Nodes the user added come first, so a new one is easy to find; the order inside each group stays.
+        List<NodeInfo> mineFirst = new ArrayList<>();
+        List<NodeInfo> others = new ArrayList<>();
+        for (NodeInfo n : all) {
+            (backend.source(n.node) == Backend.SOURCE_MANUAL ? mineFirst : others).add(n);
+        }
+        all = new ArrayList<>(mineFirst);
+        if (!onlyMine) {
+            all.addAll(others);
+        }
         if (current != null && all.remove(current)) {
             all.add(0, current); // the node in use is always the first row
         }
+        boolean nothingAdded = onlyMine && mineFirst.isEmpty() && !others.isEmpty();
         adapter.set(all);
-        empty.setText(everything.isEmpty() ? R.string.nodes_empty : R.string.nodes_no_match);
+        empty.setText(everything.isEmpty() ? R.string.nodes_empty
+                : nothingAdded ? R.string.nodes_none_added : R.string.nodes_no_match);
         if (all.isEmpty() && empty.getVisibility() != VISIBLE
                 && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
             empty.setAlpha(0f);
@@ -608,10 +648,10 @@ public class NodesPanel extends LinearLayout {
                 ? Format.bytes(n.speedBps) + "/s" : context.getString(R.string.nodes_detail_not_measured)));
         card.addView(detailLine(context, context.getString(R.string.nodes_ipv6), context.getString(n.ipv6 == null
                 ? R.string.nodes_detail_checking : n.ipv6 ? R.string.nodes_detail_on : R.string.nodes_detail_off)));
-        int source = backend.sourceCount() > 1 ? backend.source(n.node) : -1;
-        if (source >= 0) {
+        int source = backend.source(n.node);
+        if (source == Backend.SOURCE_MANUAL || (source >= 0 && backend.sourceCount() > 1)) {
             card.addView(detailLine(context, context.getString(R.string.nodes_detail_subscription),
-                    context.getString(R.string.nodes_sub, source + 1)));
+                    sourceTag(context, source)));
         }
 
         LinearLayout buttons = new LinearLayout(context);
@@ -655,6 +695,25 @@ public class NodesPanel extends LinearLayout {
         LayoutParams hideParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         hideParams.topMargin = dp(8);
         card.addView(hide, hideParams);
+        LinearLayout more = new LinearLayout(context);
+        more.setGravity(Gravity.END);
+        MaterialButton copy = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        copy.setText(R.string.nodes_copy_link);
+        copy.setOnClickListener(v -> confirmCopy(n));
+        more.addView(copy);
+        if (source == Backend.SOURCE_MANUAL) {
+            MaterialButton remove = new MaterialButton(context, null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            remove.setText(R.string.nodes_remove);
+            remove.setOnClickListener(v -> confirmRemove(n));
+            LayoutParams removeGap = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+            removeGap.leftMargin = dp(8);
+            more.addView(remove, removeGap);
+        }
+        LayoutParams moreParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        moreParams.topMargin = dp(8);
+        card.addView(more, moreParams);
         return card;
     }
 
@@ -693,6 +752,74 @@ public class NodesPanel extends LinearLayout {
                 com.google.android.material.R.attr.colorOnSurface)));
         b.setLayoutParams(new LayoutParams(dp(48), dp(48)));
         return b;
+    }
+
+    private static String sourceTag(Context context, int source) {
+        return source == Backend.SOURCE_MANUAL ? context.getString(R.string.nodes_manual_tag)
+                : context.getString(R.string.nodes_sub, source + 1);
+    }
+
+    /** Reads the clipboard (only now, because the user tapped +), checks it and asks before adding. */
+    private void addFromClipboard() {
+        Context context = getContext();
+        android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                context.getSystemService(Context.CLIPBOARD_SERVICE);
+        android.content.ClipData clip = cm.getPrimaryClip();
+        CharSequence text = clip == null || clip.getItemCount() == 0 ? null : clip.getItemAt(0).coerceToText(context);
+        String link = text == null ? "" : text.toString().trim();
+        if (!link.regionMatches(true, 0, "ss://", 0, 5)) {
+            Messages.show(this, context.getString(R.string.nodes_add_clipboard_empty));
+            return;
+        }
+        ShadowsocksNode node;
+        try {
+            node = ShadowsocksNode.parse(link);
+        } catch (IllegalArgumentException e) {
+            Messages.show(this, context.getString(R.string.nodes_add_bad, e.getMessage()));
+            return;
+        }
+        if (com.bridge.filt3r.core.util.IpLiteral.parse(node.host) == null) {
+            Messages.show(this, context.getString(R.string.nodes_add_hostname));
+            return;
+        }
+        ShadowsocksNode chosen = node;
+        Dialogs.confirm(context, context.getString(R.string.nodes_add_title),
+                context.getString(R.string.nodes_add_message, node.host, node.port, node.suite.methodName),
+                context.getString(R.string.nodes_add_action), () -> {
+                    int result = backend.addManualNode(chosen);
+                    Messages.show(this, context.getString(result == Backend.ADD_OK ? R.string.nodes_added
+                            : result == Backend.ADD_DUPLICATE ? R.string.nodes_add_duplicate
+                            : R.string.nodes_add_failed), Snackbar.LENGTH_SHORT);
+                    reload();
+                });
+    }
+
+    /** The link holds the password, so it is only copied after the user agrees, and marked sensitive. */
+    private void confirmCopy(NodeInfo n) {
+        Context context = getContext();
+        Dialogs.confirm(context, context.getString(R.string.nodes_copy_title),
+                context.getString(R.string.nodes_copy_message), context.getString(R.string.nodes_copy_action), () -> {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                            context.getSystemService(Context.CLIPBOARD_SERVICE);
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("filt3r node", n.node.toUri());
+                    android.os.PersistableBundle extras = new android.os.PersistableBundle();
+                    extras.putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true);
+                    clip.getDescription().setExtras(extras); // keeps keyboards and clipboard previews from showing it
+                    cm.setPrimaryClip(clip);
+                    Messages.show(this, context.getString(R.string.nodes_copied), Snackbar.LENGTH_SHORT);
+                });
+    }
+
+    private void confirmRemove(NodeInfo n) {
+        Context context = getContext();
+        Dialogs.confirm(context, context.getString(R.string.nodes_remove_title),
+                context.getString(R.string.nodes_remove_message), context.getString(R.string.nodes_remove),
+                () -> {
+                    closeDetail();
+                    backend.removeManualNode(n.node);
+                    Messages.show(this, context.getString(R.string.nodes_removed), Snackbar.LENGTH_SHORT);
+                    reload();
+                });
     }
 
     private static void dim(TextView t) {
@@ -851,9 +978,9 @@ public class NodesPanel extends LinearLayout {
                 sub.append(loc.flag).append(' ').append(loc.countryCode).append("  ·  ");
             }
             sub.append(bySpeed ? ms : speed);
-            int source = backend.sourceCount() > 1 ? backend.source(n.node) : -1;
-            if (source >= 0) {
-                sub.append("  ·  ").append(getContext().getString(R.string.nodes_sub, source + 1));
+            int source = backend.source(n.node);
+            if (source == Backend.SOURCE_MANUAL || (source >= 0 && backend.sourceCount() > 1)) {
+                sub.append("  ·  ").append(sourceTag(getContext(), source));
             }
             subtitle.setText(sub.toString());
             latency.setText(bySpeed ? speed : ms);
