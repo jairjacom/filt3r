@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.7
+
+- Update subscriptions on demand: an Update now button under each subscription in Settings > Connection, and a cloud button on Nodes. You need to be connected, because the download goes through a node.
+- The 10 best nodes are now re-tested every hour and speed-tested when you tap re-test (it was 5). A re-test can take a little longer.
+
 ## v0.0.6
 
 - Pause filtering for 5, 15 or 60 minutes from Status, the notification or the Quick Settings tile. The tunnel stays up and filtering comes back on its own.
