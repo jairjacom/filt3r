@@ -263,6 +263,10 @@
     <string name="nodes_pin">Pin this node</string>
     <string name="nodes_retest_button">Re-test</string>
     <string name="nodes_add_description">Add a node from the clipboard</string>
+    <string name="nodes_update_description">Update subscriptions now</string>
+    <string name="nodes_updating">Updating subscriptions...</string>
+    <string name="nodes_update_failed">A subscription could not be updated. Settings &gt; Connection shows why.</string>
+    <string name="nodes_update_not_possible">Not possible now (tunnel off, no subscription, or already updating).</string>
     <string name="nodes_add_clipboard_empty">The clipboard holds no ss:// link. Copy a node link, then tap + again.</string>
     <string name="nodes_add_bad">That is not a usable node link: %1$s</string>
     <string name="nodes_add_hostname">This node uses a host name. Only IP addresses work for added nodes, because a name lookup would happen outside the VPN.</string>

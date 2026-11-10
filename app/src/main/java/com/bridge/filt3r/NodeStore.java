@@ -149,7 +149,7 @@ final class NodeStore {
      * @param onlyDue true to skip subscriptions that are not due yet
      * @throws IOException if every attempted subscription failed
      */
-    void update(HttpsFetcher fetcher, NameResolver names, boolean onlyDue) throws IOException {
+    synchronized void update(HttpsFetcher fetcher, NameResolver names, boolean onlyDue) throws IOException {
         IOException last = null;
         int attempted = 0;
         int ok = 0;
@@ -159,22 +159,57 @@ final class NodeStore {
             }
             attempted++;
             try {
-                List<ShadowsocksNode> nodes = SubscriptionParser.parse(fetcher.get(s.url)).nodes;
-                List<ShadowsocksNode> resolved = HostNameResolver.resolve(nodes, names);
-                if (resolved.isEmpty()) {
-                    throw new IOException("subscription held no usable node");
-                }
-                save(s, resolved);
-                ERRORS.remove(s.slot);
+                updateOne(s, fetcher, names);
                 ok++;
-            } catch (IOException | IllegalArgumentException e) {
-                ERRORS.put(s.slot, shorten(e));
-                last = e instanceof IOException ? (IOException) e : new IOException(e.getMessage());
+            } catch (IOException e) {
+                last = e;
             }
         }
         if (attempted > 0 && ok == 0) {
             throw last;
         }
+    }
+
+    /**
+     * Downloads one subscription now, whatever its interval. {@code s} need not be one of this store's
+     * subscriptions: the cache file is chosen by {@code s.slot}, its {@code #url} line by {@code s.url}.
+     * A failure keeps the old cache.
+     *
+     * @throws IOException if the download, the parsing or the name lookup failed, or no usable node came back
+     */
+    synchronized void updateOne(Settings.Subscription s, HttpsFetcher fetcher, NameResolver names) throws IOException {
+        try {
+            List<ShadowsocksNode> nodes = SubscriptionParser.parse(fetcher.get(s.url)).nodes;
+            List<ShadowsocksNode> resolved = HostNameResolver.resolve(nodes, names);
+            if (resolved.isEmpty()) {
+                throw new IOException("subscription held no usable node");
+            }
+            save(s, resolved);
+            ERRORS.remove(s.slot);
+        } catch (IOException | IllegalArgumentException e) {
+            ERRORS.put(s.slot, shorten(e));
+            throw e instanceof IOException ? (IOException) e : new IOException(e.getMessage());
+        }
+    }
+
+    /** True if this store holds a subscription with the same slot and address. */
+    boolean supplies(Settings.Subscription s) {
+        for (Settings.Subscription m : subscriptions) {
+            if (m.slot == s.slot && m.url.equals(s.url)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** True if the last download of any of this store's subscriptions failed. */
+    boolean anyFailed() {
+        for (Settings.Subscription m : subscriptions) {
+            if (ERRORS.containsKey(m.slot)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isDue(Settings.Subscription s) {
