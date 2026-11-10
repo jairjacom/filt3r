@@ -1035,6 +1035,11 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public boolean updateSubscriptions(java.util.function.Consumer<Boolean> done) {
+        return Filt3rVpnService.updateSubscriptionsNow(-1, done);
+    }
+
+    @Override
     public boolean pin(ShadowsocksNode node, Runnable done) {
         return Filt3rVpnService.pinNode(node, done);
     }
@@ -1170,6 +1175,11 @@ public class MainActivity extends Activity
             sb.append('\n').append(getString(R.string.main_subscription_failed, error));
         }
         return sb.toString();
+    }
+
+    @Override
+    public boolean updateSubscription(int slot, java.util.function.Consumer<Boolean> done) {
+        return Filt3rVpnService.updateSubscriptionsNow(slot, done);
     }
 
     @Override

@@ -65,6 +65,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import hev.htproxy.TProxyService;
 
@@ -97,7 +98,7 @@ public class Filt3rVpnService extends VpnService {
     private static final int START_ROUNDS = 2;          // test rounds before giving up on a start
     private static final int START_ROUND_NODES = 40;    // random nodes tested per start round
     private static final int TEST_THREADS = 16;
-    private static final int ROUND_TOP = 5;             // hourly: best-ranked nodes re-tested
+    private static final int ROUND_TOP = 10;            // best-ranked nodes re-tested (hourly) and speed-tested (on re-test)
     private static final int ROUND_RANDOM = 5;          // hourly: random others tested
     private static final long MAINTENANCE_MIN = 60;
     private static final Random RANDOM = new Random();
@@ -585,6 +586,54 @@ public class Filt3rVpnService extends VpnService {
     }
 
     /**
+     * Downloads subscriptions now through the node, whatever their interval. {@code slot} -1: every
+     * subscription the tunnel started with; 0-2: that slot as saved in Settings now (also if it was
+     * changed or switched off since the start; its nodes join the running list only if the tunnel
+     * started with the same address). {@code done} gets true if every download worked; it runs on a
+     * background thread (post to the main thread before touching views) and always runs once started.
+     *
+     * @return false if the tunnel is not running, the slot is empty, there is no subscription, or an update is already under way
+     */
+    static boolean updateSubscriptionsNow(int slot, Consumer<Boolean> done) {
+        Filt3rVpnService s = instance;
+        NodeRuntime r = s == null ? null : s.runtime;
+        if (r == null) {
+            return false;
+        }
+        Settings.Subscription target = null;
+        if (slot >= 0) {
+            for (Settings.Subscription sub : new Settings(s).subscriptions()) {
+                if (sub.slot == slot) {
+                    target = sub;
+                }
+            }
+            if (target == null) {
+                return false;
+            }
+        } else if (!r.store.hasSubscriptions()) {
+            return false;
+        }
+        if (!r.updating.compareAndSet(false, true)) {
+            return false;
+        }
+        Settings.Subscription one = target;
+        // Not on the maintenance or refresher pool: stopEverything shuts those down and would drop
+        // the task, leaving the caller's spinner stuck. Here its fetcher.cancel() ends the download.
+        Thread t = new Thread(() -> {
+            boolean ok = false;
+            try {
+                ok = r.downloadNow(one);
+            } finally {
+                done.accept(ok);
+                r.updating.set(false);
+            }
+        }, "subscription-update");
+        t.setDaemon(true);
+        t.start();
+        return true;
+    }
+
+    /**
      * Re-tests one node (latency, speed and IPv6 if it answers). Like {@link #retestNodes}, {@code done}
      * runs on the maintenance thread.
      *
@@ -728,6 +777,7 @@ public class Filt3rVpnService extends VpnService {
         final AtomicBoolean retesting = new AtomicBoolean();
         /** One fetcher for the subscription and resolver-list downloads, so stopEverything can cut them off. */
         final HttpsFetcher fetcher;
+        final AtomicBoolean updating = new AtomicBoolean();
         final AtomicBoolean recovering = new AtomicBoolean();
         /** Looks names up through the node with the built-in resolver, so a bad user choice cannot block downloads. */
         final UpstreamNameResolver names;
@@ -740,6 +790,25 @@ public class Filt3rVpnService extends VpnService {
             this.viaNode = viaNode;
             this.names = new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode));
             this.fetcher = new HttpsFetcher(viaNode, names);
+        }
+
+        /** Downloads {@code one} now, or every subscription of this start if null, and reloads the running list. @return true if every download worked */
+        boolean downloadNow(Settings.Subscription one) {
+            try {
+                if (one == null) {
+                    store.update(fetcher, names, false);
+                } else {
+                    store.updateOne(one, fetcher, names);
+                }
+            } catch (IOException e) {
+                Log.w(TAG, "subscription update failed: " + e.getMessage());
+                return false;
+            }
+            if (one == null || store.supplies(one)) { // another address joins only after a restart
+                manager.setNodes(store.load());
+                Log.i(TAG, "subscriptions updated: " + manager.summary());
+            }
+            return one != null || !store.anyFailed();
         }
 
         /** Re-reads the subscriptions through the node when a subscription is due. */

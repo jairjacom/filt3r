@@ -89,6 +89,9 @@ public class SettingsPanel extends LinearLayout {
         /** "Last updated 3 h ago", or "Not downloaded yet". */
         String subscriptionUpdated(int slot);
 
+        /** Downloads the slot's subscription now; {@code done} gets true if it worked and runs on a background thread. @return false if the tunnel is down or an update is under way */
+        boolean updateSubscription(int slot, java.util.function.Consumer<Boolean> done);
+
         boolean failClosed();
 
         void setFailClosed(boolean closed);
@@ -327,6 +330,23 @@ public class SettingsPanel extends LinearLayout {
             TextView updated = note(context, backend.subscriptionUpdated(slot));
             updated.setPadding(dp(20), 0, dp(20), dp(4));
             updated.setVisibility(url[0].isEmpty() ? GONE : VISIBLE);
+            ProgressButton updateNow = new ProgressButton(context, context.getString(R.string.settings_connection_update_now));
+            updateNow.setVisibility(url[0].isEmpty() ? GONE : VISIBLE);
+            updateNow.setOnClick(v -> {
+                commitEdits(); // a typed address is saved first: tapping a button does not blur the field
+                if (invalidFields.contains(field) || url[0].isEmpty()) {
+                    return; // the field already shows its error
+                }
+                updateNow.busy();
+                boolean started = backend.updateSubscription(slot, ok -> post(() -> {
+                    updateNow.finish(ok);
+                    updated.setText(backend.subscriptionUpdated(slot));
+                }));
+                if (!started) {
+                    updateNow.finish(false);
+                    Messages.show(this, context.getString(R.string.settings_connection_update_not_possible), Snackbar.LENGTH_SHORT);
+                }
+            });
             watchCommit(field, text -> {
                 String error = backend.setSubscription(slot, text.trim(), hours[0]);
                 setFieldError(field, error);
@@ -336,6 +356,7 @@ public class SettingsPanel extends LinearLayout {
                 url[0] = text.trim();
                 updated.setText(backend.subscriptionUpdated(slot));
                 updated.setVisibility(url[0].isEmpty() ? GONE : VISIBLE);
+                updateNow.setVisibility(url[0].isEmpty() ? GONE : VISIBLE);
                 markChanged();
             });
             interval.setOnClickListener(v -> chooseInterval(hours[0], h -> {
@@ -349,6 +370,9 @@ public class SettingsPanel extends LinearLayout {
             }));
             card.addView(field, fieldParams());
             card.addView(updated);
+            LayoutParams updateNowParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+            updateNowParams.setMargins(dp(16), 0, dp(16), dp(8));
+            card.addView(updateNow, updateNowParams);
             card.addView(interval);
             card.addView(switchRow(context, context.getString(R.string.settings_connection_use_subscription, slot + 1),
                     context.getString(R.string.settings_connection_use_subscription_off),

@@ -228,6 +228,8 @@
     <string name="settings_every_week">Every week</string>
     <string name="settings_connection_use_subscription">Use subscription %1$d</string>
     <string name="settings_connection_use_subscription_off">Off: its nodes are left out.</string>
+    <string name="settings_connection_update_now">Update now</string>
+    <string name="settings_connection_update_not_possible">Connect first: subscriptions are downloaded through a node. If you are connected, an update is already running.</string>
     <string name="settings_connection_subscription_note">Paste the address of a Shadowsocks subscription. Nodes come from every subscription that is switched on; switch the others off to use just one.</string>
     <string name="settings_connection_fail_closed">Block traffic when no node works</string>
     <string name="settings_connection_fail_closed_off">Off: connect directly instead, which shows your real IP.</string>

@@ -61,6 +61,9 @@ public class NodesPanel extends LinearLayout {
         /** Re-tests one node; {@code done} runs on a background thread. @return false if not possible now */
         boolean retestNode(ShadowsocksNode node, Runnable done);
 
+        /** Downloads every subscription now and reloads the list; {@code done} gets true if all worked and runs on a background thread. @return false if not possible now */
+        boolean updateSubscriptions(java.util.function.Consumer<Boolean> done);
+
         /** Pins the node (testing it first if needed); {@code done} runs on a background thread. */
         boolean pin(ShadowsocksNode node, Runnable done);
 
@@ -125,6 +128,8 @@ public class NodesPanel extends LinearLayout {
     private String query = "";
     private final MaterialButton showHidden;
     private ObjectAnimator retestSpin;
+    private final ImageButton updateButton;
+    private ObjectAnimator updateSpin;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -153,10 +158,13 @@ public class NodesPanel extends LinearLayout {
         retestButton = iconButton(context, R.drawable.ic_refresh, context.getString(R.string.nodes_retest_description));
         retestButton.setOnClickListener(v -> retest());
         ImageButton add = iconButton(context, R.drawable.ic_add, context.getString(R.string.nodes_add_description));
+        updateButton = iconButton(context, R.drawable.ic_cloud_download, context.getString(R.string.nodes_update_description));
+        updateButton.setOnClickListener(v -> updateSubscriptions());
         add.setOnClickListener(v -> addFromClipboard());
         bar.addView(back);
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(add);
+        bar.addView(updateButton);
         bar.addView(retestButton);
         addView(bar);
 
@@ -393,6 +401,23 @@ public class NodesPanel extends LinearLayout {
             setBusy(false);
             ActionMorph.finish(retestButton, retestSpin, false, R.drawable.ic_refresh);
             Messages.show(this, getContext().getString(R.string.nodes_not_possible), Snackbar.LENGTH_SHORT);
+        }
+    }
+
+    /** Downloads every subscription now: the cloud icon spins, then shows a check. Independent of the node-test progress bar. */
+    private void updateSubscriptions() {
+        updateSpin = ActionMorph.busy(updateButton); // disables the button until finish
+        Messages.show(this, getContext().getString(R.string.nodes_updating), Snackbar.LENGTH_SHORT);
+        boolean started = backend.updateSubscriptions(ok -> post(() -> {
+            ActionMorph.finish(updateButton, updateSpin, ok, R.drawable.ic_cloud_download);
+            reload();
+            if (!ok) {
+                Messages.show(this, getContext().getString(R.string.nodes_update_failed));
+            }
+        }));
+        if (!started) {
+            ActionMorph.finish(updateButton, updateSpin, false, R.drawable.ic_cloud_download);
+            Messages.show(this, getContext().getString(R.string.nodes_update_not_possible), Snackbar.LENGTH_SHORT);
         }
     }
 
