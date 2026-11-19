@@ -41,6 +41,9 @@
     <string name="main_backup_later">Later</string>
     <string name="main_nodes_not_tested">Nodes not tested yet</string>
     <string name="main_nodes_tested">Nodes tested %1$s</string>
+    <string name="main_nodes_scanning">Full scan: %1$d of %2$d nodes tested</string>
+    <string name="main_nodes_scan_waiting">Full scan of all nodes has not run yet</string>
+    <string name="main_nodes_scan_done">Full scan %1$s · %2$d nodes under %3$d ms</string>
     <string name="main_subscription_not_downloaded">Not downloaded yet</string>
     <string name="main_subscription_updated">Last updated %1$s</string>
     <plurals name="main_subscription_nodes">
@@ -217,6 +220,9 @@
     <string name="nodes_search_hint">Search nodes</string>
     <string name="nodes_no_match">No node matches.</string>
     <string name="nodes_show_hidden">Show hidden nodes (%1$d)</string>
+    <string name="nodes_show_slow">Show slow and dead nodes (%1$d)</string>
+    <string name="nodes_hide_slow">Hide slow and dead nodes</string>
+    <string name="nodes_all_slow_hidden">All nodes here are slow or dead. Tap Show slow and dead nodes to see them.</string>
     <string name="nodes_hide_button">Hide this node</string>
     <string name="nodes_hide_title">Hide this node?</string>
     <string name="nodes_hide_message">It leaves the list and is never used, starting with the next restart. You can bring hidden nodes back from the Nodes screen.</string>
@@ -291,6 +297,7 @@
     <string name="nodes_tag_dead">dead</string>
     <string name="nodes_tag_no_answer">no answer</string>
     <string name="nodes_tag_not_tested">not tested</string>
+    <string name="nodes_tag_tested">tested %1$s</string>
     <string name="nodes_said_ms">%1$d milliseconds</string>
     <string name="nodes_said_per_second">%1$s per second</string>
 

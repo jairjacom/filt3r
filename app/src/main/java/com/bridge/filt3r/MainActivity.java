@@ -1090,6 +1090,29 @@ public class MainActivity extends Activity
                 : getString(R.string.main_nodes_tested, FilterStatusText.ago(this, t, System.currentTimeMillis()));
     }
 
+    @Override
+    public String scanText() {
+        NodeManager.ScanStatus s = Filt3rVpnService.scanStatus();
+        if (s == null) {
+            return "";
+        }
+        if (s.running) {
+            return getString(R.string.main_nodes_scanning, s.done, s.total);
+        }
+        if (s.doneAgoMs < 0) {
+            return getString(R.string.main_nodes_scan_waiting);
+        }
+        long now = System.currentTimeMillis();
+        return getString(R.string.main_nodes_scan_done, FilterStatusText.ago(this, now - s.doneAgoMs, now),
+                s.fast, NodeManager.FAST_MS);
+    }
+
+    @Override
+    public String agoText(long agoMs) {
+        long now = System.currentTimeMillis();
+        return FilterStatusText.ago(this, now - agoMs, now);
+    }
+
     // ---- SettingsPanel.Backend ----
 
     @Override

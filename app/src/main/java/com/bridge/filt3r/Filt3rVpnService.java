@@ -103,7 +103,17 @@ public class Filt3rVpnService extends VpnService {
     private static final int START_ROUND_TOP = 10;      // best-ranked saved nodes re-tested in the first start round
     private static final long START_GRACE_MS = 1_500;   // after the first node answers, wait this long for the rest of the round
     static final String RANKS_FILE = "node_ranks.txt";  // saved node ranking, in the files dir
-    private static final int RANKS_KEEP = 10;           // nodes written to the ranking file
+    private static final int RANKS_MIN = 10;            // best nodes always written to the ranking file
+    private static final int RANKS_MAX = 50;            // plus every fast node, up to this (= NodeRankFile.MAX_LINES)
+    private static final int FAST_RETEST_MAX = 30;      // fast nodes put first in every node round
+    private static final long SWEEP_FIRST_S = 60;       // first full-scan step after the tunnel is up
+    private static final long SWEEP_STEP_S = 120;       // one full-scan batch every step
+    private static final long SWEEP_WINDOW_MS = 100 * 60_000L; // every node tried within this
+    private static final long SWEEP_REPEAT_MS = 24 * 3_600_000L; // next full scan after this
+    private static final int SWEEP_MAX_BATCH = 40;      // nodes per full-scan step, at most
+    private static final int SWEEP_THREADS = 8;
+    private static final int SLOW_SWITCH_CHECK = 3;     // fast nodes re-tested before leaving a slow node
+    private static final long SLOW_SWITCH_GAIN_MS = 100; // the fast node must be this much quicker
     private static final int SETTLE_TOP = 3;            // best nodes re-tested right after a start
     private static final long NET_RETEST_DELAY_S = 10;  // wait after a network change (debounces flaps)
     private static final int TEST_THREADS = 16;
@@ -161,6 +171,7 @@ public class Filt3rVpnService extends VpnService {
     private volatile HttpsFetcher filterFetcher;         // filter-list downloads through the node
     private volatile boolean starting;
     private volatile ScheduledExecutorService maintenance;
+    private volatile ScheduledExecutorService sweeper; // the full node scan, off the maintenance thread so taps never wait behind it
     private volatile NodeManager nodes;
     private volatile NodeTester nodeTester;
     private ConnectivityManager.NetworkCallback networkCallback; // guarded by this
@@ -636,6 +647,13 @@ public class Filt3rVpnService extends VpnService {
         return m == null ? Collections.emptyList() : m.snapshot();
     }
 
+    /** The full node scan's progress, or null while the tunnel is down. */
+    static NodeManager.ScanStatus scanStatus() {
+        Filt3rVpnService s = instance;
+        NodeManager m = s == null ? null : s.nodes;
+        return m == null ? null : m.scanStatus();
+    }
+
     /** When the last node test round finished (wall-clock ms), or 0 if none has or the tunnel is down. */
     static long lastNodeTestMs() {
         Filt3rVpnService s = instance;
@@ -992,20 +1010,75 @@ public class Filt3rVpnService extends VpnService {
             }
         }
 
-        /** Tests the best-ranked {@code top} nodes and the {@code explore} least recently tested others. The current node stays unless it died. */
+        /**
+         * Tests the fast nodes first, then the best-ranked {@code top} nodes and the {@code explore}
+         * least recently tested others (fast nodes go first because a round drops tests still queued
+         * at its time cap). The current node stays unless it died.
+         */
         void testRound(int top, int explore) {
-            tester.testAndRecord(manager, manager.pickForTest(top, explore, RANDOM), TEST_THREADS);
+            List<ShadowsocksNode> pick = new ArrayList<>(manager.fastNodes(FAST_RETEST_MAX));
+            for (ShadowsocksNode n : manager.pickForTest(top, explore, RANDOM)) {
+                if (!pick.contains(n)) {
+                    pick.add(n);
+                }
+            }
+            tester.testAndRecord(manager, pick, TEST_THREADS);
             Log.i(TAG, "node round: " + manager.summary());
             saveRanks();
         }
 
-        /** Writes the best nodes' samples to the ranking file, so the next start begins with them. */
+        /** One step of the full node scan, on the sweeper thread. */
+        void sweepStep() {
+            if (!manager.isOnline() || manager.current() == null) {
+                return;
+            }
+            if (new Settings(Filt3rVpnService.this).testOnlyWhenCheap() && !cheapToTest()) {
+                return;
+            }
+            if (!manager.sweeping()) {
+                if (!manager.sweepDue(SWEEP_REPEAT_MS)) {
+                    return;
+                }
+                manager.startSweep();
+                Log.i(TAG, "full scan started: " + manager.summary());
+            }
+            List<ShadowsocksNode> batch = manager.nextSweepBatch(SWEEP_WINDOW_MS,
+                    TimeUnit.SECONDS.toMillis(SWEEP_STEP_S), SWEEP_MAX_BATCH, RANDOM);
+            if (!batch.isEmpty()) {
+                tester.testAndRecord(manager, batch, SWEEP_THREADS);
+                return;
+            }
+            manager.finishSweep();
+            Log.i(TAG, "full scan done: " + manager.summary());
+            if (manager.currentIsSlow()) {
+                List<ShadowsocksNode> fast = manager.fastNodes(SLOW_SWITCH_CHECK);
+                if (!fast.isEmpty()) {
+                    tester.testAndRecord(manager, fast, SLOW_SWITCH_CHECK);
+                    if (Thread.currentThread().isInterrupted()) {
+                        return;
+                    }
+                    if (manager.switchIfSlow(2, SLOW_SWITCH_GAIN_MS)) {
+                        Log.i(TAG, "left a slow node: " + manager.summary());
+                    }
+                }
+            }
+            saveRanks();
+        }
+
+        private final Object ranksLock = new Object();
+
+        /**
+         * Writes the best and the fast nodes' samples to the ranking file, so the next start begins with them.
+         * Locked: the maintenance and scan threads both save, and the file is written through one temp file.
+         */
         void saveRanks() {
-            try {
-                NodeRankFile.write(new File(getFilesDir(), RANKS_FILE), System.currentTimeMillis(),
-                        manager.exportRanks(RANKS_KEEP));
-            } catch (IOException e) {
-                Log.w(TAG, "rank save failed: " + e);
+            synchronized (ranksLock) {
+                try {
+                    NodeRankFile.write(new File(getFilesDir(), RANKS_FILE), System.currentTimeMillis(),
+                            manager.exportRanks(RANKS_MIN, RANKS_MAX));
+                } catch (IOException e) {
+                    Log.w(TAG, "rank save failed: " + e);
+                }
             }
         }
 
@@ -1142,6 +1215,15 @@ public class Filt3rVpnService extends VpnService {
                 Log.w(TAG, "refresh failed: " + e);
             }
         }, FIRST_MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
+        ScheduledExecutorService sweep = Executors.newSingleThreadScheduledExecutor();
+        sweeper = sweep;
+        sweep.scheduleWithFixedDelay(() -> {
+            try {
+                r.sweepStep();
+            } catch (RuntimeException | Error e) {
+                Log.w(TAG, "full scan step failed: " + e);
+            }
+        }, SWEEP_FIRST_S, SWEEP_STEP_S, TimeUnit.SECONDS);
     }
 
     /** True on an unmetered network (normally Wi-Fi) or while charging: the hourly node tests cost data and battery. */
@@ -1563,6 +1645,11 @@ public class Filt3rVpnService extends VpnService {
             refresher = null;
             if (ref != null) {
                 ref.shutdownNow();
+            }
+            ScheduledExecutorService sw = sweeper;
+            sweeper = null;
+            if (sw != null) {
+                sw.shutdownNow();
             }
             FailoverCheck fc = failoverCheck;
             failoverCheck = null;

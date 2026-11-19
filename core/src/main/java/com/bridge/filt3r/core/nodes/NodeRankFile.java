@@ -15,7 +15,7 @@ import java.util.List;
 public final class NodeRankFile {
 
     static final long MAX_AGE_MS = 7L * 24 * 3_600_000;
-    static final int MAX_LINES = 20;
+    static final int MAX_LINES = 50;
     private static final int MAX_SAMPLES = 5;
     private static final String HEADER = "filt3r-ranks 1 ";
 
