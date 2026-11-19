@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.9
+
+- Node blacklisting is now written to the diagnostic log, with the reason and whether it was your current or pinned node, so an unexpected node switch can be traced.
+
 ## v0.0.8
 
 - Faster, safer node switching. When your node stops working, filt3r now checks the best other nodes at once and moves to one that answered a moment ago, instead of one that was fast hours ago.
