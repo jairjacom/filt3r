@@ -82,6 +82,12 @@ public class NodesPanel extends LinearLayout {
         /** "Nodes tested 4 h ago", or a line saying they were not tested yet. */
         String lastTestText();
 
+        /** One line about the full node scan; empty hides it. */
+        String scanText();
+
+        /** "12 min ago" for a time this long ago. */
+        String agoText(long agoMs);
+
         /** Keys (host:port) of the nodes the user hid. */
         java.util.Set<String> hiddenNodes();
 
@@ -114,6 +120,8 @@ public class NodesPanel extends LinearLayout {
     private final TextView currentDetail;
     private final TextView currentIp;
     private final TextView currentTested;
+    private final TextView currentScan;
+    private boolean showSlow; // not saved: each open starts with slow and dead nodes hidden
     private final TextView empty;
     private final ImageButton retestButton;
     private final ListView list;
@@ -127,6 +135,7 @@ public class NodesPanel extends LinearLayout {
     private int panelAccessibility;
     private String query = "";
     private final MaterialButton showHidden;
+    private final MaterialButton slowToggle;
     private ObjectAnimator retestSpin;
     private final ImageButton updateButton;
     private ObjectAnimator updateSpin;
@@ -208,11 +217,15 @@ public class NodesPanel extends LinearLayout {
         currentTested = new TextView(context);
         currentTested.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
         dim(currentTested);
+        currentScan = new TextView(context);
+        currentScan.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        dim(currentScan);
         card.addView(label);
         card.addView(currentName);
         card.addView(currentDetail);
         card.addView(currentIp);
         card.addView(currentTested);
+        card.addView(currentScan);
         LayoutParams cardParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         cardParams.setMargins(dp(16), dp(4), dp(16), dp(12));
         addView(card, cardParams);
@@ -285,6 +298,17 @@ public class NodesPanel extends LinearLayout {
         LayoutParams hiddenParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         hiddenParams.setMargins(dp(16), 0, dp(16), dp(8));
         addView(showHidden, hiddenParams);
+
+        slowToggle = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        slowToggle.setVisibility(GONE);
+        slowToggle.setOnClickListener(v -> {
+            showSlow = !showSlow;
+            reload();
+        });
+        LayoutParams slowParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        slowParams.setMargins(dp(16), 0, dp(16), dp(8));
+        addView(slowToggle, slowParams);
 
         empty = new TextView(context);
         empty.setText(R.string.nodes_empty);
@@ -421,6 +445,23 @@ public class NodesPanel extends LinearLayout {
         }
     }
 
+    /** Slow or dead nodes the list hides unless asked; the current, pinned and added nodes always show. */
+    private boolean slowOrDead(NodeInfo n) {
+        if (n.current || n.pinned || backend.source(n.node) == Backend.SOURCE_MANUAL) {
+            return false;
+        }
+        switch (n.state) {
+            case BLACKLISTED:
+                return true;
+            case UNTESTED:
+                return n.tried;
+            case WORKING:
+                return n.medianMs >= NodeManager.FAST_MS;
+            default:
+                return false;
+        }
+    }
+
     private void reload() {
         List<NodeInfo> everything = new ArrayList<>(backend.nodes());
         if (everything.isEmpty() && busy) {
@@ -436,9 +477,14 @@ public class NodesPanel extends LinearLayout {
         java.util.Set<String> hidden = backend.hiddenNodes();
         String q = query.trim().toLowerCase(Locale.ROOT);
         List<NodeInfo> all = new ArrayList<>();
+        int slowHidden = 0;
         for (NodeInfo n : everything) {
             if (hidden.contains(NodeManager.keyOf(n.node)) && !n.current) {
                 continue; // hidden nodes stay out of sight; the one in use stays until the next start
+            }
+            if (q.isEmpty() && !showSlow && slowOrDead(n)) {
+                slowHidden++;
+                continue; // a search shows every match
             }
             if (!q.isEmpty() && !n.node.name.toLowerCase(Locale.ROOT).contains(q)
                     && !n.node.host.toLowerCase(Locale.ROOT).contains(q)) {
@@ -448,6 +494,9 @@ public class NodesPanel extends LinearLayout {
         }
         showHidden.setVisibility(hidden.isEmpty() ? GONE : VISIBLE);
         showHidden.setText(getContext().getString(R.string.nodes_show_hidden, hidden.size()));
+        slowToggle.setVisibility(q.isEmpty() && !onlyMine && (showSlow || slowHidden > 0) ? VISIBLE : GONE);
+        slowToggle.setText(showSlow ? getContext().getString(R.string.nodes_hide_slow)
+                : getContext().getString(R.string.nodes_show_slow, slowHidden));
         if (backend.sortBySpeed()) {
             // Stable: nodes with the same speed (or none) keep their latency order; state groups stay.
             all.sort((a, b) -> {
@@ -468,10 +517,12 @@ public class NodesPanel extends LinearLayout {
         if (current != null && all.remove(current)) {
             all.add(0, current); // the node in use is always the first row
         }
-        boolean nothingAdded = onlyMine && mineFirst.isEmpty() && !others.isEmpty();
+        boolean nothingAdded = onlyMine && mineFirst.isEmpty() && (!others.isEmpty() || slowHidden > 0);
         adapter.set(all);
         empty.setText(everything.isEmpty() ? R.string.nodes_empty
-                : nothingAdded ? R.string.nodes_none_added : R.string.nodes_no_match);
+                : nothingAdded ? R.string.nodes_none_added
+                : q.isEmpty() && !onlyMine && slowHidden > 0 ? R.string.nodes_all_slow_hidden
+                : R.string.nodes_no_match);
         if (all.isEmpty() && empty.getVisibility() != VISIBLE
                 && Effects.on(getContext(), Effects.Effect.TRANSITIONS)) {
             empty.setAlpha(0f);
@@ -494,6 +545,9 @@ public class NodesPanel extends LinearLayout {
         }
         currentTested.setText(backend.lastTestText());
         currentTested.setVisibility(everything.isEmpty() ? GONE : VISIBLE);
+        String scan = backend.scanText();
+        currentScan.setText(scan);
+        currentScan.setVisibility(everything.isEmpty() || scan.isEmpty() ? GONE : VISIBLE);
     }
 
     private static String place(NodeLocation loc) {
@@ -528,7 +582,7 @@ public class NodesPanel extends LinearLayout {
             case BLACKLISTED:
                 return ctx.getString(R.string.nodes_state_dead);
             default:
-                return ctx.getString(n.failures > 0 ? R.string.nodes_state_no_answer_yet : R.string.nodes_state_not_tested);
+                return ctx.getString(n.tried ? R.string.nodes_state_no_answer_yet : R.string.nodes_state_not_tested);
         }
     }
 
@@ -880,7 +934,8 @@ public class NodesPanel extends LinearLayout {
                 NodeInfo y = b.get(i);
                 if (!x.node.host.equals(y.node.host) || x.node.port != y.node.port
                         || !x.node.name.equals(y.node.name) || x.state != y.state
-                        || x.medianMs != y.medianMs || x.failures != y.failures
+                        || x.medianMs != y.medianMs || x.failures != y.failures || x.tried != y.tried
+                        || x.testedAgoMs / 60_000 != y.testedAgoMs / 60_000
                         || x.current != y.current || x.pinned != y.pinned
                         || x.speedBps != y.speedBps || !java.util.Objects.equals(x.ipv6, y.ipv6)) {
                     return false;
@@ -1044,9 +1099,11 @@ public class NodesPanel extends LinearLayout {
             } else if (n.state == NodeInfo.State.BLACKLISTED) {
                 tagText = getContext().getString(R.string.nodes_tag_dead);
             } else if (n.state == NodeInfo.State.UNTESTED) {
-                tagText = getContext().getString(n.failures > 0 ? R.string.nodes_tag_no_answer : R.string.nodes_tag_not_tested);
+                tagText = getContext().getString(n.tried ? R.string.nodes_tag_no_answer : R.string.nodes_tag_not_tested);
                 tagColor = MaterialColors.getColor(this,
                         com.google.android.material.R.attr.colorOnSurfaceVariant);
+            } else if (n.state == NodeInfo.State.WORKING && n.testedAgoMs >= 0) {
+                tagText = getContext().getString(R.string.nodes_tag_tested, backend.agoText(n.testedAgoMs));
             }
             if (tagText == null) {
                 tag.setVisibility(GONE);

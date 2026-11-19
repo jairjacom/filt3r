@@ -14,11 +14,12 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 
 /**
  * Keeps the node list, ranks nodes by a score (median of recent test times plus penalties for few
- * samples, old samples and recent failures), blacklists a node
+ * samples, old samples and recent failures; fast nodes, median under {@link #FAST_MS} with the
+ * latest test passed, rank before slower ones), blacklists a node
  * after {@value #FAILURES_TO_BLACKLIST} failures in a row, and keeps using the current node until
  * it dies. A blacklisted node is tried again after a while (5 minutes, doubling per repeat up to
  * an hour), and failures are not counted while the device has no network, so a short outage never
- * leaves the list empty. All methods are thread safe.
+ * leaves the list empty. It also tracks a full scan that tries every node once. All methods are thread safe.
  */
 public final class NodeManager {
 
@@ -26,6 +27,15 @@ public final class NodeManager {
     static final long BLACKLIST_BASE_MS = 5 * 60_000L;
     static final long BLACKLIST_MAX_MS = 60 * 60_000L;
     private static final int SAMPLES = 5;
+
+    /** A node is fast when its median test time is under this (ms). */
+    public static final long FAST_MS = 800;
+
+    /** Fast tier first, then lower score. */
+    private static int compareRank(Entry a, Entry b, long now) {
+        int byTier = Boolean.compare(!a.fastTier(), !b.fastTier());
+        return byTier != 0 ? byTier : Long.compare(a.score(now), b.score(now));
+    }
 
     /** Called when a pin is dropped by the manager (not by {@link #unpin}); outside the lock. */
     public interface PinListener {
@@ -55,6 +65,7 @@ public final class NodeManager {
         long lastTestAt = NEVER;  // clock ms of the newest sample
         long lastTriedAt = NEVER; // clock ms of the last counted test attempt
         long lastOkAt = NEVER;    // clock ms of the last successful test this session (never restored)
+        long lastOkWallMs;        // wall-clock ms of that test (display only)
         final boolean[] outcomes = new boolean[SAMPLES]; // ring of recent test outcomes
         int outcomeCount;
         int outcomeNext;
@@ -89,6 +100,16 @@ public final class NodeManager {
             outcomeCount = Math.min(outcomeCount + 1, SAMPLES);
         }
 
+        /** Median rule: answered at least once and the median is under {@link NodeManager#FAST_MS}. */
+        boolean fast() {
+            return count > 0 && median() < FAST_MS;
+        }
+
+        /** Fast, and the latest test did not fail: a failing fast node drops to the slow tier. */
+        boolean fastTier() {
+            return fast() && (outcomeCount == 0 || outcomes[(outcomeNext + SAMPLES - 1) % SAMPLES]);
+        }
+
         /** Lower is better; Long.MAX_VALUE if there are no samples. */
         long score(long now) {
             if (count == 0) {
@@ -115,20 +136,31 @@ public final class NodeManager {
     private final Map<String, Entry> entries = new HashMap<>();
     private final List<String> order = new ArrayList<>();
     private final LongSupplier clock;
+    private final LongSupplier wallClock; // display ages only
     private boolean online = true; // false while the device has no network
     private final Listener listener;
     private PinListener pinListener;
     private Entry current;
     private String pinned; // key of the pinned node, or null
     private long lastRoundAt; // wall-clock ms of the last finished test round, 0 if none yet
+    private long sweepStart = Entry.NEVER;   // clock ms the running full scan began; NEVER = none
+    private long sweepDoneAt = Entry.NEVER;  // clock ms the last full scan ended
+    private long sweepDoneWallMs;            // wall-clock ms the last full scan ended (display only)
 
     public NodeManager(Listener listener) {
-        this(listener, () -> System.nanoTime() / 1_000_000); // monotonic: a clock change must not stretch a blacklisting
+        // Monotonic: a clock change must not stretch a blacklisting. Wall clock: only for "N min ago" texts,
+        // because the monotonic one stops while the phone sleeps.
+        this(listener, () -> System.nanoTime() / 1_000_000, System::currentTimeMillis);
     }
 
     NodeManager(Listener listener, LongSupplier clock) {
+        this(listener, clock, clock);
+    }
+
+    private NodeManager(Listener listener, LongSupplier clock, LongSupplier wallClock) {
         this.listener = listener;
         this.clock = clock;
+        this.wallClock = wallClock;
     }
 
     private FailureListener failureListener;
@@ -220,6 +252,7 @@ public final class NodeManager {
                     e.lastTestAt = before.lastTestAt;
                     e.lastTriedAt = before.lastTriedAt;
                     e.lastOkAt = before.lastOkAt;
+                    e.lastOkWallMs = before.lastOkWallMs;
                     System.arraycopy(before.outcomes, 0, e.outcomes, 0, SAMPLES);
                     e.outcomeCount = before.outcomeCount;
                     e.outcomeNext = before.outcomeNext;
@@ -284,20 +317,27 @@ public final class NodeManager {
     public synchronized List<NodeInfo> snapshot() {
         long now = clock.getAsLong();
         Map<ShadowsocksNode, Long> scores = new HashMap<>();
+        Map<ShadowsocksNode, Boolean> tiers = new HashMap<>();
         List<NodeInfo> out = new ArrayList<>(order.size());
         for (String k : order) {
             Entry e = entries.get(k);
             NodeInfo.State state = blacklisted(e) ? NodeInfo.State.BLACKLISTED
                     : confirmed(e) ? NodeInfo.State.WORKING : NodeInfo.State.UNTESTED;
             scores.put(e.node, e.score(now));
+            tiers.put(e.node, e.fastTier());
             out.add(new NodeInfo(e.node, state, state == NodeInfo.State.WORKING ? e.median() : -1, e.failures, e == current, e.ipv6,
-                    k.equals(pinned), e.speedBps));
+                    k.equals(pinned), e.speedBps, e.lastTriedAt != Entry.NEVER,
+                    state == NodeInfo.State.WORKING ? wallClock.getAsLong() - e.lastOkWallMs : -1));
         }
         // Stable sort: ties keep subscription order.
         out.sort((a, b) -> {
             int byState = a.state.compareTo(b.state);
             if (byState != 0) {
                 return byState;
+            }
+            int byTier = Boolean.compare(!tiers.get(a.node), !tiers.get(b.node));
+            if (byTier != 0) {
+                return byTier;
             }
             return Long.compare(scores.get(a.node), scores.get(b.node));
         });
@@ -387,6 +427,7 @@ public final class NodeManager {
             e.lastTestAt = now;
             e.lastTriedAt = now;
             e.lastOkAt = now;
+            e.lastOkWallMs = wallClock.getAsLong();
             e.addOutcome(true);
             e.failures = 0;
             e.strikes = 0;
@@ -502,7 +543,7 @@ public final class NodeManager {
                 list.add(e);
             }
         }
-        list.sort((a, b) -> Long.compare(a.score(now), b.score(now)));
+        list.sort((a, b) -> compareRank(a, b, now));
         List<ShadowsocksNode> out = new ArrayList<>();
         for (int i = 0; i < Math.min(n, list.size()); i++) {
             out.add(list.get(i).node);
@@ -532,7 +573,7 @@ public final class NodeManager {
             }
         }
         List<Entry> ranked = new ArrayList<>(usable);
-        ranked.sort((a, b) -> Long.compare(a.score(now), b.score(now)));
+        ranked.sort((a, b) -> compareRank(a, b, now));
         List<ShadowsocksNode> out = new ArrayList<>();
         List<Entry> rest = new ArrayList<>();
         for (int i = 0; i < ranked.size(); i++) {
@@ -567,8 +608,12 @@ public final class NodeManager {
         }
     }
 
-    /** The {@code n} best-scored nodes that have samples and are not blacklisted, for saving. */
-    public synchronized List<Rank> exportRanks(int n) {
+    /**
+     * The best {@code min} nodes that have samples and are not blacklisted, plus every further
+     * fast-tier node, at most {@code max}, for saving (a restored node that fails this session drops
+     * out of the fast tier and is not saved as fast again).
+     */
+    public synchronized List<Rank> exportRanks(int min, int max) {
         long now = clock.getAsLong();
         List<Entry> list = new ArrayList<>();
         for (String k : order) {
@@ -577,9 +622,12 @@ public final class NodeManager {
                 list.add(e);
             }
         }
-        list.sort((a, b) -> Long.compare(a.score(now), b.score(now)));
+        list.sort((a, b) -> compareRank(a, b, now));
         List<Rank> out = new ArrayList<>();
-        for (int i = 0; i < Math.min(n, list.size()); i++) {
+        for (int i = 0; i < Math.min(max, list.size()); i++) {
+            if (i >= min && !list.get(i).fastTier()) {
+                break;
+            }
             Entry e = list.get(i);
             out.add(new Rank(key(e.node), Arrays.copyOf(e.samples, e.count), now - e.lastTestAt));
         }
@@ -617,7 +665,137 @@ public final class NodeManager {
             }
         }
         return "nodes=" + entries.size() + " tested=" + tested + " blacklisted=" + blacklistedCount()
-                + " current=" + (current == null ? "none" : current.median() + "ms");
+                + " fast=" + fastCount() + " current=" + (current == null ? "none" : current.median() + "ms");
+    }
+
+    /** Usable nodes that answered this session with a median under {@link #FAST_MS} (lock held). */
+    private int fastCount() {
+        int n = 0;
+        for (Entry e : entries.values()) {
+            if (!blacklisted(e) && confirmed(e) && e.fast()) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** Starts a full scan: every node is to be tried once from now on. */
+    public synchronized void startSweep() {
+        sweepStart = clock.getAsLong();
+    }
+
+    /** True while a full scan runs. */
+    public synchronized boolean sweeping() {
+        return sweepStart != Entry.NEVER;
+    }
+
+    /** Ends the running full scan. */
+    public synchronized void finishSweep() {
+        sweepStart = Entry.NEVER;
+        sweepDoneAt = clock.getAsLong();
+        sweepDoneWallMs = wallClock.getAsLong();
+    }
+
+    /** True when no scan runs and none ended within the last {@code repeatMs}. */
+    public synchronized boolean sweepDue(long repeatMs) {
+        return sweepStart == Entry.NEVER && (sweepDoneAt == Entry.NEVER || clock.getAsLong() - sweepDoneAt >= repeatMs);
+    }
+
+    /** Not blacklisted and not tried since the scan began (lock held). */
+    private boolean unswept(Entry e) {
+        return !blacklisted(e) && e.lastTriedAt < sweepStart;
+    }
+
+    /**
+     * The next nodes of a full scan: saved or earlier-ranked nodes first, the rest in random order.
+     * The batch spreads what is left over what remains of the {@code windowMs}, one batch per
+     * {@code stepMs}; once the window has passed, up to {@code max} per batch. Empty when no scan
+     * runs or every node was tried.
+     */
+    public synchronized List<ShadowsocksNode> nextSweepBatch(long windowMs, long stepMs, int max, Random rng) {
+        List<ShadowsocksNode> out = new ArrayList<>();
+        if (sweepStart == Entry.NEVER) {
+            return out;
+        }
+        long now = clock.getAsLong();
+        List<Entry> ranked = new ArrayList<>();
+        List<Entry> rest = new ArrayList<>();
+        for (String k : order) {
+            Entry e = entries.get(k);
+            if (unswept(e)) {
+                (e.count > 0 ? ranked : rest).add(e);
+            }
+        }
+        int left = ranked.size() + rest.size();
+        if (left == 0) {
+            return out;
+        }
+        long stepsLeft = Math.max(1, (windowMs - (now - sweepStart)) / stepMs);
+        int size = (int) Math.min(max, (left + stepsLeft - 1) / stepsLeft);
+        ranked.sort((a, b) -> compareRank(a, b, now));
+        Collections.shuffle(rest, rng);
+        ranked.addAll(rest);
+        for (int i = 0; i < size; i++) {
+            out.add(ranked.get(i).node);
+        }
+        return out;
+    }
+
+    /** Up to {@code max} usable nodes that answered this session under {@link #FAST_MS}, best score first. */
+    public synchronized List<ShadowsocksNode> fastNodes(int max) {
+        long now = clock.getAsLong();
+        List<Entry> list = new ArrayList<>();
+        for (String k : order) {
+            Entry e = entries.get(k);
+            if (!blacklisted(e) && confirmed(e) && e.fast()) {
+                list.add(e);
+            }
+        }
+        list.sort((a, b) -> Long.compare(a.score(now), b.score(now)));
+        List<ShadowsocksNode> out = new ArrayList<>();
+        for (int i = 0; i < Math.min(max, list.size()); i++) {
+            out.add(list.get(i).node);
+        }
+        return out;
+    }
+
+    /** True when the current node is not pinned and its median is not under {@link #FAST_MS}. */
+    public synchronized boolean currentIsSlow() {
+        return pinned == null && current != null && !current.fast();
+    }
+
+    /**
+     * State of the full scan. {@code done} = nodes tried since the scan began (blacklisted nodes
+     * count as done); {@code doneAgoMs} = ms since the last scan ended, -1 if none ended this session.
+     */
+    public static final class ScanStatus {
+        public final boolean running;
+        public final int done;
+        public final int total;
+        public final int fast;
+        public final long doneAgoMs;
+
+        ScanStatus(boolean running, int done, int total, int fast, long doneAgoMs) {
+            this.running = running;
+            this.done = done;
+            this.total = total;
+            this.fast = fast;
+            this.doneAgoMs = doneAgoMs;
+        }
+    }
+
+    public synchronized ScanStatus scanStatus() {
+        // The "done ago" age uses the wall clock: the monotonic one stops in deep sleep.
+        int left = 0;
+        if (sweepStart != Entry.NEVER) {
+            for (Entry e : entries.values()) {
+                if (unswept(e)) {
+                    left++;
+                }
+            }
+        }
+        return new ScanStatus(sweepStart != Entry.NEVER, entries.size() - left, entries.size(), fastCount(),
+                sweepDoneAt == Entry.NEVER ? -1 : wallClock.getAsLong() - sweepDoneWallMs);
     }
 
     /**
@@ -641,7 +819,8 @@ public final class NodeManager {
 
     /**
      * The best usable node that answered a test in this session. Nodes that answered within
-     * {@link Entry#FRESH_MS} win over older ones; among equals the lowest score wins.
+     * {@link Entry#FRESH_MS} win over older ones; within each group fast nodes (median under
+     * {@link #FAST_MS}, latest test passed) win over slower ones, then the lowest score wins.
      */
     private Entry best(long now) {
         Entry bestFresh = null;
@@ -651,11 +830,10 @@ public final class NodeManager {
             if (blacklisted(e) || !confirmed(e)) {
                 continue;
             }
-            long s = e.score(now);
-            if (bestAny == null || s < bestAny.score(now)) {
+            if (bestAny == null || compareRank(e, bestAny, now) < 0) {
                 bestAny = e;
             }
-            if (now - e.lastOkAt <= Entry.FRESH_MS && (bestFresh == null || s < bestFresh.score(now))) {
+            if (now - e.lastOkAt <= Entry.FRESH_MS && (bestFresh == null || compareRank(e, bestFresh, now) < 0)) {
                 bestFresh = e;
             }
         }
@@ -682,6 +860,29 @@ public final class NodeManager {
             long cm = current.median();
             long bm = cand.median();
             if (bm * ratio > cm || cm - bm < minGainMs) {
+                return false;
+            }
+            current = cand;
+        }
+        notifyChange(true);
+        return true;
+    }
+
+    /**
+     * After a full scan: moves an unpinned slow current node (median not under {@link #FAST_MS}) to the
+     * best fresh fast-tier node that is at least {@code minGainMs} quicker. Never leaves a pinned node.
+     *
+     * @return true if the current node changed
+     */
+    public boolean switchIfSlow(int minSamples, long minGainMs) {
+        synchronized (this) {
+            if (pinned != null || current == null || current.fast()) {
+                return false;
+            }
+            long now = clock.getAsLong();
+            Entry cand = best(now);
+            if (cand == null || cand == current || !cand.fastTier() || cand.count < minSamples
+                    || now - cand.lastOkAt > Entry.FRESH_MS || current.median() - cand.median() < minGainMs) {
                 return false;
             }
             current = cand;

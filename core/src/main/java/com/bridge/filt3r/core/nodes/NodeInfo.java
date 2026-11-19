@@ -32,8 +32,13 @@ public final class NodeInfo {
     /** Download speed in bytes per second from the last speed test, or -1 if never measured. */
     public final long speedBps;
 
+    /** Tried at least once since this connect: an answer or a counted failure. */
+    public final boolean tried;
+    /** ms since the node last answered a test this connect, or -1. */
+    public final long testedAgoMs;
+
     NodeInfo(ShadowsocksNode node, State state, long medianMs, int failures, boolean current, Boolean ipv6,
-            boolean pinned, long speedBps) {
+            boolean pinned, long speedBps, boolean tried, long testedAgoMs) {
         this.node = node;
         this.state = state;
         this.medianMs = medianMs;
@@ -42,5 +47,7 @@ public final class NodeInfo {
         this.ipv6 = ipv6;
         this.pinned = pinned;
         this.speedBps = speedBps;
+        this.tried = tried;
+        this.testedAgoMs = testedAgoMs;
     }
 }
