@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.0.8
+
+- Faster, safer node switching. When your node stops working, filt3r now checks the best other nodes at once and moves to one that answered a moment ago, instead of one that was fast hours ago.
+- Nodes are ranked by speed, how recently they were tested and whether they failed lately. The Nodes list uses this order; the number shown is still the median time.
+- Connecting is quicker: filt3r starts as soon as the first node answers, and a short check after connecting moves to a clearly faster node.
+- The best nodes are saved on your phone and used at the next connect. Clear node history, or turning Node history off, deletes them.
+- Nodes are re-tested about 10 seconds after you switch between Wi-Fi and mobile data. The hourly test also tries the nodes tested longest ago.
+- No network, for example airplane mode, no longer counts against your nodes: none are blocked and a pinned node stays pinned.
+- New setting, off by default: Move to a much faster node. After the hourly test it switches to a node at least twice as fast and 100 ms quicker, and never leaves a pinned node. Open connections restart and your exit IP changes.
+
 ## v0.0.7
 
 - Update subscriptions on demand: an Update now button under each subscription in Settings > Connection, and a cloud button on Nodes. You need to be connected, because the download goes through a node.
