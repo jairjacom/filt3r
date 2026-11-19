@@ -471,17 +471,20 @@ public class Filt3rVpnService extends VpnService {
             return;
         }
         AtomicReference<Network> last = new AtomicReference<>();
-        AtomicBoolean first = new AtomicBoolean(true); // the first callback is the network that is already up
+        AtomicReference<Network> seen = new AtomicReference<>(); // the newest network reported, never cleared
         ConnectivityManager.NetworkCallback cb = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network n) {
                 last.set(n);
                 manager.setOnline(true);
-                boolean initial = first.getAndSet(false);
+                Network before = seen.getAndSet(n);
+                NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+                boolean vpn = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
+                boolean changed = before != null && !before.equals(n) && !vpn; // our own tunnel is not a change
                 NodeRuntime r = runtime;
                 if (r != null && nodes == manager && manager.current() == null) {
                     r.recoverNodes();
-                } else if (!initial && r != null && nodes == manager) {
+                } else if (changed && r != null && nodes == manager) {
                     r.scheduleNetworkRetest();
                 }
             }
