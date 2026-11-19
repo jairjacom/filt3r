@@ -144,6 +144,21 @@ public final class NodeManager {
         failureListener = l;
     }
 
+    /** Told, outside the lock, whenever a node is blacklisted; for diagnostics only. */
+    public interface BlacklistListener {
+        /**
+         * @param verifiedDead true when a failover check found it dead, false for three failures in a row
+         * @param strikes how many times this node has been blacklisted (the span doubles each time)
+         */
+        void onBlacklisted(ShadowsocksNode node, boolean verifiedDead, boolean wasCurrent, boolean wasPinned, int strikes);
+    }
+
+    private BlacklistListener blacklistListener;
+
+    public synchronized void setBlacklistListener(BlacklistListener l) {
+        blacklistListener = l;
+    }
+
     private boolean blacklisted(Entry e) {
         return clock.getAsLong() < e.blacklistedUntil;
     }
@@ -400,6 +415,9 @@ public final class NodeManager {
         boolean changed = false;
         ShadowsocksNode unpinned = null;
         FailureListener fl = null;
+        BlacklistListener bl = null;
+        boolean wasCurrent = false;
+        int strikes = 0;
         synchronized (this) {
             Entry e = entries.get(key(node));
             if (!online || e == null || blacklisted(e)) {
@@ -408,13 +426,19 @@ public final class NodeManager {
             e.lastTriedAt = clock.getAsLong();
             e.addOutcome(false);
             if (++e.failures >= FAILURES_TO_BLACKLIST) {
+                wasCurrent = e == current;
                 changed = blacklist(e);
                 unpinned = lastUnpinned;
+                strikes = e.strikes;
+                bl = blacklistListener;
             } else if (e == current) {
                 fl = failureListener;
             }
         }
         notifyChange(changed);
+        if (bl != null) {
+            bl.onBlacklisted(node, false, wasCurrent, unpinned != null, strikes);
+        }
         if (unpinned != null && pinListener != null) {
             pinListener.onPinCleared(unpinned, true);
         }
@@ -430,6 +454,9 @@ public final class NodeManager {
     public void markDead(ShadowsocksNode node) {
         boolean changed;
         ShadowsocksNode unpinned;
+        BlacklistListener bl;
+        boolean wasCurrent;
+        int strikes;
         synchronized (this) {
             Entry e = entries.get(key(node));
             if (!online || e == null || blacklisted(e)) {
@@ -437,10 +464,16 @@ public final class NodeManager {
             }
             e.lastTriedAt = clock.getAsLong();
             e.addOutcome(false);
+            wasCurrent = e == current;
             changed = blacklist(e);
             unpinned = lastUnpinned;
+            strikes = e.strikes;
+            bl = blacklistListener;
         }
         notifyChange(changed);
+        if (bl != null) {
+            bl.onBlacklisted(node, true, wasCurrent, unpinned != null, strikes);
+        }
         if (unpinned != null && pinListener != null) {
             pinListener.onPinCleared(unpinned, true);
         }
