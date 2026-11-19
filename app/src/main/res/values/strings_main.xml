@@ -75,6 +75,7 @@
     <string name="vpn_notice_pinned_node_stopped">Pinned node %1$s stopped working; switched to the best node</string>
     <string name="vpn_notice_node_no_answer">%1$s did not answer</string>
     <string name="vpn_notice_node_switched">Switched to %1$s because %2$s stopped working</string>
+    <string name="vpn_notice_node_faster">Switched to %1$s, which is much faster than %2$s</string>
     <string name="vpn_notice_ip_block_not_loaded">IP blocklist not loaded: %1$s</string>
     <string name="vpn_ip_block_downloading">Downloading...</string>
     <string name="vpn_ip_block_updating">Updating...</string>

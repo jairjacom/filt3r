@@ -3,6 +3,7 @@ package com.bridge.filt3r.core.nodes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +13,8 @@ import java.util.function.LongSupplier;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 
 /**
- * Keeps the node list, ranks nodes by the median of their recent test times, blacklists a node
+ * Keeps the node list, ranks nodes by a score (median of recent test times plus penalties for few
+ * samples, old samples and recent failures), blacklists a node
  * after {@value #FAILURES_TO_BLACKLIST} failures in a row, and keeps using the current node until
  * it dies. A blacklisted node is tried again after a while (5 minutes, doubling per repeat up to
  * an hour), and failures are not counted while the device has no network, so a short outage never
@@ -37,11 +39,25 @@ public final class NodeManager {
     }
 
     private static final class Entry {
+        static final long NEVER = Long.MIN_VALUE;
+        static final long FEW_SAMPLES_PENALTY_MS = 20;      // per sample below SAMPLES
+        static final long AGE_FREE_MS = 2 * 3_600_000L;     // no age penalty for the first 2 h
+        static final long AGE_PENALTY_PER_HOUR_MS = 25;     // per started hour beyond AGE_FREE_MS
+        static final long AGE_PENALTY_MAX_MS = 200;
+        static final long FAILURE_PENALTY_MS = 150;         // per false in the outcome ring
+        static final long FRESH_MS = 60_000;                // "answered just now", preferred at failover
+
         final ShadowsocksNode node;
         final long[] samples = new long[SAMPLES];
         int count;      // samples stored so far (at most SAMPLES)
         int next;       // ring position
         int failures;   // consecutive
+        long lastTestAt = NEVER;  // clock ms of the newest sample
+        long lastTriedAt = NEVER; // clock ms of the last counted test attempt
+        long lastOkAt = NEVER;    // clock ms of the last successful test this session (never restored)
+        final boolean[] outcomes = new boolean[SAMPLES]; // ring of recent test outcomes
+        int outcomeCount;
+        int outcomeNext;
         int strikes;    // blacklistings since the last working test
         long blacklistedUntil; // clock time (ms); 0 = never blacklisted
         Boolean ipv6;   // null until probed: does the node reach IPv6 destinations?
@@ -66,6 +82,34 @@ public final class NodeManager {
             Arrays.sort(s);
             return s[count / 2];
         }
+
+        void addOutcome(boolean ok) {
+            outcomes[outcomeNext] = ok;
+            outcomeNext = (outcomeNext + 1) % SAMPLES;
+            outcomeCount = Math.min(outcomeCount + 1, SAMPLES);
+        }
+
+        /** Lower is better; Long.MAX_VALUE if there are no samples. */
+        long score(long now) {
+            if (count == 0) {
+                return Long.MAX_VALUE;
+            }
+            long agePenalty;
+            if (lastTestAt == NEVER) {
+                agePenalty = AGE_PENALTY_MAX_MS;
+            } else {
+                long over = (now - lastTestAt) - AGE_FREE_MS;
+                agePenalty = over <= 0 ? 0
+                        : Math.min(AGE_PENALTY_MAX_MS, (over / 3_600_000L + 1) * AGE_PENALTY_PER_HOUR_MS);
+            }
+            int falses = 0;
+            for (int i = 0; i < outcomeCount; i++) {
+                if (!outcomes[i]) {
+                    falses++;
+                }
+            }
+            return median() + (SAMPLES - count) * FEW_SAMPLES_PENALTY_MS + agePenalty + falses * FAILURE_PENALTY_MS;
+        }
     }
 
     private final Map<String, Entry> entries = new HashMap<>();
@@ -85,6 +129,19 @@ public final class NodeManager {
     NodeManager(Listener listener, LongSupplier clock) {
         this.listener = listener;
         this.clock = clock;
+    }
+
+    private FailureListener failureListener;
+    private ShadowsocksNode lastUnpinned; // set by blacklist(), read by the caller under the same lock
+
+    /** Called when a failure leaves the current node suspect (not yet blacklisted); outside the lock. */
+    public interface FailureListener {
+        void onCurrentFailed(ShadowsocksNode node);
+    }
+
+    /** Sets the listener told when the current node fails without being blacklisted yet. */
+    public synchronized void setFailureListener(FailureListener l) {
+        failureListener = l;
     }
 
     private boolean blacklisted(Entry e) {
@@ -145,6 +202,12 @@ public final class NodeManager {
                     e.next = before.next;
                     e.ipv6 = before.ipv6;
                     e.speedBps = before.speedBps;
+                    e.lastTestAt = before.lastTestAt;
+                    e.lastTriedAt = before.lastTriedAt;
+                    e.lastOkAt = before.lastOkAt;
+                    System.arraycopy(before.outcomes, 0, e.outcomes, 0, SAMPLES);
+                    e.outcomeCount = before.outcomeCount;
+                    e.outcomeNext = before.outcomeNext;
                 }
                 entries.put(k, e);
                 order.add(k);
@@ -202,20 +265,26 @@ public final class NodeManager {
         return n;
     }
 
-    /** Every node, best first: working ones by median time, then untested ones, then blacklisted ones. */
+    /** Every node, best first: working ones by score, then untested ones, then blacklisted ones. */
     public synchronized List<NodeInfo> snapshot() {
+        long now = clock.getAsLong();
+        Map<ShadowsocksNode, Long> scores = new HashMap<>();
         List<NodeInfo> out = new ArrayList<>(order.size());
         for (String k : order) {
             Entry e = entries.get(k);
             NodeInfo.State state = blacklisted(e) ? NodeInfo.State.BLACKLISTED
-                    : e.count > 0 ? NodeInfo.State.WORKING : NodeInfo.State.UNTESTED;
-            out.add(new NodeInfo(e.node, state, e.count > 0 ? e.median() : -1, e.failures, e == current, e.ipv6,
+                    : confirmed(e) ? NodeInfo.State.WORKING : NodeInfo.State.UNTESTED;
+            scores.put(e.node, e.score(now));
+            out.add(new NodeInfo(e.node, state, state == NodeInfo.State.WORKING ? e.median() : -1, e.failures, e == current, e.ipv6,
                     k.equals(pinned), e.speedBps));
         }
         // Stable sort: ties keep subscription order.
         out.sort((a, b) -> {
             int byState = a.state.compareTo(b.state);
-            return byState != 0 ? byState : Long.compare(a.medianMs, b.medianMs);
+            if (byState != 0) {
+                return byState;
+            }
+            return Long.compare(scores.get(a.node), scores.get(b.node));
         });
         return out;
     }
@@ -240,13 +309,13 @@ public final class NodeManager {
      * Pins a node: it carries traffic whenever it is usable. Only a node that answered a test can
      * be pinned.
      *
-     * @return false if the node is unknown, blacklisted or untested
+     * @return false if the node is unknown, blacklisted or has not answered a test in this session
      */
     public boolean pin(ShadowsocksNode node) {
         boolean changed;
         synchronized (this) {
             Entry e = entries.get(key(node));
-            if (e == null || blacklisted(e) || e.count == 0) {
+            if (e == null || blacklisted(e) || !confirmed(e)) {
                 return false;
             }
             pinned = key(node);
@@ -298,7 +367,12 @@ public final class NodeManager {
             if (e == null) {
                 return;
             }
+            long now = clock.getAsLong();
             e.addSample(ms);
+            e.lastTestAt = now;
+            e.lastTriedAt = now;
+            e.lastOkAt = now;
+            e.addOutcome(true);
             e.failures = 0;
             e.strikes = 0;
             e.blacklistedUntil = 0;
@@ -325,23 +399,46 @@ public final class NodeManager {
     public void recordFailure(ShadowsocksNode node) {
         boolean changed = false;
         ShadowsocksNode unpinned = null;
+        FailureListener fl = null;
         synchronized (this) {
             Entry e = entries.get(key(node));
             if (!online || e == null || blacklisted(e)) {
                 return;
             }
+            e.lastTriedAt = clock.getAsLong();
+            e.addOutcome(false);
             if (++e.failures >= FAILURES_TO_BLACKLIST) {
-                long span = Math.min(BLACKLIST_BASE_MS << Math.min(e.strikes, 10), BLACKLIST_MAX_MS);
-                e.strikes++;
-                e.blacklistedUntil = clock.getAsLong() + span;
-                if (key(node).equals(pinned)) {
-                    pinned = null;
-                    unpinned = e.node;
-                }
-                if (e == current) {
-                    changed = reselect(null);
-                }
+                changed = blacklist(e);
+                unpinned = lastUnpinned;
+            } else if (e == current) {
+                fl = failureListener;
             }
+        }
+        notifyChange(changed);
+        if (unpinned != null && pinListener != null) {
+            pinListener.onPinCleared(unpinned, true);
+        }
+        if (fl != null) {
+            fl.onCurrentFailed(node);
+        }
+    }
+
+    /**
+     * The node is known to be dead (a verified failover check): blacklists it at once. Same guards
+     * as {@link #recordFailure}.
+     */
+    public void markDead(ShadowsocksNode node) {
+        boolean changed;
+        ShadowsocksNode unpinned;
+        synchronized (this) {
+            Entry e = entries.get(key(node));
+            if (!online || e == null || blacklisted(e)) {
+                return;
+            }
+            e.lastTriedAt = clock.getAsLong();
+            e.addOutcome(false);
+            changed = blacklist(e);
+            unpinned = lastUnpinned;
         }
         notifyChange(changed);
         if (unpinned != null && pinListener != null) {
@@ -349,11 +446,44 @@ public final class NodeManager {
         }
     }
 
+    /** Blacklists the entry (lock held). Sets {@link #lastUnpinned}. @return true if the current node changed */
+    private boolean blacklist(Entry e) {
+        lastUnpinned = null;
+        long span = Math.min(BLACKLIST_BASE_MS << Math.min(e.strikes, 10), BLACKLIST_MAX_MS);
+        e.strikes++;
+        e.blacklistedUntil = clock.getAsLong() + span;
+        if (key(e.node).equals(pinned)) {
+            pinned = null;
+            lastUnpinned = e.node;
+        }
+        return e == current && reselect(null);
+    }
+
+    /** Up to {@code n} usable tested nodes other than the current one, best score first. */
+    public synchronized List<ShadowsocksNode> standbys(int n) {
+        long now = clock.getAsLong();
+        List<Entry> list = new ArrayList<>();
+        for (String k : order) {
+            Entry e = entries.get(k);
+            if (!blacklisted(e) && e.count > 0 && e != current) {
+                list.add(e);
+            }
+        }
+        list.sort((a, b) -> Long.compare(a.score(now), b.score(now)));
+        List<ShadowsocksNode> out = new ArrayList<>();
+        for (int i = 0; i < Math.min(n, list.size()); i++) {
+            out.add(list.get(i).node);
+        }
+        return out;
+    }
+
     /**
-     * Nodes to test in the next round: the {@code top} best-ranked usable ones, a few random others
-     * and every node that has never been tested.
+     * Nodes to test in the next round: the {@code top} best-scored nodes that have samples, then the
+     * {@code explore} least recently tested others (never-tested first, random among equals), plus
+     * the pinned node.
      */
-    public synchronized List<ShadowsocksNode> pickForTest(int top, int random, Random rng) {
+    public synchronized List<ShadowsocksNode> pickForTest(int top, int explore, Random rng) {
+        long now = clock.getAsLong();
         List<Entry> usable = new ArrayList<>();
         for (String k : order) {
             Entry e = entries.get(k);
@@ -369,7 +499,7 @@ public final class NodeManager {
             }
         }
         List<Entry> ranked = new ArrayList<>(usable);
-        ranked.sort((a, b) -> Long.compare(a.median(), b.median()));
+        ranked.sort((a, b) -> Long.compare(a.score(now), b.score(now)));
         List<ShadowsocksNode> out = new ArrayList<>();
         List<Entry> rest = new ArrayList<>();
         for (int i = 0; i < ranked.size(); i++) {
@@ -380,7 +510,8 @@ public final class NodeManager {
             }
         }
         Collections.shuffle(rest, rng);
-        for (int i = 0; i < Math.min(random, rest.size()); i++) {
+        rest.sort(Comparator.comparingLong(e -> e.lastTriedAt));
+        for (int i = 0; i < Math.min(explore, rest.size()); i++) {
             out.add(rest.get(i).node);
         }
         Entry p = pinned == null ? null : entries.get(pinned);
@@ -388,6 +519,60 @@ public final class NodeManager {
             out.add(p.node);
         }
         return out;
+    }
+
+    /** Saved form of one node's ranking: key, its samples and the age of the newest one. */
+    public static final class Rank {
+        public final String key;
+        public final long[] samples;
+        public final long ageMs;
+
+        public Rank(String key, long[] samples, long ageMs) {
+            this.key = key;
+            this.samples = samples;
+            this.ageMs = ageMs;
+        }
+    }
+
+    /** The {@code n} best-scored nodes that have samples and are not blacklisted, for saving. */
+    public synchronized List<Rank> exportRanks(int n) {
+        long now = clock.getAsLong();
+        List<Entry> list = new ArrayList<>();
+        for (String k : order) {
+            Entry e = entries.get(k);
+            if (!blacklisted(e) && e.count > 0 && e.lastTestAt != Entry.NEVER) {
+                list.add(e);
+            }
+        }
+        list.sort((a, b) -> Long.compare(a.score(now), b.score(now)));
+        List<Rank> out = new ArrayList<>();
+        for (int i = 0; i < Math.min(n, list.size()); i++) {
+            Entry e = list.get(i);
+            out.add(new Rank(key(e.node), Arrays.copyOf(e.samples, e.count), now - e.lastTestAt));
+        }
+        return out;
+    }
+
+    /**
+     * Gives listed nodes that have no samples their saved samples. Restored nodes are ranked and
+     * tested first but cannot become current until they answer a test in this session.
+     */
+    public synchronized void restoreRanks(List<Rank> ranks) {
+        long now = clock.getAsLong();
+        for (Rank r : ranks) {
+            Entry e = entries.get(r.key);
+            if (e == null || e.count != 0) {
+                continue;
+            }
+            int c = Math.min(SAMPLES, r.samples.length);
+            if (c == 0) {
+                continue;
+            }
+            System.arraycopy(r.samples, 0, e.samples, 0, c);
+            e.count = c;
+            e.next = c % SAMPLES;
+            e.lastTestAt = now - r.ageMs;
+        }
     }
 
     /** Counts only: no addresses, no passwords. */
@@ -404,28 +589,72 @@ public final class NodeManager {
 
     /**
      * The pinned node wins while it is usable and has answered a test; otherwise keeps {@code keep}
-     * if it is usable, otherwise picks the best tested node. @return true if the current node changed
+     * if it is usable, otherwise picks the best confirmed node. @return true if the current node changed
      */
     private boolean reselect(Entry keep) {
         Entry before = current;
         Entry p = pinned == null ? null : entries.get(pinned);
-        if (p != null && !blacklisted(p) && p.count > 0) {
+        if (p != null && !blacklisted(p) && confirmed(p)) {
             current = p;
         } else {
-            current = keep != null && !blacklisted(keep) ? keep : best();
+            current = keep != null && !blacklisted(keep) ? keep : best(clock.getAsLong());
         }
         return current != before;
     }
 
-    private Entry best() {
-        Entry best = null;
+    private static boolean confirmed(Entry e) {
+        return e.lastOkAt != Entry.NEVER;
+    }
+
+    /**
+     * The best usable node that answered a test in this session. Nodes that answered within
+     * {@link Entry#FRESH_MS} win over older ones; among equals the lowest score wins.
+     */
+    private Entry best(long now) {
+        Entry bestFresh = null;
+        Entry bestAny = null;
         for (String k : order) {
             Entry e = entries.get(k);
-            if (!blacklisted(e) && e.count > 0 && (best == null || e.median() < best.median())) {
-                best = e;
+            if (blacklisted(e) || !confirmed(e)) {
+                continue;
+            }
+            long s = e.score(now);
+            if (bestAny == null || s < bestAny.score(now)) {
+                bestAny = e;
+            }
+            if (now - e.lastOkAt <= Entry.FRESH_MS && (bestFresh == null || s < bestFresh.score(now))) {
+                bestFresh = e;
             }
         }
-        return best;
+        return bestFresh != null ? bestFresh : bestAny;
+    }
+
+    /**
+     * Moves to a clearly faster node if there is one. Never leaves a pinned node.
+     *
+     * @param ratio the candidate's median times this must still be at most the current median
+     * @param minGainMs the candidate must be at least this many ms quicker (median)
+     * @param minSamples the candidate needs this many samples
+     * @return true if the current node changed
+     */
+    public boolean switchIfFaster(double ratio, long minGainMs, int minSamples) {
+        synchronized (this) {
+            if (pinned != null || current == null) {
+                return false;
+            }
+            Entry cand = best(clock.getAsLong());
+            if (cand == null || cand == current || cand.count < minSamples) {
+                return false;
+            }
+            long cm = current.median();
+            long bm = cand.median();
+            if (bm * ratio > cm || cm - bm < minGainMs) {
+                return false;
+            }
+            current = cand;
+        }
+        notifyChange(true);
+        return true;
     }
 
     private void notifyChange(boolean changed) {

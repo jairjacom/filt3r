@@ -100,6 +100,10 @@ public class SettingsPanel extends LinearLayout {
 
         void setTestOnlyWhenCheap(boolean on);
 
+        boolean switchToFaster();
+
+        void setSwitchToFaster(boolean on);
+
         String resolverName();
 
         /** The built-in resolver first, then the ones that passed the last test (fastest first). */
@@ -391,6 +395,9 @@ public class SettingsPanel extends LinearLayout {
         card.addView(switchRow(context, context.getString(R.string.settings_connection_test_cheap),
                 context.getString(R.string.settings_connection_test_cheap_summary),
                 backend.testOnlyWhenCheap(), backend::setTestOnlyWhenCheap));
+        card.addView(switchRow(context, context.getString(R.string.settings_connection_switch_faster),
+                context.getString(R.string.settings_connection_switch_faster_summary),
+                backend.switchToFaster(), backend::setSwitchToFaster));
     }
 
     private void buildDns(Context context) {

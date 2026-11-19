@@ -3,8 +3,10 @@ package com.bridge.filt3r.core.nodes;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 
 import com.bridge.filt3r.core.dns.DnsWire;
@@ -57,6 +59,7 @@ public final class NodeTester implements NodeProbe {
     }
 
     /** @return milliseconds until the answer arrived; @throws IOException if the node does not work */
+    @Override
     public long test(ShadowsocksNode node) throws IOException {
         long start = System.nanoTime();
         query(node, stamp);
@@ -81,26 +84,99 @@ public final class NodeTester implements NodeProbe {
 
     /** Tests the nodes in parallel and records each result in the manager. Blocks until done or timed out. */
     public void testAndRecord(NodeManager manager, List<ShadowsocksNode> nodes, int threads) {
+        startRound(manager, nodes, threads).awaitDone();
+    }
+
+    /** A test round that is running in the background; see {@link #startRound}. */
+    public static final class Round {
+        private final NodeManager manager;
+        private final ExecutorService pool;
+        private final long deadlineNs;
+        private final CountDownLatch firstOk = new CountDownLatch(1);
+        private final CountDownLatch allDone;
+        private final AtomicBoolean anyOk = new AtomicBoolean();
+        private final AtomicBoolean marked = new AtomicBoolean();
+
+        private Round(NodeManager manager, ExecutorService pool, int count) {
+            this.manager = manager;
+            this.pool = pool;
+            this.allDone = new CountDownLatch(count);
+            this.deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(ROUND_TIMEOUT_S);
+            if (count == 0) {
+                firstOk.countDown();
+            }
+        }
+
+        private long remainingNs() {
+            return Math.max(0, deadlineNs - System.nanoTime());
+        }
+
+        /**
+         * Waits until a node answered, then up to {@code graceMs} more for the rest of the round
+         * (so the best of the fast ones can be chosen).
+         *
+         * @return true if any node answered
+         */
+        public boolean awaitFirstSuccess(long graceMs) {
+            try {
+                firstOk.await(remainingNs(), TimeUnit.NANOSECONDS);
+                if (anyOk.get()) {
+                    allDone.await(Math.min(TimeUnit.MILLISECONDS.toNanos(graceMs), remainingNs()), TimeUnit.NANOSECONDS);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                pool.shutdownNow();
+            }
+            return anyOk.get();
+        }
+
+        /** Waits until the round is finished or its deadline passed, then marks the round done (once). */
+        public void awaitDone() {
+            try {
+                if (!pool.awaitTermination(remainingNs(), TimeUnit.NANOSECONDS)) {
+                    pool.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                pool.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+            if (marked.compareAndSet(false, true)) {
+                manager.markRoundDone();
+            }
+        }
+
+        /** Stops the tests that are still running. */
+        public void cancel() {
+            pool.shutdownNow();
+        }
+    }
+
+    /** Starts testing the nodes in parallel and returns at once. */
+    public Round startRound(NodeManager manager, List<ShadowsocksNode> nodes, int threads) {
+        return start(manager, nodes, threads, this);
+    }
+
+    static Round start(NodeManager manager, List<ShadowsocksNode> nodes, int threads, NodeProbe probe) {
         ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(threads, nodes.size())));
+        Round round = new Round(manager, pool, nodes.size());
         for (ShadowsocksNode n : nodes) {
             pool.execute(() -> {
                 try {
-                    manager.recordTest(n, test(n));
+                    manager.recordTest(n, probe.test(n));
+                    round.anyOk.set(true);
+                    round.firstOk.countDown();
                 } catch (IOException | RuntimeException e) {
                     manager.recordFailure(n);
+                } finally {
+                    round.allDone.countDown();
+                    if (round.allDone.getCount() == 0) {
+                        round.firstOk.countDown();
+                    }
                 }
             });
         }
         pool.shutdown();
-        try {
-            if (!pool.awaitTermination(ROUND_TIMEOUT_S, TimeUnit.SECONDS)) {
-                pool.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            pool.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-        manager.markRoundDone();
+        return round;
     }
 
     /**

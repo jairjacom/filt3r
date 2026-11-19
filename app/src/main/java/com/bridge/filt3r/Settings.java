@@ -68,6 +68,7 @@ final class Settings {
     private static final String KEY_ENABLED_LISTS = "enabled_lists";
     private static final String KEY_IP_BLOCK = "ip_block";
     private static final String KEY_TEST_CHEAP = "test_only_cheap";
+    private static final String KEY_SWITCH_FASTER = "switch_faster";
     private static final String KEY_LIST_DAYS = "list_refresh_days";
     private static final String KEY_TOOLBAR_PINNED = "toolbar_pinned";
     private static final String KEY_TOOLBAR_STYLE = "toolbar_style";
@@ -249,6 +250,15 @@ final class Settings {
         prefs.edit().putBoolean(KEY_TEST_CHEAP, on).apply();
     }
 
+    /** True to also move to a much faster node after the hourly test. Off by default. */
+    boolean switchToFaster() {
+        return prefs.getBoolean(KEY_SWITCH_FASTER, false);
+    }
+
+    void setSwitchToFaster(boolean on) {
+        prefs.edit().putBoolean(KEY_SWITCH_FASTER, on).apply();
+    }
+
     /** Days between updates of the block lists and the IP blocklist. Applies at the next (re)start. */
     int listRefreshDays() {
         return Math.min(Math.max(prefs.getInt(KEY_LIST_DAYS, 7), 1), 30);
@@ -416,7 +426,7 @@ final class Settings {
     private static final Set<String> BACKUP_KEYS = Set.of(KEY_FAILURE_MODE, KEY_QUERY_LOG, KEY_RESOLVER_NAME,
             KEY_RESOLVER_STAMP, KEY_NODE_SORT_SPEED, KEY_FILTER_URL, KEY_ENABLED_LISTS, KEY_IP_BLOCK,
             KEY_TEST_CHEAP, KEY_LIST_DAYS, KEY_TOOLBAR_PINNED, KEY_TOOLBAR_STYLE, KEY_THEME_MODE, KEY_PURE_BLACK,
-            KEY_COLOR_SCHEME, KEY_SEED_COLOR, KEY_EFFECTS_LEVEL, "transition_style");
+            KEY_COLOR_SCHEME, KEY_SEED_COLOR, KEY_EFFECTS_LEVEL, "transition_style", KEY_SWITCH_FASTER);
 
     /** Every backed-up preference that has been set, as String, Boolean, Integer or sorted List of String. */
     @SuppressWarnings("unchecked")

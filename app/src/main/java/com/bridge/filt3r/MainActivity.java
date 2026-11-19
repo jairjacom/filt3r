@@ -30,6 +30,7 @@ import com.bridge.filt3r.core.backup.BackupFormat;
 import com.bridge.filt3r.core.filter.FilterCatalog;
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.nodes.NodeHistory;
+import com.bridge.filt3r.core.nodes.NodeRankFile;
 import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.filter.UserOverrides;
@@ -1203,6 +1204,16 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public boolean switchToFaster() {
+        return settings.switchToFaster();
+    }
+
+    @Override
+    public void setSwitchToFaster(boolean on) {
+        settings.setSwitchToFaster(on);
+    }
+
+    @Override
     public String resolverName() {
         return settings.resolverName();
     }
@@ -1325,12 +1336,14 @@ public class MainActivity extends Activity
         settings.setHistoryEnabled(on);
         if (!on) {
             NodeHistories.get(this).clear();
+            NodeRankFile.delete(new File(getFilesDir(), Filt3rVpnService.RANKS_FILE));
         }
     }
 
     @Override
     public void clearHistory() {
         NodeHistories.get(this).clear();
+        NodeRankFile.delete(new File(getFilesDir(), Filt3rVpnService.RANKS_FILE));
     }
 
     @Override

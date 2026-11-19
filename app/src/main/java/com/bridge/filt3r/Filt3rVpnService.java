@@ -32,10 +32,12 @@ import com.bridge.filt3r.core.filter.DNSResponsePatcher;
 import com.bridge.filt3r.core.filter.IpBlockList;
 import com.bridge.filt3r.core.http.HttpsFetcher;
 import com.bridge.filt3r.core.http.IpLookup;
+import com.bridge.filt3r.core.nodes.FailoverCheck;
 import com.bridge.filt3r.core.nodes.FailoverDialer;
 import com.bridge.filt3r.core.nodes.FailoverUpstream;
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.nodes.NodeManager;
+import com.bridge.filt3r.core.nodes.NodeRankFile;
 import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.DirectDialer;
@@ -59,6 +61,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -97,9 +100,15 @@ public class Filt3rVpnService extends VpnService {
     private static final String BOOTSTRAP_DOH = "https://1.1.1.1/dns-query";
     private static final int START_ROUNDS = 2;          // test rounds before giving up on a start
     private static final int START_ROUND_NODES = 40;    // random nodes tested per start round
+    private static final int START_ROUND_TOP = 10;      // best-ranked saved nodes re-tested in the first start round
+    private static final long START_GRACE_MS = 1_500;   // after the first node answers, wait this long for the rest of the round
+    static final String RANKS_FILE = "node_ranks.txt";  // saved node ranking, in the files dir
+    private static final int RANKS_KEEP = 10;           // nodes written to the ranking file
+    private static final int SETTLE_TOP = 3;            // best nodes re-tested right after a start
+    private static final long NET_RETEST_DELAY_S = 10;  // wait after a network change (debounces flaps)
     private static final int TEST_THREADS = 16;
     private static final int ROUND_TOP = 10;            // best-ranked nodes re-tested (hourly) and speed-tested (on re-test)
-    private static final int ROUND_RANDOM = 5;          // hourly: random others tested
+    private static final int ROUND_EXPLORE = 5;         // hourly: least recently tested others
     private static final long MAINTENANCE_MIN = 60;
     private static final Random RANDOM = new Random();
     private static final long FILTER_WAIT_S = 30;
@@ -157,6 +166,8 @@ public class Filt3rVpnService extends VpnService {
     private ConnectivityManager.NetworkCallback networkCallback; // guarded by this
     private volatile DNSResolver dnsResolver;
     private volatile NodeRuntime runtime;
+    private volatile FailoverCheck failoverCheck;
+    private volatile boolean quietSwitch; // a deliberate settle switch: no notice
 
     private final TunnelState.Listener widgetListener = state -> {
         Filt3rWidget.refresh(this);
@@ -228,6 +239,7 @@ public class Filt3rVpnService extends VpnService {
      * download and a test round), so it must not block the main thread.
      */
     private void startTunnel(int gen) {
+        NodeTester.Round startRound = null; // the start round, until the runtime takes it over
         try {
             ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
             DirectDialer direct = new DirectDialer(protector);
@@ -282,6 +294,7 @@ public class Filt3rVpnService extends VpnService {
                 throw new IOException("no nodes: add a subscription URL in Settings and switch it on");
             }
             manager.setNodes(list);
+            manager.restoreRanks(NodeRankFile.read(new File(getFilesDir(), RANKS_FILE), System.currentTimeMillis()));
             settings.setPinnedNode(manager.pinnedKey()); // forget a pin whose node left the list
             NodeTester tester = new NodeTester(direct, testStamp, DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP_V6));
             synchronized (lock) {
@@ -291,11 +304,24 @@ public class Filt3rVpnService extends VpnService {
                 nodeTester = tester; // before the rounds: the first current node triggers an IPv6 probe
             }
             for (int round = 0; round < START_ROUNDS && manager.current() == null; round++) {
-                tester.testAndRecord(manager, manager.pickForTest(0, START_ROUND_NODES, RANDOM), TEST_THREADS);
+                NodeTester.Round r = tester.startRound(manager,
+                        manager.pickForTest(round == 0 ? START_ROUND_TOP : 0, START_ROUND_NODES, RANDOM), TEST_THREADS);
+                boolean found = r.awaitFirstSuccess(START_GRACE_MS);
                 manager.selectBest();
+                if (found) {
+                    startRound = r;
+                    break;
+                }
+                r.awaitDone();
                 if (gen != generation.get()) {
                     return;
                 }
+            }
+            if (gen != generation.get()) {
+                if (startRound != null) {
+                    startRound.cancel();
+                }
+                return;
             }
             if (manager.current() == null) {
                 throw new IOException("no working node found");
@@ -303,6 +329,8 @@ public class Filt3rVpnService extends VpnService {
             Log.i(TAG, "start round done: " + manager.summary());
 
             FailoverDialer viaNode = new FailoverDialer(manager, direct);
+            FailoverCheck check = new FailoverCheck(manager, tester);
+            manager.setFailureListener(check::onCurrentFailed);
             HttpsFetcher listFetcher = new HttpsFetcher(viaNode,
                     new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode)));
             DnsCryptStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
@@ -316,6 +344,9 @@ public class Filt3rVpnService extends VpnService {
             b.setFailureMode(settings.failureMode());
             synchronized (lock) {
                 if (gen != generation.get()) {
+                    if (startRound != null) {
+                        startRound.cancel();
+                    }
                     return;
                 }
                 // Filter lists are downloaded through the node, never directly. The filter starts only
@@ -328,6 +359,7 @@ public class Filt3rVpnService extends VpnService {
                 startFilter();
                 resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
                 dnsResolver = resolver;
+                failoverCheck = check;
                 bridge = b;
                 applyIpv6();
                 b.start();
@@ -359,6 +391,9 @@ public class Filt3rVpnService extends VpnService {
             synchronized (lock) {
                 if (gen != generation.get()) {
                     closeQuietly(established);
+                    if (startRound != null) {
+                        startRound.cancel();
+                    }
                     return;
                 }
                 tun = established;
@@ -371,7 +406,7 @@ public class Filt3rVpnService extends VpnService {
                     throw new IOException("TProxyStartService failed");
                 }
                 Log.i(TAG, "hev started, bridge on loopback");
-                startMaintenance(manager, tester, store, viaNode, testStamp);
+                startMaintenance(manager, tester, store, viaNode, testStamp, startRound);
                 if (settings.ipBlockEnabled()) {
                     ipBlockStatus = getString(R.string.vpn_ip_block_downloading);
                     startIpBlock(gen, listFetcher, TimeUnit.DAYS.toMillis(settings.listRefreshDays()));
@@ -385,6 +420,9 @@ public class Filt3rVpnService extends VpnService {
                 getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, buildNotification());
             }
         } catch (IOException | android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
+            if (startRound != null) {
+                startRound.cancel(); // the runtime does not own it yet
+            }
             if (gen == generation.get()) {
                 Log.e(TAG, "start failed: " + e.getMessage());
                 handler.post(() -> {
@@ -433,6 +471,9 @@ public class Filt3rVpnService extends VpnService {
             return;
         }
         AtomicReference<Network> last = new AtomicReference<>();
+        // While our tunnel is up, the default network is the tunnel itself; its transports follow the
+        // real network underneath (Wi-Fi, mobile, ethernet). A change there is what we re-test on.
+        AtomicInteger transports = new AtomicInteger(-1); // -1: nothing seen yet
         ConnectivityManager.NetworkCallback cb = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network n) {
@@ -441,6 +482,41 @@ public class Filt3rVpnService extends VpnService {
                 NodeRuntime r = runtime;
                 if (r != null && nodes == manager && manager.current() == null) {
                     r.recoverNodes();
+                }
+            }
+
+            @Override
+            public void onCapabilitiesChanged(Network n, NetworkCapabilities caps) {
+                int now = (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ? 1 : 0)
+                        | (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ? 2 : 0)
+                        | (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ? 4 : 0);
+                int before = transports.getAndSet(now);
+                if (now == before) {
+                    return;
+                }
+                if (now == 0) {
+                    if (before != -1) {
+                        // The tunnel network outlives the real one, so onLost never fires: no node can be
+                        // blamed for an outage (airplane mode would otherwise blacklist every node).
+                        Log.i(TAG, "network lost");
+                        manager.setOnline(false);
+                    }
+                    return;
+                }
+                if (before == -1) {
+                    return;
+                }
+                Log.i(TAG, "network type changed: " + before + " -> " + now);
+                if (before == 0) {
+                    manager.setOnline(true); // clears the failures counted around the outage
+                }
+                NodeRuntime r = runtime;
+                if (r != null && nodes == manager) {
+                    if (manager.current() == null) {
+                        r.recoverNodes();
+                    } else {
+                        r.scheduleNetworkRetest();
+                    }
                 }
             }
 
@@ -483,7 +559,20 @@ public class Filt3rVpnService extends VpnService {
             synchronized (lastNodeLock) {
                 if (lastNode != null && !pinnedNow && !lastPinned
                         && !NodeManager.keyOf(lastNode).equals(NodeManager.keyOf(node))) {
-                    notice.compareAndSet(null, getString(R.string.vpn_notice_node_switched, node.name, lastNode.name));
+                    if (!quietSwitch) {
+                        boolean oldWorking = false;
+                        if (m != null) {
+                            String oldKey = NodeManager.keyOf(lastNode);
+                            for (NodeInfo n : m.snapshot()) {
+                                if (NodeManager.keyOf(n.node).equals(oldKey)) {
+                                    oldWorking = n.state == NodeInfo.State.WORKING;
+                                }
+                            }
+                        }
+                        notice.compareAndSet(null, oldWorking
+                                ? getString(R.string.vpn_notice_node_faster, node.name, lastNode.name)
+                                : getString(R.string.vpn_notice_node_switched, node.name, lastNode.name));
+                    }
                 }
                 lastNode = node;
                 lastPinned = pinnedNow;
@@ -779,6 +868,9 @@ public class Filt3rVpnService extends VpnService {
         final HttpsFetcher fetcher;
         final AtomicBoolean updating = new AtomicBoolean();
         final AtomicBoolean recovering = new AtomicBoolean();
+        /** The start round, still running when the tunnel came up; the settle step waits for it. */
+        volatile NodeTester.Round startRound;
+        private ScheduledFuture<?> netRetest; // guarded by this
         /** Looks names up through the node with the built-in resolver, so a bad user choice cannot block downloads. */
         final UpstreamNameResolver names;
 
@@ -897,10 +989,91 @@ public class Filt3rVpnService extends VpnService {
             }
         }
 
-        /** Tests the best-ranked {@code top} nodes and {@code random} others. The current node stays unless it died. */
-        void testRound(int top, int random) {
-            tester.testAndRecord(manager, manager.pickForTest(top, random, RANDOM), TEST_THREADS);
+        /** Tests the best-ranked {@code top} nodes and the {@code explore} least recently tested others. The current node stays unless it died. */
+        void testRound(int top, int explore) {
+            tester.testAndRecord(manager, manager.pickForTest(top, explore, RANDOM), TEST_THREADS);
             Log.i(TAG, "node round: " + manager.summary());
+            saveRanks();
+        }
+
+        /** Writes the best nodes' samples to the ranking file, so the next start begins with them. */
+        void saveRanks() {
+            try {
+                NodeRankFile.write(new File(getFilesDir(), RANKS_FILE), System.currentTimeMillis(),
+                        manager.exportRanks(RANKS_KEEP));
+            } catch (IOException e) {
+                Log.w(TAG, "rank save failed: " + e);
+            }
+        }
+
+        /**
+         * Runs once on the maintenance thread after a start: lets the start round finish, re-tests the
+         * best few nodes and quietly moves to a clearly faster one.
+         */
+        void settleAfterStart() {
+            NodeTester.Round r = startRound;
+            if (r == null) {
+                return;
+            }
+            startRound = null;
+            r.awaitDone();
+            if (Thread.currentThread().isInterrupted()) {
+                return; // the tunnel was stopped
+            }
+            tester.testAndRecord(manager, manager.pickForTest(SETTLE_TOP, 0, RANDOM), SETTLE_TOP);
+            if (Thread.currentThread().isInterrupted()) {
+                return;
+            }
+            quietSwitch = true;
+            try {
+                manager.switchIfFaster(1.3, 50, 2);
+            } finally {
+                quietSwitch = false;
+            }
+            saveRanks();
+            Log.i(TAG, "settle: " + manager.summary());
+        }
+
+        /** Opt-in: moves to a node at least twice as fast and 100 ms quicker (never leaves a pin). */
+        void maybeSwitchFaster() {
+            if (Thread.currentThread().isInterrupted()) {
+                return; // the tunnel was stopped
+            }
+            if (new Settings(Filt3rVpnService.this).switchToFaster() && manager.switchIfFaster(2.0, 100, 3)) {
+                Log.i(TAG, "switched to a faster node: " + manager.summary());
+            }
+        }
+
+        /** Re-tests the nodes shortly after the device changed network; a new change replaces a pending one. */
+        synchronized void scheduleNetworkRetest() {
+            ScheduledExecutorService maint = maintenance;
+            if (maint == null) {
+                return;
+            }
+            if (netRetest != null) {
+                netRetest.cancel(false);
+            }
+            try {
+                netRetest = maint.schedule(this::networkRetest, NET_RETEST_DELAY_S, TimeUnit.SECONDS);
+            } catch (RejectedExecutionException e) { // the tunnel was stopped just now
+                netRetest = null;
+            }
+        }
+
+        private void networkRetest() {
+            try {
+                if (new Settings(Filt3rVpnService.this).testOnlyWhenCheap() && !cheapToTest()) {
+                    Log.i(TAG, "network re-test skipped: metered network and not charging");
+                    return;
+                }
+                if (manager.current() == null) {
+                    return; // recovery owns that case
+                }
+                testRound(ROUND_TOP, ROUND_EXPLORE);
+                maybeSwitchFaster();
+            } catch (RuntimeException | Error e) {
+                Log.w(TAG, "network re-test failed: " + e);
+            }
         }
 
         /** Probes every working node for IPv6 egress, so the Node list can show it on every row. */
@@ -929,11 +1102,19 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private void startMaintenance(NodeManager manager, NodeTester tester, NodeStore store,
-                                  FailoverDialer viaNode, DnsCryptStamp testStamp) {
+                                  FailoverDialer viaNode, DnsCryptStamp testStamp, NodeTester.Round startRound) {
         NodeRuntime r = new NodeRuntime(manager, tester, store, viaNode, testStamp);
+        r.startRound = startRound;
         runtime = r;
         ScheduledExecutorService maint = Executors.newSingleThreadScheduledExecutor();
         maintenance = maint;
+        maint.execute(() -> {
+            try {
+                r.settleAfterStart();
+            } catch (RuntimeException | Error e) {
+                Log.w(TAG, "settle failed: " + e);
+            }
+        });
         // Downloads run on their own thread: a slow server must not hold up node tests and failover.
         ScheduledExecutorService ref = Executors.newSingleThreadScheduledExecutor();
         refresher = ref;
@@ -943,7 +1124,8 @@ public class Filt3rVpnService extends VpnService {
                     Log.i(TAG, "node round skipped: metered network and not charging");
                     return;
                 }
-                r.testRound(ROUND_TOP, ROUND_RANDOM);
+                r.testRound(ROUND_TOP, ROUND_EXPLORE);
+                r.maybeSwitchFaster();
                 probeIpv6();
             } catch (RuntimeException | Error e) {
                 Log.w(TAG, "maintenance failed: " + e);
@@ -1379,9 +1561,18 @@ public class Filt3rVpnService extends VpnService {
             if (ref != null) {
                 ref.shutdownNow();
             }
+            FailoverCheck fc = failoverCheck;
+            failoverCheck = null;
+            if (fc != null) {
+                fc.close();
+            }
             NodeRuntime r = runtime;
             if (r != null) {
                 r.fetcher.cancel();
+                NodeTester.Round sr = r.startRound;
+                if (sr != null) {
+                    sr.cancel();
+                }
             }
             HttpsFetcher first = bootstrapFetcher;
             bootstrapFetcher = null;
