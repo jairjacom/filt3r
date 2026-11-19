@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.0.10
+
+- Every node is now tested after you connect. A full scan runs in the background, 75 nodes every 5 minutes, and finishes in about 15 minutes. It repeats every 24 hours while connected. Before, only a few untested nodes were tried per hour, so fast nodes could stay unknown.
+- Nodes that answer in under 800 ms are your fast list. They are ranked first, saved for the next connect and re-tested in every round. Slower nodes remain as backup.
+- When a scan ends and your current node answers in 800 ms or more, filt3r moves to a clearly faster node (never from a pinned node).
+- The Nodes screen shows the scan progress, tags each node "tested 12 min ago", "not tested" or "no answer", and hides slow and dead nodes behind a button. Your current, pinned and added nodes always show.
+- The "Test only on Wi-Fi or while charging" switch now also pauses the full scan. Every node owner sees your IP about once a day because of the scan.
+
 ## v0.0.9
 
 - Node blacklisting is now written to the diagnostic log, with the reason and whether it was your current or pinned node, so an unexpected node switch can be traced.
