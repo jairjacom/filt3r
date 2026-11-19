@@ -472,19 +472,30 @@ public class Filt3rVpnService extends VpnService {
         }
         AtomicReference<Network> last = new AtomicReference<>();
         AtomicReference<Network> seen = new AtomicReference<>(); // the newest network reported, never cleared
+        AtomicReference<Network> pendingChange = new AtomicReference<>(); // reported, capabilities not seen yet
         ConnectivityManager.NetworkCallback cb = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network n) {
                 last.set(n);
                 manager.setOnline(true);
                 Network before = seen.getAndSet(n);
-                NetworkCapabilities caps = cm.getNetworkCapabilities(n);
-                boolean vpn = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
-                boolean changed = before != null && !before.equals(n) && !vpn; // our own tunnel is not a change
                 NodeRuntime r = runtime;
                 if (r != null && nodes == manager && manager.current() == null) {
                     r.recoverNodes();
-                } else if (changed && r != null && nodes == manager) {
+                } else if (before != null && !before.equals(n)) {
+                    pendingChange.set(n); // judged in onCapabilitiesChanged: our own tunnel is not a change
+                }
+            }
+
+            @Override
+            public void onCapabilitiesChanged(Network n, NetworkCapabilities caps) {
+                if (!pendingChange.compareAndSet(n, null)) {
+                    return;
+                }
+                boolean vpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
+                Log.i(TAG, "default network changed, vpn=" + vpn);
+                NodeRuntime r = runtime;
+                if (!vpn && r != null && nodes == manager) {
                     r.scheduleNetworkRetest();
                 }
             }
