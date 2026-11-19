@@ -107,11 +107,11 @@ public class Filt3rVpnService extends VpnService {
     private static final int RANKS_MAX = 50;            // plus every fast node, up to this (= NodeRankFile.MAX_LINES)
     private static final int FAST_RETEST_MAX = 30;      // fast nodes put first in every node round
     private static final long SWEEP_FIRST_S = 60;       // first full-scan step after the tunnel is up
-    private static final long SWEEP_STEP_S = 120;       // one full-scan batch every step
-    private static final long SWEEP_WINDOW_MS = 100 * 60_000L; // every node tried within this
+    private static final long SWEEP_STEP_S = 15 * 60;   // one full-scan batch every step
+    private static final long SWEEP_WINDOW_MS = 45 * 60_000L; // every node tried within this (spreads the batches)
     private static final long SWEEP_REPEAT_MS = 24 * 3_600_000L; // next full scan after this
-    private static final int SWEEP_MAX_BATCH = 40;      // nodes per full-scan step, at most
-    private static final int SWEEP_THREADS = 8;
+    private static final int SWEEP_MAX_BATCH = 75;      // nodes per full-scan step, at most
+    private static final int SWEEP_THREADS = 16;        // 75 nodes must fit the 40 s round cap; untested ones are retried next step
     private static final int SLOW_SWITCH_CHECK = 3;     // fast nodes re-tested before leaving a slow node
     private static final long SLOW_SWITCH_GAIN_MS = 100; // the fast node must be this much quicker
     private static final int SETTLE_TOP = 3;            // best nodes re-tested right after a start
