@@ -491,13 +491,32 @@ public class Filt3rVpnService extends VpnService {
                         | (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ? 2 : 0)
                         | (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ? 4 : 0);
                 int before = transports.getAndSet(now);
-                if (before == -1 || now == 0 || now == before) {
+                if (now == before) {
+                    return;
+                }
+                if (now == 0) {
+                    if (before != -1) {
+                        // The tunnel network outlives the real one, so onLost never fires: no node can be
+                        // blamed for an outage (airplane mode would otherwise blacklist every node).
+                        Log.i(TAG, "network lost");
+                        manager.setOnline(false);
+                    }
+                    return;
+                }
+                if (before == -1) {
                     return;
                 }
                 Log.i(TAG, "network type changed: " + before + " -> " + now);
+                if (before == 0) {
+                    manager.setOnline(true); // clears the failures counted around the outage
+                }
                 NodeRuntime r = runtime;
                 if (r != null && nodes == manager) {
-                    r.scheduleNetworkRetest();
+                    if (manager.current() == null) {
+                        r.recoverNodes();
+                    } else {
+                        r.scheduleNetworkRetest();
+                    }
                 }
             }
 
