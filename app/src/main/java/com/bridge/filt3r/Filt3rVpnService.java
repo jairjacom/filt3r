@@ -239,6 +239,7 @@ public class Filt3rVpnService extends VpnService {
      * download and a test round), so it must not block the main thread.
      */
     private void startTunnel(int gen) {
+        NodeTester.Round startRound = null; // the start round, until the runtime takes it over
         try {
             ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
             DirectDialer direct = new DirectDialer(protector);
@@ -302,7 +303,6 @@ public class Filt3rVpnService extends VpnService {
                 }
                 nodeTester = tester; // before the rounds: the first current node triggers an IPv6 probe
             }
-            NodeTester.Round startRound = null;
             for (int round = 0; round < START_ROUNDS && manager.current() == null; round++) {
                 NodeTester.Round r = tester.startRound(manager,
                         manager.pickForTest(round == 0 ? START_ROUND_TOP : 0, START_ROUND_NODES, RANDOM), TEST_THREADS);
@@ -420,6 +420,9 @@ public class Filt3rVpnService extends VpnService {
                 getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, buildNotification());
             }
         } catch (IOException | android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
+            if (startRound != null) {
+                startRound.cancel(); // the runtime does not own it yet
+            }
             if (gen == generation.get()) {
                 Log.e(TAG, "start failed: " + e.getMessage());
                 handler.post(() -> {
@@ -980,7 +983,13 @@ public class Filt3rVpnService extends VpnService {
             }
             startRound = null;
             r.awaitDone();
+            if (Thread.currentThread().isInterrupted()) {
+                return; // the tunnel was stopped
+            }
             tester.testAndRecord(manager, manager.pickForTest(SETTLE_TOP, 0, RANDOM), SETTLE_TOP);
+            if (Thread.currentThread().isInterrupted()) {
+                return;
+            }
             quietSwitch = true;
             try {
                 manager.switchIfFaster(1.3, 50, 2);
@@ -993,6 +1002,9 @@ public class Filt3rVpnService extends VpnService {
 
         /** Opt-in: moves to a node at least twice as fast and 100 ms quicker (never leaves a pin). */
         void maybeSwitchFaster() {
+            if (Thread.currentThread().isInterrupted()) {
+                return; // the tunnel was stopped
+            }
             if (new Settings(Filt3rVpnService.this).switchToFaster() && manager.switchIfFaster(2.0, 100, 3)) {
                 Log.i(TAG, "switched to a faster node: " + manager.summary());
             }
