@@ -331,6 +331,9 @@ public class Filt3rVpnService extends VpnService {
             FailoverDialer viaNode = new FailoverDialer(manager, direct);
             FailoverCheck check = new FailoverCheck(manager, tester);
             manager.setFailureListener(check::onCurrentFailed);
+            manager.setBlacklistListener((node, verifiedDead, wasCurrent, wasPinned, strikes) ->
+                    Log.i(TAG, "blacklisted " + node.name + ": " + (verifiedDead ? "failover check found it dead" : "3 failures in a row")
+                            + ", current=" + wasCurrent + ", pinned=" + wasPinned + ", strike " + strikes));
             HttpsFetcher listFetcher = new HttpsFetcher(viaNode,
                     new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode)));
             DnsCryptStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
