@@ -471,31 +471,32 @@ public class Filt3rVpnService extends VpnService {
             return;
         }
         AtomicReference<Network> last = new AtomicReference<>();
-        AtomicReference<Network> seen = new AtomicReference<>(); // the newest network reported, never cleared
-        AtomicReference<Network> pendingChange = new AtomicReference<>(); // reported, capabilities not seen yet
+        // While our tunnel is up, the default network is the tunnel itself; its transports follow the
+        // real network underneath (Wi-Fi, mobile, ethernet). A change there is what we re-test on.
+        AtomicInteger transports = new AtomicInteger(-1); // -1: nothing seen yet
         ConnectivityManager.NetworkCallback cb = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network n) {
                 last.set(n);
                 manager.setOnline(true);
-                Network before = seen.getAndSet(n);
                 NodeRuntime r = runtime;
                 if (r != null && nodes == manager && manager.current() == null) {
                     r.recoverNodes();
-                } else if (before != null && !before.equals(n)) {
-                    pendingChange.set(n); // judged in onCapabilitiesChanged: our own tunnel is not a change
                 }
             }
 
             @Override
             public void onCapabilitiesChanged(Network n, NetworkCapabilities caps) {
-                if (!pendingChange.compareAndSet(n, null)) {
+                int now = (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ? 1 : 0)
+                        | (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ? 2 : 0)
+                        | (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ? 4 : 0);
+                int before = transports.getAndSet(now);
+                if (before == -1 || now == 0 || now == before) {
                     return;
                 }
-                boolean vpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
-                Log.i(TAG, "default network changed, vpn=" + vpn);
+                Log.i(TAG, "network type changed: " + before + " -> " + now);
                 NodeRuntime r = runtime;
-                if (!vpn && r != null && nodes == manager) {
+                if (r != null && nodes == manager) {
                     r.scheduleNetworkRetest();
                 }
             }
