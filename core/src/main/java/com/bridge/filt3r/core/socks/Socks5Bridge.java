@@ -87,6 +87,8 @@ public final class Socks5Bridge {
     private final AtomicLong refusedDomain = new AtomicLong();
     private final AtomicLong refusedIpBlock = new AtomicLong();
     private final AtomicLong refusedIPv6 = new AtomicLong();
+    private final AtomicLong dnsBypassTcp = new AtomicLong();
+    private final AtomicLong dnsBypassTls = new AtomicLong();
     private final AtomicLong localConnections = new AtomicLong();
     private volatile boolean allowIPv6 = true;
     private final AtomicLong failedOpen = new AtomicLong();
@@ -185,6 +187,16 @@ public final class Socks5Bridge {
         return new String(password, StandardCharsets.US_ASCII);
     }
 
+    /** TCP connections to port 53 of an address other than our DNS that the bridge sent on to a node: DNS that skips the filter. */
+    public long dnsBypassTcp() {
+        return dnsBypassTcp.get();
+    }
+
+    /** TCP connections to port 853 (DNS-over-TLS) of an address other than our DNS that the bridge sent on to a node: DNS that skips the filter. */
+    public long dnsBypassTls() {
+        return dnsBypassTls.get();
+    }
+
     /** Connections to private or link-local addresses that reached the bridge. With the LAN bypass on, these should stay at 0. */
     public long localConnections() {
         return localConnections.get();
@@ -195,6 +207,7 @@ public final class Socks5Bridge {
         return "authFailed=" + authFailed + " connectOk=" + connectOk + " connectFailed=" + connectFailed
                 + " failedOpen=" + failedOpen + " mode=" + failureMode + " refusedDomain=" + refusedDomain
                 + " refusedIPv6=" + refusedIPv6 + " refusedIpBlock=" + refusedIpBlock
+                + " dnsBypassTcp=" + dnsBypassTcp + " dnsBypassTls=" + dnsBypassTls
                 + " localConnections=" + localConnections
                 + " lastConnectError=" + lastConnectError
                 + " lastDnsError=" + lastDnsError
@@ -346,6 +359,11 @@ public final class Socks5Bridge {
             reply(out, REP_NOT_ALLOWED, 0);
             refusedIpBlock.incrementAndGet();
             return;
+        }
+        if (port == 53) {
+            dnsBypassTcp.incrementAndGet();
+        } else if (port == 853) {
+            dnsBypassTls.incrementAndGet();
         }
         Link up;
         try {

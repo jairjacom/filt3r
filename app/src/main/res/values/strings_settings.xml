@@ -213,6 +213,8 @@
     <string name="selfcheck_lists">"Filter lists: %1$s"</string>
     <string name="selfcheck_ip_list">"Address blocklist: %1$s"</string>
     <string name="selfcheck_paused">Filtering is paused: nothing is blocked right now.</string>
+    <string name="selfcheck_dns_bypass">Some apps tried to send DNS straight to their own servers, skipping the filter: %1$d plain (TCP port 53) and %2$d DNS-over-TLS since you connected. They are not blocked.</string>
+    <string name="selfcheck_private_dns_strict">Private DNS is set to %1$s. It can send lookups around the filter. In Android settings, set Private DNS to Off or Automatic.</string>
     <string name="settings_about_gpl_dialog_title">GNU General Public License v3</string>
     <string name="settings_about_crash_title">Last crash report</string>
     <string name="settings_about_crash_summary">Tap to read; it stays on this device</string>

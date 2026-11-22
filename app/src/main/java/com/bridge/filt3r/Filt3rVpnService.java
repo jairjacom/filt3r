@@ -870,6 +870,13 @@ public class Filt3rVpnService extends VpnService {
         return ipBlockStatus;
     }
 
+    /** DNS that apps sent around the filter since this connect, as {plain TCP 53, DNS-over-TLS}; null while the tunnel is down. */
+    static long[] dnsBypassCounts() {
+        Filt3rVpnService s = instance;
+        Socks5Bridge b = s == null ? null : s.bridge;
+        return b == null ? null : new long[] {b.dnsBypassTcp(), b.dnsBypassTls()};
+    }
+
     /** Connections to local addresses that reached the tunnel since this connect; -1 while the tunnel is down. */
     static long localConnections() {
         Filt3rVpnService s = instance;

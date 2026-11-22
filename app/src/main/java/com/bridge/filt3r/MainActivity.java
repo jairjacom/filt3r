@@ -1526,6 +1526,11 @@ public class MainActivity extends Activity
         sb.append("Query log: ").append(settings.queryLogEnabled() ? "on" : "off").append('\n');
         sb.append("Toolbar: ").append(settings.toolbarStyle()).append('\n');
         sb.append("Filters: ").append(filterStatus()).append('\n');
+        long[] bypass = Filt3rVpnService.dnsBypassCounts();
+        if (bypass != null) {
+            sb.append("DNS around the filter: ").append(bypass[0]).append(" TCP port 53, ")
+                    .append(bypass[1]).append(" DNS-over-TLS\n");
+        }
         long local = Filt3rVpnService.localConnections();
         if (local >= 0) {
             sb.append("LAN bypass: ").append(settings.bypassLan() ? "on" : "off")

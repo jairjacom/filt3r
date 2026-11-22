@@ -1,6 +1,9 @@
 package com.bridge.filt3r;
 
 import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
 
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.filter.FilterStatus;
@@ -62,9 +65,26 @@ final class SelfCheck {
             lines.add(NOTE + ctx.getString(R.string.selfcheck_ip_list, ip));
         }
 
+        long[] bypass = Filt3rVpnService.dnsBypassCounts();
+        if (bypass != null && (bypass[0] > 0 || bypass[1] > 0)) {
+            lines.add(NOTE + ctx.getString(R.string.selfcheck_dns_bypass, bypass[0], bypass[1]));
+        }
+        String privateDns = strictPrivateDns(ctx);
+        if (privateDns != null) {
+            lines.add(NOTE + ctx.getString(R.string.selfcheck_private_dns_strict, privateDns));
+        }
+
         if (TunnelState.pausedUntil() != 0) {
             lines.add(BAD + ctx.getString(R.string.selfcheck_paused));
         }
         return lines;
+    }
+
+    /** The host name Private DNS is set to, or null unless it is on in strict mode (a host name is set). */
+    private static String strictPrivateDns(Context ctx) {
+        ConnectivityManager cm = ctx.getSystemService(ConnectivityManager.class);
+        Network active = cm == null ? null : cm.getActiveNetwork(); // our app is outside the VPN: this is the real network
+        LinkProperties link = active == null ? null : cm.getLinkProperties(active);
+        return link != null && link.isPrivateDnsActive() ? link.getPrivateDnsServerName() : null;
     }
 }
