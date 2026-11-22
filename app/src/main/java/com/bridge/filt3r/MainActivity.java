@@ -1227,6 +1227,16 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public boolean bypassLan() {
+        return settings.bypassLan();
+    }
+
+    @Override
+    public void setBypassLan(boolean on) {
+        settings.setBypassLan(on);
+    }
+
+    @Override
     public boolean switchToFaster() {
         return settings.switchToFaster();
     }

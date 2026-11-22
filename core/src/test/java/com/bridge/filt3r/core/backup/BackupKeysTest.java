@@ -37,6 +37,7 @@ class BackupKeysTest {
         m.put("effects_level", 3);
         m.put("transition_style", 1);
         m.put("switch_faster", true);
+        m.put("bypass_lan", false);
         return m;
     }
 

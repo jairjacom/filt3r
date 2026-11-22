@@ -18,7 +18,7 @@ public final class BackupKeys {
             "failure_mode", "query_log", "resolver_name", "resolver_stamp", "node_sort_speed", "filter_url",
             "enabled_lists", "ip_block", "test_only_cheap", "list_refresh_days", "toolbar_pinned",
             "toolbar_style", "theme_mode", "pure_black", "color_scheme", "seed_color", "effects_level",
-            "transition_style", "switch_faster");
+            "transition_style", "switch_faster", "bypass_lan");
 
     private BackupKeys() {
     }
