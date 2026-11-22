@@ -3,6 +3,7 @@ package com.bridge.filt3r;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import com.bridge.filt3r.core.backup.BackupKeys;
 import com.bridge.filt3r.core.socks.FailureMode;
 
 import java.util.ArrayList;
@@ -389,7 +390,7 @@ final class Settings {
     }
 
     private static final String KEY_EFFECTS_LEVEL = "effects_level";
-    private static final String KEY_EFFECT_PREFIX = "fx_";
+    private static final String KEY_EFFECT_PREFIX = BackupKeys.EFFECT_PREFIX;
 
     /** An Effects level constant (Minimal, Standard, Full or Custom). The default is Standard. */
     int effectsLevel() {
@@ -419,22 +420,13 @@ final class Settings {
         prefs.edit().putInt("transition_style", style).apply();
     }
 
-    /**
-     * The preference keys a settings backup carries. Subscription addresses, the pinned node, hidden
-     * nodes and any history are never in it; subscriptions go in only when the user asks (see SettingsBackup).
-     */
-    private static final Set<String> BACKUP_KEYS = Set.of(KEY_FAILURE_MODE, KEY_QUERY_LOG, KEY_RESOLVER_NAME,
-            KEY_RESOLVER_STAMP, KEY_NODE_SORT_SPEED, KEY_FILTER_URL, KEY_ENABLED_LISTS, KEY_IP_BLOCK,
-            KEY_TEST_CHEAP, KEY_LIST_DAYS, KEY_TOOLBAR_PINNED, KEY_TOOLBAR_STYLE, KEY_THEME_MODE, KEY_PURE_BLACK,
-            KEY_COLOR_SCHEME, KEY_SEED_COLOR, KEY_EFFECTS_LEVEL, "transition_style", KEY_SWITCH_FASTER);
-
     /** Every backed-up preference that has been set, as String, Boolean, Integer or sorted List of String. */
     @SuppressWarnings("unchecked")
     Map<String, Object> backupValues() {
         Map<String, Object> out = new TreeMap<>();
         for (Map.Entry<String, ?> e : prefs.getAll().entrySet()) {
             String key = e.getKey();
-            if (!BACKUP_KEYS.contains(key) && !key.startsWith(KEY_EFFECT_PREFIX)) {
+            if (!BackupKeys.carries(key)) {
                 continue;
             }
             Object v = e.getValue();
@@ -455,7 +447,7 @@ final class Settings {
         SharedPreferences.Editor edit = prefs.edit();
         for (Map.Entry<String, Object> e : values.entrySet()) {
             String key = e.getKey();
-            if (!BACKUP_KEYS.contains(key) && !key.startsWith(KEY_EFFECT_PREFIX)) {
+            if (!BackupKeys.carries(key)) {
                 continue;
             }
             Object v = e.getValue();
