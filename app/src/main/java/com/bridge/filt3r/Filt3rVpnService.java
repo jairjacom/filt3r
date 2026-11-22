@@ -868,7 +868,7 @@ public class Filt3rVpnService extends VpnService {
     static long[] dnsBypassCounts() {
         Filt3rVpnService s = instance;
         Socks5Bridge b = s == null ? null : s.bridge;
-        return b == null ? null : new long[] {b.otherDnsTcp(), b.otherDnsTls()};
+        return b == null ? null : new long[] {b.dnsBypassTcp(), b.dnsBypassTls()};
     }
 
     /**
