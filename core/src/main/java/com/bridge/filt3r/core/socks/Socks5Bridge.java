@@ -87,6 +87,8 @@ public final class Socks5Bridge {
     private final AtomicLong refusedDomain = new AtomicLong();
     private final AtomicLong refusedIpBlock = new AtomicLong();
     private final AtomicLong refusedIPv6 = new AtomicLong();
+    private final AtomicLong otherDnsTcp = new AtomicLong();
+    private final AtomicLong otherDnsTls = new AtomicLong();
     private volatile boolean allowIPv6 = true;
     private final AtomicLong failedOpen = new AtomicLong();
     private volatile FailureMode failureMode = FailureMode.FAIL_CLOSED;
@@ -184,11 +186,22 @@ public final class Socks5Bridge {
         return new String(password, StandardCharsets.US_ASCII);
     }
 
+    /** TCP connections to port 53 of an address other than our DNS: DNS that skips the filter. They are not blocked. */
+    public long otherDnsTcp() {
+        return otherDnsTcp.get();
+    }
+
+    /** TCP connections to port 853 (DNS-over-TLS) of an address other than our DNS: DNS that skips the filter. They are not blocked. */
+    public long otherDnsTls() {
+        return otherDnsTls.get();
+    }
+
     /** Counters only; never contains addresses or credentials. */
     public String stats() {
         return "authFailed=" + authFailed + " connectOk=" + connectOk + " connectFailed=" + connectFailed
                 + " failedOpen=" + failedOpen + " mode=" + failureMode + " refusedDomain=" + refusedDomain
                 + " refusedIPv6=" + refusedIPv6 + " refusedIpBlock=" + refusedIpBlock
+                + " otherDnsTcp=" + otherDnsTcp + " otherDnsTls=" + otherDnsTls
                 + " lastConnectError=" + lastConnectError
                 + " lastDnsError=" + lastDnsError
                 + " dnsForwarded=" + dnsForwarded + " udpDropped=" + udpDropped;
@@ -321,6 +334,11 @@ public final class Socks5Bridge {
             client.setSoTimeout(DNS_TCP_IDLE_MS);
             dnsOverTcp(client, out);
             return;
+        }
+        if (port == 53) {
+            otherDnsTcp.incrementAndGet();
+        } else if (port == 853) {
+            otherDnsTls.incrementAndGet();
         }
         if (ip.length == 16 && !allowIPv6) {
             // The node has no IPv6 exit: fail at once so the app falls back to IPv4 without waiting.
