@@ -312,6 +312,10 @@ public class MainActivity extends Activity
             return; // nothing to do, or the app was reopened from Recents: do not repeat an old action
         }
         setIntent(new Intent()); // so a rotation does not repeat the action
+        if ((ACTION_CONNECT.equals(action) || ACTION_DISCONNECT.equals(action))
+                && !IntentGuard.hasKey(this, intent)) {
+            return; // another app sent this: only our tile, widget and shortcuts may connect or disconnect
+        }
         if (ACTION_CONNECT.equals(action)) {
             connect();
         } else if (ACTION_DISCONNECT.equals(action)) {
@@ -1227,6 +1231,16 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public boolean bypassLan() {
+        return settings.bypassLan();
+    }
+
+    @Override
+    public void setBypassLan(boolean on) {
+        settings.setBypassLan(on);
+    }
+
+    @Override
     public boolean switchToFaster() {
         return settings.switchToFaster();
     }
@@ -1516,6 +1530,11 @@ public class MainActivity extends Activity
         if (bypass != null) {
             sb.append("DNS around the filter: ").append(bypass[0]).append(" TCP port 53, ")
                     .append(bypass[1]).append(" DNS-over-TLS\n");
+        }
+        long local = Filt3rVpnService.localConnections();
+        if (local >= 0) {
+            sb.append("LAN bypass: ").append(settings.bypassLan() ? "on" : "off")
+                    .append(", local connections that reached the tunnel: ").append(local).append('\n');
         }
         String crash = CrashLog.read(this);
         if (crash != null) {

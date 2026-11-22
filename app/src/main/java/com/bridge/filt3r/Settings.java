@@ -70,6 +70,7 @@ final class Settings {
     private static final String KEY_IP_BLOCK = "ip_block";
     private static final String KEY_TEST_CHEAP = "test_only_cheap";
     private static final String KEY_SWITCH_FASTER = "switch_faster";
+    private static final String KEY_BYPASS_LAN = "bypass_lan";
     private static final String KEY_LIST_DAYS = "list_refresh_days";
     private static final String KEY_TOOLBAR_PINNED = "toolbar_pinned";
     private static final String KEY_TOOLBAR_STYLE = "toolbar_style";
@@ -249,6 +250,15 @@ final class Settings {
 
     void setTestOnlyWhenCheap(boolean on) {
         prefs.edit().putBoolean(KEY_TEST_CHEAP, on).apply();
+    }
+
+    /** True to keep traffic to the local network out of the tunnel. On by default. */
+    boolean bypassLan() {
+        return prefs.getBoolean(KEY_BYPASS_LAN, true);
+    }
+
+    void setBypassLan(boolean on) {
+        prefs.edit().putBoolean(KEY_BYPASS_LAN, on).apply();
     }
 
     /** True to also move to a much faster node after the hourly test. Off by default. */
