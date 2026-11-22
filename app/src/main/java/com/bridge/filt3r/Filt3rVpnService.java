@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
 import android.net.ConnectivityManager;
+import android.net.IpPrefix;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.VpnService;
@@ -50,7 +51,9 @@ import com.bridge.filt3r.core.util.StartScope;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -390,6 +393,9 @@ public class Filt3rVpnService extends VpnService {
                     .addRoute("::", 0)
                     .addDnsServer(DNS_V4)
                     .addDisallowedApplication(getPackageName());
+            if (settings.bypassLan()) {
+                bypassLocalNetworks(builder);
+            }
             // Exempt apps skip the tunnel: they use the real IP and the real DNS.
             for (String pkg : settings.exemptApps()) {
                 try {
@@ -864,6 +870,13 @@ public class Filt3rVpnService extends VpnService {
         return ipBlockStatus;
     }
 
+    /** Connections to local addresses that reached the tunnel since this connect; -1 while the tunnel is down. */
+    static long localConnections() {
+        Filt3rVpnService s = instance;
+        Socks5Bridge b = s == null ? null : s.bridge;
+        return b == null ? -1 : b.localConnections();
+    }
+
     /**
      * Starts a filter-list download now (the filter does it on its own thread).
      *
@@ -1225,6 +1238,28 @@ public class Filt3rVpnService extends VpnService {
                 Log.w(TAG, "full scan step failed: " + e);
             }
         }, SWEEP_FIRST_S, SWEEP_STEP_S, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Keeps the router and other local devices out of the tunnel. 10.0.0.0/8 holds our own DNS
+     * address, so that one address gets its own route back in: the longer prefix wins.
+     */
+    private static void bypassLocalNetworks(Builder builder) {
+        exclude(builder, "10.0.0.0", 8);
+        exclude(builder, "172.16.0.0", 12);
+        exclude(builder, "192.168.0.0", 16);
+        exclude(builder, "169.254.0.0", 16);
+        exclude(builder, "fc00::", 7);
+        exclude(builder, "fe80::", 10);
+        builder.addRoute(DNS_V4, 32);
+    }
+
+    private static void exclude(Builder builder, String address, int prefixLength) {
+        try {
+            builder.excludeRoute(new IpPrefix(InetAddress.getByName(address), prefixLength));
+        } catch (UnknownHostException e) {
+            throw new IllegalStateException(e); // a fixed IP literal: no lookup happens
+        }
     }
 
     /** True on an unmetered network (normally Wi-Fi) or while charging: the hourly node tests cost data and battery. */

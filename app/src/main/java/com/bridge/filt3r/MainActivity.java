@@ -1231,6 +1231,16 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public boolean bypassLan() {
+        return settings.bypassLan();
+    }
+
+    @Override
+    public void setBypassLan(boolean on) {
+        settings.setBypassLan(on);
+    }
+
+    @Override
     public boolean switchToFaster() {
         return settings.switchToFaster();
     }
@@ -1516,6 +1526,11 @@ public class MainActivity extends Activity
         sb.append("Query log: ").append(settings.queryLogEnabled() ? "on" : "off").append('\n');
         sb.append("Toolbar: ").append(settings.toolbarStyle()).append('\n');
         sb.append("Filters: ").append(filterStatus()).append('\n');
+        long local = Filt3rVpnService.localConnections();
+        if (local >= 0) {
+            sb.append("LAN bypass: ").append(settings.bypassLan() ? "on" : "off")
+                    .append(", local connections that reached the tunnel: ").append(local).append('\n');
+        }
         String crash = CrashLog.read(this);
         if (crash != null) {
             sb.append("\nLast crash:\n").append(crash.replaceAll("(?i)https?://\\S+", "<address>")).append('\n');

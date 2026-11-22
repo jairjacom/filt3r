@@ -100,6 +100,10 @@ public class SettingsPanel extends LinearLayout {
 
         void setTestOnlyWhenCheap(boolean on);
 
+        boolean bypassLan();
+
+        void setBypassLan(boolean on);
+
         boolean switchToFaster();
 
         void setSwitchToFaster(boolean on);
@@ -398,6 +402,12 @@ public class SettingsPanel extends LinearLayout {
         card.addView(switchRow(context, context.getString(R.string.settings_connection_switch_faster),
                 context.getString(R.string.settings_connection_switch_faster_summary),
                 backend.switchToFaster(), backend::setSwitchToFaster));
+        card.addView(switchRow(context, context.getString(R.string.settings_connection_bypass_lan),
+                context.getString(R.string.settings_connection_bypass_lan_summary),
+                backend.bypassLan(), on -> {
+                    backend.setBypassLan(on);
+                    markChanged();
+                }));
     }
 
     private void buildDns(Context context) {

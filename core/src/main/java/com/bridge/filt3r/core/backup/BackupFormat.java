@@ -206,6 +206,7 @@ public final class BackupFormat {
             case "ip_block":
             case "test_only_cheap":
             case "switch_faster":
+            case "bypass_lan":
             case "toolbar_pinned":
             case "pure_black":
                 return asBool(v, key);

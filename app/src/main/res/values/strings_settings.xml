@@ -237,6 +237,8 @@
     <string name="settings_connection_test_cheap_summary">Skips the hourly node test and the full node scan on mobile data when the phone is not charging. The search at start, failover and Re-test are not affected.</string>
     <string name="settings_connection_switch_faster">Move to a much faster node</string>
     <string name="settings_connection_switch_faster_summary">After the hourly test, moves to a node that is at least twice as fast and 100 ms quicker. Open connections restart and your exit IP changes. A pinned node is never left. Off: the node changes only when it stops working, or after the full node scan when it answers in 800 ms or more.</string>
+    <string name="settings_connection_bypass_lan">Keep local network out of the tunnel</string>
+    <string name="settings_connection_bypass_lan_summary">Your router and other local devices stay reachable, and local traffic never goes to a node. Off: all traffic, including local, goes through the tunnel.</string>
     <plurals name="overrides_summary_rules">
         <item quantity="one">%1$d rule</item>
         <item quantity="other">%1$d rules</item>
