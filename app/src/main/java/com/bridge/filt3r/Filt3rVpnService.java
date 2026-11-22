@@ -354,7 +354,7 @@ public class Filt3rVpnService extends VpnService {
             Socks5Bridge b = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
                 return resolver.resolve(client, query);
-            }, viaNode, direct);
+            }, viaNode, direct, DNSResponsePatcher::isPaused);
             b.setFailureMode(settings.failureMode());
             synchronized (lock) {
                 if (scope.isClosed()) {
@@ -1270,6 +1270,14 @@ public class Filt3rVpnService extends VpnService {
         }
     }
 
+    /** The IP blocklist is used by the DNS answers and by the bridge's connections; they are always set together. */
+    private static void applyIpBlock(Socks5Bridge b, IpBlockList list) {
+        if (b != null) {
+            b.setIpBlockList(list);
+        }
+        DNSResponsePatcher.setIpBlockList(list);
+    }
+
     /** Runs on the refresher thread. maxAgeMs 0 forces a download. */
     private void loadIpBlock(StartScope scope, HttpsFetcher fetcher, long maxAgeMs) {
         File cache = new File(getFilesDir(), "ipblock.txt");
@@ -1279,8 +1287,7 @@ public class Filt3rVpnService extends VpnService {
                 if (scope.isClosed()) {
                     return; // stopped or restarted meanwhile: this list belongs to a bridge that is gone
                 }
-                bridge.setIpBlockList(list);
-                DNSResponsePatcher.setIpBlockList(list);
+                applyIpBlock(bridge, list);
             }
             ipBlockStatus = getString(R.string.vpn_ip_block_loaded, list.size());
             Log.i(TAG, "IP blocklist loaded: " + list.size() + " entries");
@@ -1672,7 +1679,7 @@ public class Filt3rVpnService extends VpnService {
             dnsResolver = null;
             runtime = null;
             DNSResponsePatcher.setObserver(null);
-            DNSResponsePatcher.setIpBlockList(null);
+            applyIpBlock(bridge, null);
             ipBlockStatus = "";
             resolverInfo = null;
             DNSFilterManager.setUrlOpener(null);
@@ -1683,7 +1690,6 @@ public class Filt3rVpnService extends VpnService {
             Socks5Bridge b = bridge;
             bridge = null;
             if (b != null) {
-                b.setIpBlockList(null);
                 Log.i(TAG, "bridge stats: " + b.stats());
                 b.stop();
             }
