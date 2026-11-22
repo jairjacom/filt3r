@@ -394,7 +394,7 @@ public class Filt3rVpnService extends VpnService {
                     .addDnsServer(DNS_V4)
                     .addDisallowedApplication(getPackageName());
             if (settings.bypassLan()) {
-                excludeLocalNetworks(builder);
+                bypassLocalNetworks(builder);
             }
             // Exempt apps skip the tunnel: they use the real IP and the real DNS.
             for (String pkg : settings.exemptApps()) {
@@ -1233,25 +1233,26 @@ public class Filt3rVpnService extends VpnService {
         }, SWEEP_FIRST_S, SWEEP_STEP_S, TimeUnit.SECONDS);
     }
 
-    /** Local-network ranges that never go through the tunnel when the LAN bypass is on. */
-    private static final String[] LOCAL_RANGES = {
-            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7", "fe80::/10"};
-
     /**
-     * Keeps the router, printer and other local devices out of the tunnel. 10.0.0.0/8 holds our own
-     * DNS address, so that one address gets its own route back in: the longer prefix wins.
+     * Keeps the router and other local devices out of the tunnel. 10.0.0.0/8 holds our own DNS
+     * address, so that one address gets its own route back in: the longer prefix wins.
      */
-    private static void excludeLocalNetworks(Builder builder) {
-        try {
-            for (String range : LOCAL_RANGES) {
-                int slash = range.indexOf('/');
-                builder.excludeRoute(new IpPrefix(
-                        InetAddress.getByName(range.substring(0, slash)), Integer.parseInt(range.substring(slash + 1))));
-            }
-        } catch (UnknownHostException e) {
-            throw new IllegalStateException(e); // the ranges are fixed IP literals: no lookup happens
-        }
+    private static void bypassLocalNetworks(Builder builder) {
+        exclude(builder, "10.0.0.0", 8);
+        exclude(builder, "172.16.0.0", 12);
+        exclude(builder, "192.168.0.0", 16);
+        exclude(builder, "169.254.0.0", 16);
+        exclude(builder, "fc00::", 7);
+        exclude(builder, "fe80::", 10);
         builder.addRoute(DNS_V4, 32);
+    }
+
+    private static void exclude(Builder builder, String address, int prefixLength) {
+        try {
+            builder.excludeRoute(new IpPrefix(InetAddress.getByName(address), prefixLength));
+        } catch (UnknownHostException e) {
+            throw new IllegalStateException(e); // a fixed IP literal: no lookup happens
+        }
     }
 
     /** True on an unmetered network (normally Wi-Fi) or while charging: the hourly node tests cost data and battery. */
