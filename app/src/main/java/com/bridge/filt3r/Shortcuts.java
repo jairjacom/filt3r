@@ -41,7 +41,7 @@ final class Shortcuts {
     }
 
     private static ShortcutInfo build(Context ctx, String id, String label, int icon, String action) {
-        Intent intent = new Intent(action).setClass(ctx, MainActivity.class);
+        Intent intent = IntentGuard.attachKey(ctx, new Intent(action).setClass(ctx, MainActivity.class));
         return new ShortcutInfo.Builder(ctx, id)
                 .setShortLabel(label)
                 .setIcon(Icon.createWithResource(ctx, icon))
