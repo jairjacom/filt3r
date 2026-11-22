@@ -312,6 +312,10 @@ public class MainActivity extends Activity
             return; // nothing to do, or the app was reopened from Recents: do not repeat an old action
         }
         setIntent(new Intent()); // so a rotation does not repeat the action
+        if ((ACTION_CONNECT.equals(action) || ACTION_DISCONNECT.equals(action))
+                && !IntentGuard.isSigned(this, intent)) {
+            return; // another app sent this: only our tile, widget and shortcuts may connect or disconnect
+        }
         if (ACTION_CONNECT.equals(action)) {
             connect();
         } else if (ACTION_DISCONNECT.equals(action)) {

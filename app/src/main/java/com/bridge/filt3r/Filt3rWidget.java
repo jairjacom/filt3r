@@ -37,8 +37,8 @@ public class Filt3rWidget extends AppWidgetProvider {
         } else {
             status = ctx.getString(state == TunnelState.State.FAILED ? R.string.widget_status_failed : R.string.widget_status_off);
             hint = ctx.getString(R.string.widget_hint_connect);
-            Intent connect = new Intent(ctx, MainActivity.class)
-                    .setAction(MainActivity.ACTION_CONNECT);
+            Intent connect = IntentGuard.sign(ctx, new Intent(ctx, MainActivity.class)
+                    .setAction(MainActivity.ACTION_CONNECT));
             tap = PendingIntent.getActivity(ctx, 7102, connect, flags);
         }
         RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.widget);
