@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.0.12
+
+- Other apps can no longer switch filt3r on or off by sending it a Connect or Disconnect request. Only the quick-settings tile, the widget and the launcher shortcuts can. A shortcut you pinned before this update may need a second tap the first time.
+- Traffic to your local network (router, printer, other devices at home) now stays out of the tunnel instead of going to a node. A new switch in Settings, "Keep local network out of the tunnel", is on by default; changing it applies after a restart.
+- Names that only exist on a local network, such as router.lan, now fail at once and are no longer sent to the public resolver. With the query log on, they appear in it.
+- Self-check and Copy diagnostics now count how often apps sent DNS straight to their own servers, around the filter. Nothing is blocked. Self-check also tells you when Private DNS is set to a host name.
+
 ## v0.0.11
 
 - Internal cleanup only; nothing changes in how filt3r works.
