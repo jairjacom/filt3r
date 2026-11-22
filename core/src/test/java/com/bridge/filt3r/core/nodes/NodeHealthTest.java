@@ -1,6 +1,7 @@
 package com.bridge.filt3r.core.nodes;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,21 +12,22 @@ import org.junit.jupiter.api.Test;
 
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 
-/** Pins down what FailoverCheck does when the current node fails but is not blacklisted yet. */
-class FailoverCheckTest {
+/** Pins down what NodeHealth does when the current node fails but is not blacklisted yet. */
+class NodeHealthTest {
 
+    private TestSupport.Clock clock = new TestSupport.Clock();
     private NodeManager manager;
     private TestSupport.FakeProbe probe;
-    private FailoverCheck check;
+    private NodeHealth check;
     private ShadowsocksNode a;
     private ShadowsocksNode b;
     private ShadowsocksNode c;
 
     @BeforeEach
     void setUp() {
-        manager = new NodeManager(n -> { }, new TestSupport.Clock());
+        manager = new NodeManager(n -> { }, clock);
         probe = new TestSupport.FakeProbe();
-        check = new FailoverCheck(manager, probe, new TestSupport.InlineExecutor());
+        check = new NodeHealth(manager, probe, clock, new TestSupport.InlineExecutor());
         a = TestSupport.node("a.example");
         b = TestSupport.node("b.example");
         c = TestSupport.node("c.example");
@@ -69,5 +71,30 @@ class FailoverCheckTest {
         manager.recordFailure(a);
         assertTrue(probe.calls.isEmpty());
         assertSame(a, manager.current());
+    }
+
+    @Test
+    void looksFineProbesAgainAfterTenSecondsButNotBefore() {
+        assertTrue(check.looksFine(a));
+        assertTrue(check.looksFine(a));
+        assertEquals(1, probe.calls.stream().filter("works:a.example"::equals).count());
+        clock.now += NodeHealth.PROBE_OK_MS + 1;
+        assertTrue(check.looksFine(a));
+        assertEquals(2, probe.calls.stream().filter("works:a.example"::equals).count());
+    }
+
+    @Test
+    void looksFineIsFalseWhenTheProbeFailsAndIsNotCached() {
+        probe.dead.add("a.example");
+        assertFalse(check.looksFine(a));
+        assertFalse(check.looksFine(a));
+        assertEquals(2, probe.calls.stream().filter("works:a.example"::equals).count());
+    }
+
+    @Test
+    void aPassedProbeOnOneNodeDoesNotVouchForAnother() {
+        assertTrue(check.looksFine(a));
+        probe.dead.add("b.example");
+        assertFalse(check.looksFine(b));
     }
 }
