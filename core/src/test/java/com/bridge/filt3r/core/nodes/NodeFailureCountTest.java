@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -33,21 +34,32 @@ class NodeFailureCountTest {
 
     @Test
     void thirdFailureInARowBlacklistsTheCurrentNodeAndSwitches() {
-        manager.recordFailure(a);
-        manager.recordFailure(a);
+        manager.recordFailure(a, "test");
+        manager.recordFailure(a, "test");
         assertSame(a, manager.current());
-        manager.recordFailure(a);
+        manager.recordFailure(a, "test");
         assertSame(b, manager.current());
         assertEquals(1, manager.blacklistedCount());
     }
 
     @Test
+    void everyCountedFailureIsLoggedWithItsReasonAndCount() {
+        List<String> lines = new ArrayList<>();
+        manager.setDiagnostics(lines::add);
+        manager.recordFailure(a, "dial failed, SocketTimeoutException");
+        manager.recordFailure(b, "test failed, IOException");
+        assertEquals(List.of(
+                "failure 1/3 a.example: dial failed, SocketTimeoutException, current=true",
+                "failure 1/3 b.example: test failed, IOException, current=false"), lines);
+    }
+
+    @Test
     void aSuccessBetweenFailuresResetsTheCount() {
-        manager.recordFailure(a);
-        manager.recordFailure(a);
+        manager.recordFailure(a, "test");
+        manager.recordFailure(a, "test");
         manager.recordSuccess(a);
-        manager.recordFailure(a);
-        manager.recordFailure(a);
+        manager.recordFailure(a, "test");
+        manager.recordFailure(a, "test");
         assertSame(a, manager.current());
         assertEquals(0, manager.blacklistedCount());
     }
@@ -56,7 +68,7 @@ class NodeFailureCountTest {
     void failuresAreIgnoredWhileOffline() {
         manager.setOnline(false);
         for (int i = 0; i < 5; i++) {
-            manager.recordFailure(a);
+            manager.recordFailure(a, "test");
         }
         manager.setOnline(true);
         assertSame(a, manager.current());

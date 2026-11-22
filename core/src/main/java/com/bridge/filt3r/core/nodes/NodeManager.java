@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
@@ -187,6 +188,18 @@ public final class NodeManager {
 
     public synchronized void setBlacklistListener(BlacklistListener l) {
         blacklistListener = l;
+    }
+
+    private volatile Consumer<String> diagnostics = line -> { };
+
+    /** Sets where {@link #diagnose} lines go (the app's log). Core code has no logger of its own. */
+    public void setDiagnostics(Consumer<String> sink) {
+        diagnostics = sink;
+    }
+
+    /** A line for the diagnostic log: failures and failover decisions. Never put an address you are connecting to in it. */
+    public void diagnose(String line) {
+        diagnostics.accept(line);
     }
 
     private boolean blacklisted(Entry e) {
@@ -450,13 +463,15 @@ public final class NodeManager {
      * while the device has no network. A node that fails again right after its blacklisting ended
      * is blacklisted again for twice as long.
      */
-    public void recordFailure(ShadowsocksNode node) {
+    public void recordFailure(ShadowsocksNode node, String reason) {
         boolean changed = false;
         ShadowsocksNode unpinned = null;
         FailureListener fl = null;
         BlacklistListener bl = null;
         boolean wasCurrent = false;
         int strikes = 0;
+        int failures = 0;
+        boolean isCurrent = false;
         synchronized (this) {
             Entry e = entries.get(key(node));
             if (!online || e == null || blacklisted(e)) {
@@ -464,7 +479,8 @@ public final class NodeManager {
             }
             e.lastTriedAt = clock.getAsLong();
             e.addOutcome(false);
-            if (++e.failures >= FAILURES_TO_BLACKLIST) {
+            isCurrent = e == current;
+            if ((failures = ++e.failures) >= FAILURES_TO_BLACKLIST) {
                 wasCurrent = e == current;
                 changed = blacklist(e);
                 unpinned = lastUnpinned;
@@ -474,6 +490,8 @@ public final class NodeManager {
                 fl = failureListener;
             }
         }
+        diagnose("failure " + failures + "/" + FAILURES_TO_BLACKLIST + " " + node.name + ": " + reason
+                + ", current=" + isCurrent);
         notifyChange(changed);
         if (bl != null) {
             bl.onBlacklisted(node, false, wasCurrent, unpinned != null, strikes);

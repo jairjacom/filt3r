@@ -61,6 +61,7 @@ public final class NodeHealth {
             }
         }
         boolean works = probe.works(node);
+        manager.diagnose("probe after a failed DNS query, " + node.name + ": " + (works ? "passed" : "failed"));
         if (works) {
             synchronized (this) {
                 probedNode = node;
@@ -98,13 +99,15 @@ public final class NodeHealth {
                     try {
                         manager.recordTest(n, probe.test(n));
                     } catch (IOException | RuntimeException e) {
-                        manager.recordFailure(n);
+                        manager.recordFailure(n, "standby test failed, " + e.getClass().getSimpleName());
                     } finally {
                         done.countDown();
                     }
                 });
             }
             boolean alive = probe.works(suspect);
+            manager.diagnose("failover check " + suspect.name + ": probe " + (alive ? "passed, node kept"
+                    : "failed, blacklisting it") + ", standbys tested: " + standbys.size());
             if (!alive) {
                 done.await(STANDBY_WAIT_MS, TimeUnit.MILLISECONDS);
                 manager.markDead(suspect);

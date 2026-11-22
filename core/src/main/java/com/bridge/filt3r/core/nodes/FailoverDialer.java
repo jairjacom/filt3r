@@ -31,7 +31,7 @@ public final class FailoverDialer implements Dialer {
         try {
             return dialerFor(node).dial(address, port, timeoutMs);
         } catch (IOException e) {
-            manager.recordFailure(node);
+            manager.recordFailure(node, "dial failed, " + e.getClass().getSimpleName());
             throw new NodeDialException("node unreachable", e);
         }
     }

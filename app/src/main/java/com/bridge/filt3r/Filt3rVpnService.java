@@ -259,6 +259,7 @@ public class Filt3rVpnService extends VpnService {
             QueryLog queryLog = QueryLogs.get(this);
             NodeStore store = new NodeStore(getFilesDir(), settings.activeSubscriptions(), settings.hiddenNodes());
             NodeManager manager = new NodeManager(node -> onCurrentNodeChanged(node));
+            manager.setDiagnostics(line -> Log.i(TAG, line));
             manager.setPinListener((gone, dead) -> {
                 settings.setPinnedNode(null);
                 if (dead) {
@@ -822,7 +823,7 @@ public class Filt3rVpnService extends VpnService {
                         try {
                             r.manager.recordTest(node, r.tester.test(node));
                         } catch (IOException | RuntimeException e) {
-                            r.manager.recordFailure(node);
+                            r.manager.recordFailure(node, "pin test failed, " + e.getClass().getSimpleName());
                             notice.set(s.getString(R.string.vpn_notice_node_no_answer, node.name));
                             return;
                         }
