@@ -32,9 +32,9 @@ import com.bridge.filt3r.core.filter.DNSResponsePatcher;
 import com.bridge.filt3r.core.filter.IpBlockList;
 import com.bridge.filt3r.core.http.HttpsFetcher;
 import com.bridge.filt3r.core.http.IpLookup;
-import com.bridge.filt3r.core.nodes.FailoverCheck;
 import com.bridge.filt3r.core.nodes.FailoverDialer;
 import com.bridge.filt3r.core.nodes.FailoverUpstream;
+import com.bridge.filt3r.core.nodes.NodeHealth;
 import com.bridge.filt3r.core.nodes.NodeInfo;
 import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.nodes.NodeRankFile;
@@ -177,7 +177,7 @@ public class Filt3rVpnService extends VpnService {
     private ConnectivityManager.NetworkCallback networkCallback; // guarded by this
     private volatile DNSResolver dnsResolver;
     private volatile NodeRuntime runtime;
-    private volatile FailoverCheck failoverCheck;
+    private volatile NodeHealth nodeHealth;
     private volatile boolean quietSwitch; // a deliberate settle switch: no notice
 
     private final TunnelState.Listener widgetListener = state -> {
@@ -340,15 +340,15 @@ public class Filt3rVpnService extends VpnService {
             Log.i(TAG, "start round done: " + manager.summary());
 
             FailoverDialer viaNode = new FailoverDialer(manager, direct);
-            FailoverCheck check = new FailoverCheck(manager, tester);
-            manager.setFailureListener(check::onCurrentFailed);
+            NodeHealth health = new NodeHealth(manager, tester);
+            manager.setFailureListener(health::onCurrentFailed);
             manager.setBlacklistListener((node, verifiedDead, wasCurrent, wasPinned, strikes) ->
                     Log.i(TAG, "blacklisted " + node.name + ": " + (verifiedDead ? "failover check found it dead" : "3 failures in a row")
                             + ", current=" + wasCurrent + ", pinned=" + wasPinned + ", strike " + strikes));
             HttpsFetcher listFetcher = new HttpsFetcher(viaNode,
                     new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode)));
             DnsCryptStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
-            FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp, viaNode, tester);
+            FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp, viaNode, health);
             // DNS always goes through the node: it is never sent direct, whatever the failure mode.
             DNSResolver resolver = new DNSResolver(upstream);
             Socks5Bridge b = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
@@ -373,7 +373,7 @@ public class Filt3rVpnService extends VpnService {
                 startFilter();
                 resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
                 dnsResolver = resolver;
-                failoverCheck = check;
+                nodeHealth = health;
                 bridge = b;
                 applyIpv6();
                 b.start();
@@ -1651,10 +1651,10 @@ public class Filt3rVpnService extends VpnService {
             if (sw != null) {
                 sw.shutdownNow();
             }
-            FailoverCheck fc = failoverCheck;
-            failoverCheck = null;
-            if (fc != null) {
-                fc.close();
+            NodeHealth nh = nodeHealth;
+            nodeHealth = null;
+            if (nh != null) {
+                nh.close();
             }
             NodeRuntime r = runtime;
             if (r != null) {
