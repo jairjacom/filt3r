@@ -31,6 +31,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 
 /**
  * SOCKS5 server on loopback for hev-socks5-tunnel.
@@ -73,6 +74,7 @@ public final class Socks5Bridge {
 
     private final Dialer dialer;
     private final Dialer fallback;
+    private final BooleanSupplier paused;
     private final byte[] dnsVirtual;
     private final DnsHandler dns;
     private final byte[] username;
@@ -104,12 +106,14 @@ public final class Socks5Bridge {
      * @param dns        answers the DNS queries that arrive for that address
      * @param dialer     opens the outgoing connection for each tunnelled TCP connection
      * @param fallback   used instead of {@code dialer} when it fails and the mode is FAIL_OPEN; may be null
+     * @param paused     true while filtering is paused: the IP blocklist is then not applied
      */
-    public Socks5Bridge(byte[] dnsVirtual, DnsHandler dns, Dialer dialer, Dialer fallback) {
+    public Socks5Bridge(byte[] dnsVirtual, DnsHandler dns, Dialer dialer, Dialer fallback, BooleanSupplier paused) {
         this.dnsVirtual = dnsVirtual.clone();
         this.dns = dns;
         this.dialer = dialer;
         this.fallback = fallback;
+        this.paused = paused;
         SecureRandom random = new SecureRandom();
         this.username = randomHex(random);
         this.password = randomHex(random);
@@ -326,7 +330,7 @@ public final class Socks5Bridge {
         }
         InetAddress addr = InetAddress.getByAddress(ip);
         IpBlockList blockedIps = ipBlock;
-        if (blockedIps != null && !com.bridge.filt3r.core.filter.DNSResponsePatcher.isPaused()
+        if (blockedIps != null && !paused.getAsBoolean()
                 && blockedIps.isBlocked(addr)) {
             // Refused before any node is dialled, so the FAIL_OPEN fallback cannot reach it either.
             reply(out, REP_NOT_ALLOWED, 0);
