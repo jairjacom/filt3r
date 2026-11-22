@@ -87,6 +87,7 @@ public final class Socks5Bridge {
     private final AtomicLong refusedDomain = new AtomicLong();
     private final AtomicLong refusedIpBlock = new AtomicLong();
     private final AtomicLong refusedIPv6 = new AtomicLong();
+    private final AtomicLong localConnections = new AtomicLong();
     private volatile boolean allowIPv6 = true;
     private final AtomicLong failedOpen = new AtomicLong();
     private volatile FailureMode failureMode = FailureMode.FAIL_CLOSED;
@@ -184,11 +185,17 @@ public final class Socks5Bridge {
         return new String(password, StandardCharsets.US_ASCII);
     }
 
+    /** Connections to private or link-local addresses that reached the bridge. With the LAN bypass on, these should stay at 0. */
+    public long localConnections() {
+        return localConnections.get();
+    }
+
     /** Counters only; never contains addresses or credentials. */
     public String stats() {
         return "authFailed=" + authFailed + " connectOk=" + connectOk + " connectFailed=" + connectFailed
                 + " failedOpen=" + failedOpen + " mode=" + failureMode + " refusedDomain=" + refusedDomain
                 + " refusedIPv6=" + refusedIPv6 + " refusedIpBlock=" + refusedIpBlock
+                + " localConnections=" + localConnections
                 + " lastConnectError=" + lastConnectError
                 + " lastDnsError=" + lastDnsError
                 + " dnsForwarded=" + dnsForwarded + " udpDropped=" + udpDropped;
@@ -322,6 +329,9 @@ public final class Socks5Bridge {
             dnsOverTcp(client, out);
             return;
         }
+        if (isLocalAddress(ip)) {
+            localConnections.incrementAndGet();
+        }
         if (ip.length == 16 && !allowIPv6) {
             // The node has no IPv6 exit: fail at once so the app falls back to IPv4 without waiting.
             reply(out, REP_NET_UNREACHABLE, 0);
@@ -434,6 +444,16 @@ public final class Socks5Bridge {
         } catch (Exception e) {
             // interrupted by stop(): sockets are closed by the caller
         }
+    }
+
+    /** 10/8, 172.16/12, 192.168/16 and 169.254/16 for IPv4; fc00::/7 and fe80::/10 for IPv6. */
+    private static boolean isLocalAddress(byte[] ip) {
+        int a = ip[0] & 0xFF;
+        int b = ip[1] & 0xFF;
+        if (ip.length == 4) {
+            return a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168) || (a == 169 && b == 254);
+        }
+        return (a & 0xFE) == 0xFC || (a == 0xFE && (b & 0xC0) == 0x80);
     }
 
     private static void copy(Link src, Link dst) {

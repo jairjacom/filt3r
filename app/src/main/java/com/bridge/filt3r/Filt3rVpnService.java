@@ -870,6 +870,13 @@ public class Filt3rVpnService extends VpnService {
         return ipBlockStatus;
     }
 
+    /** Connections to local addresses that reached the tunnel since this connect; -1 while the tunnel is down. */
+    static long localConnections() {
+        Filt3rVpnService s = instance;
+        Socks5Bridge b = s == null ? null : s.bridge;
+        return b == null ? -1 : b.localConnections();
+    }
+
     /**
      * Starts a filter-list download now (the filter does it on its own thread).
      *
