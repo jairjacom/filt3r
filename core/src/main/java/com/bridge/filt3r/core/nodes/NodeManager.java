@@ -32,7 +32,7 @@ public final class NodeManager {
     public static final long FAST_MS = 800;
 
     /** Fast tier first, then lower score. */
-    private static int compareRank(Entry a, Entry b, long now) {
+    static int compareRank(Entry a, Entry b, long now) {
         int byTier = Boolean.compare(!a.fastTier(), !b.fastTier());
         return byTier != 0 ? byTier : Long.compare(a.score(now), b.score(now));
     }
@@ -48,7 +48,7 @@ public final class NodeManager {
         void onCurrentChanged(ShadowsocksNode node);
     }
 
-    private static final class Entry {
+    static final class Entry {
         static final long NEVER = Long.MIN_VALUE;
         static final long FEW_SAMPLES_PENALTY_MS = 20;      // per sample below SAMPLES
         static final long AGE_FREE_MS = 2 * 3_600_000L;     // no age penalty for the first 2 h
@@ -143,9 +143,7 @@ public final class NodeManager {
     private Entry current;
     private String pinned; // key of the pinned node, or null
     private long lastRoundAt; // wall-clock ms of the last finished test round, 0 if none yet
-    private long sweepStart = Entry.NEVER;   // clock ms the running full scan began; NEVER = none
-    private long sweepDoneAt = Entry.NEVER;  // clock ms the last full scan ended
-    private long sweepDoneWallMs;            // wall-clock ms the last full scan ended (display only)
+    private final ScanPlan scan = new ScanPlan(); // the full scan; guarded by this
 
     public NodeManager(Listener listener) {
         // Monotonic: a clock change must not stretch a blacklisting. Wall clock: only for "N min ago" texts,
@@ -681,29 +679,22 @@ public final class NodeManager {
 
     /** Starts a full scan: every node is to be tried once from now on. */
     public synchronized void startSweep() {
-        sweepStart = clock.getAsLong();
+        scan.begin(clock.getAsLong());
     }
 
     /** True while a full scan runs. */
     public synchronized boolean sweeping() {
-        return sweepStart != Entry.NEVER;
+        return scan.running();
     }
 
     /** Ends the running full scan. */
     public synchronized void finishSweep() {
-        sweepStart = Entry.NEVER;
-        sweepDoneAt = clock.getAsLong();
-        sweepDoneWallMs = wallClock.getAsLong();
+        scan.finish(clock.getAsLong(), wallClock.getAsLong());
     }
 
     /** True when no scan runs and none ended within the last {@code repeatMs}. */
     public synchronized boolean sweepDue(long repeatMs) {
-        return sweepStart == Entry.NEVER && (sweepDoneAt == Entry.NEVER || clock.getAsLong() - sweepDoneAt >= repeatMs);
-    }
-
-    /** Not blacklisted and not tried since the scan began (lock held). */
-    private boolean unswept(Entry e) {
-        return !blacklisted(e) && e.lastTriedAt < sweepStart;
+        return scan.due(clock.getAsLong(), repeatMs);
     }
 
     /**
@@ -713,32 +704,11 @@ public final class NodeManager {
      * runs or every node was tried.
      */
     public synchronized List<ShadowsocksNode> nextSweepBatch(long windowMs, long stepMs, int max, Random rng) {
-        List<ShadowsocksNode> out = new ArrayList<>();
-        if (sweepStart == Entry.NEVER) {
-            return out;
-        }
-        long now = clock.getAsLong();
-        List<Entry> ranked = new ArrayList<>();
-        List<Entry> rest = new ArrayList<>();
+        List<Entry> inOrder = new ArrayList<>(order.size());
         for (String k : order) {
-            Entry e = entries.get(k);
-            if (unswept(e)) {
-                (e.count > 0 ? ranked : rest).add(e);
-            }
+            inOrder.add(entries.get(k));
         }
-        int left = ranked.size() + rest.size();
-        if (left == 0) {
-            return out;
-        }
-        long stepsLeft = Math.max(1, (windowMs - (now - sweepStart)) / stepMs);
-        int size = (int) Math.min(max, (left + stepsLeft - 1) / stepsLeft);
-        ranked.sort((a, b) -> compareRank(a, b, now));
-        Collections.shuffle(rest, rng);
-        ranked.addAll(rest);
-        for (int i = 0; i < size; i++) {
-            out.add(ranked.get(i).node);
-        }
-        return out;
+        return scan.next(inOrder, clock.getAsLong(), windowMs, stepMs, max, rng);
     }
 
     /** Up to {@code max} usable nodes that answered this session under {@link #FAST_MS}, best score first. */
@@ -785,17 +755,9 @@ public final class NodeManager {
     }
 
     public synchronized ScanStatus scanStatus() {
-        // The "done ago" age uses the wall clock: the monotonic one stops in deep sleep.
-        int left = 0;
-        if (sweepStart != Entry.NEVER) {
-            for (Entry e : entries.values()) {
-                if (unswept(e)) {
-                    left++;
-                }
-            }
-        }
-        return new ScanStatus(sweepStart != Entry.NEVER, entries.size() - left, entries.size(), fastCount(),
-                sweepDoneAt == Entry.NEVER ? -1 : wallClock.getAsLong() - sweepDoneWallMs);
+        int left = scan.left(entries.values(), clock.getAsLong());
+        return new ScanStatus(scan.running(), entries.size() - left, entries.size(), fastCount(),
+                scan.doneAgoMs(wallClock.getAsLong()));
     }
 
     /**
