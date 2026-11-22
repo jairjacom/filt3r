@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.11
+
+- Internal cleanup only; nothing changes in how filt3r works.
+- The diagnostic log now says why each node failure is counted and what the check on a failing node found, so an unexpected node switch can be traced to its cause.
+
 ## v0.0.10
 
 - Every node is now tested after you connect. A full scan runs in the background, 75 nodes every 5 minutes, and finishes in about 15 minutes. It repeats every 24 hours while connected. Before, only a few untested nodes were tried per hour, so fast nodes could stay unknown.

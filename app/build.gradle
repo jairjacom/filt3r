@@ -2,7 +2,7 @@ plugins {
     id 'com.android.application'
 }
 
-def appVersion = '0.0.10'
+def appVersion = '0.0.11'
 
 base {
     archivesName = "filt3r-${appVersion}"
@@ -16,7 +16,7 @@ android {
         applicationId 'com.bridge.filt3r'
         minSdk 36
         targetSdk 36
-        versionCode 10
+        versionCode 11
         versionName appVersion
         manifestPlaceholders = [appLabel: 'filt3r']
         if (project.hasProperty('testBuild')) {
