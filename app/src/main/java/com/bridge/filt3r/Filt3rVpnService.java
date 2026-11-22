@@ -46,6 +46,7 @@ import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
 import com.bridge.filt3r.core.util.QueryLog;
+import com.bridge.filt3r.core.util.StartScope;
 
 import java.io.File;
 import java.io.IOException;
@@ -156,7 +157,8 @@ public class Filt3rVpnService extends VpnService {
     private static volatile String ipBlockStatus = "";
     private static volatile String[] resolverInfo; // {name, ip} of the DNS resolver in use, null while down
 
-    private final AtomicInteger generation = new AtomicInteger(); // bumped by every stop
+    /** What the current start owns. A stop closes it and installs a fresh one, so a closed scope means "stale". */
+    private volatile StartScope scope = new StartScope();
     /** Guards the hand-over of every resource a start creates, against stopEverything. */
     private final Object lock = new Object();
     /** Filter init and stop, one at a time and in order, off the main thread; shared by every service instance. */
@@ -171,13 +173,11 @@ public class Filt3rVpnService extends VpnService {
     private volatile HttpsFetcher filterFetcher;         // filter-list downloads through the node
     private volatile boolean starting;
     private volatile ScheduledExecutorService maintenance;
-    private volatile ScheduledExecutorService sweeper; // the full node scan, off the maintenance thread so taps never wait behind it
     private volatile NodeManager nodes;
     private volatile NodeTester nodeTester;
     private ConnectivityManager.NetworkCallback networkCallback; // guarded by this
     private volatile DNSResolver dnsResolver;
     private volatile NodeRuntime runtime;
-    private volatile NodeHealth nodeHealth;
     private volatile boolean quietSwitch; // a deliberate settle switch: no notice
 
     private final TunnelState.Listener widgetListener = state -> {
@@ -240,8 +240,8 @@ public class Filt3rVpnService extends VpnService {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
         TunnelState.set(TunnelState.State.STARTING);
         starting = true;
-        int gen = generation.get();
-        worker.execute(() -> startTunnel(gen));
+        StartScope startScope = scope;
+        worker.execute(() -> startTunnel(startScope));
         return START_STICKY;
     }
 
@@ -249,7 +249,7 @@ public class Filt3rVpnService extends VpnService {
      * Runs on the worker thread: finding a working node can take many seconds (a subscription
      * download and a test round), so it must not block the main thread.
      */
-    private void startTunnel(int gen) {
+    private void startTunnel(StartScope scope) {
         NodeTester.Round startRound = null; // the start round, until the runtime takes it over
         try {
             ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
@@ -269,7 +269,7 @@ public class Filt3rVpnService extends VpnService {
             // Everything a start creates is handed over under the lock, and only if no stop came
             // meanwhile; otherwise it would outlive the stop (see stopEverything).
             synchronized (lock) {
-                if (gen != generation.get()) {
+                if (scope.isClosed()) {
                     return;
                 }
                 dnsBlocked.set(0);
@@ -309,7 +309,7 @@ public class Filt3rVpnService extends VpnService {
             settings.setPinnedNode(manager.pinnedKey()); // forget a pin whose node left the list
             NodeTester tester = new NodeTester(direct, testStamp, DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP_V6));
             synchronized (lock) {
-                if (gen != generation.get()) {
+                if (scope.isClosed()) {
                     return;
                 }
                 nodeTester = tester; // before the rounds: the first current node triggers an IPv6 probe
@@ -324,11 +324,11 @@ public class Filt3rVpnService extends VpnService {
                     break;
                 }
                 r.awaitDone();
-                if (gen != generation.get()) {
+                if (scope.isClosed()) {
                     return;
                 }
             }
-            if (gen != generation.get()) {
+            if (scope.isClosed()) {
                 if (startRound != null) {
                     startRound.cancel();
                 }
@@ -357,7 +357,7 @@ public class Filt3rVpnService extends VpnService {
             }, viaNode, direct);
             b.setFailureMode(settings.failureMode());
             synchronized (lock) {
-                if (gen != generation.get()) {
+                if (scope.isClosed()) {
                     if (startRound != null) {
                         startRound.cancel();
                     }
@@ -373,7 +373,7 @@ public class Filt3rVpnService extends VpnService {
                 startFilter();
                 resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
                 dnsResolver = resolver;
-                nodeHealth = health;
+                scope.adopt(health::close);
                 bridge = b;
                 applyIpv6();
                 b.start();
@@ -403,7 +403,7 @@ public class Filt3rVpnService extends VpnService {
                 throw new IOException("establish() returned null: VPN consent revoked");
             }
             synchronized (lock) {
-                if (gen != generation.get()) {
+                if (scope.isClosed()) {
                     closeQuietly(established);
                     if (startRound != null) {
                         startRound.cancel();
@@ -423,7 +423,7 @@ public class Filt3rVpnService extends VpnService {
                 startMaintenance(manager, tester, store, viaNode, testStamp, startRound);
                 if (settings.ipBlockEnabled()) {
                     ipBlockStatus = getString(R.string.vpn_ip_block_downloading);
-                    startIpBlock(gen, listFetcher, TimeUnit.DAYS.toMillis(settings.listRefreshDays()));
+                    startIpBlock(scope, listFetcher, TimeUnit.DAYS.toMillis(settings.listRefreshDays()));
                 } else {
                     ipBlockStatus = "";
                 }
@@ -437,10 +437,10 @@ public class Filt3rVpnService extends VpnService {
             if (startRound != null) {
                 startRound.cancel(); // the runtime does not own it yet
             }
-            if (gen == generation.get()) {
+            if (!scope.isClosed()) {
                 Log.e(TAG, "start failed: " + e.getMessage());
                 handler.post(() -> {
-                    if (gen != generation.get()) {
+                    if (scope.isClosed()) {
                         return; // a restart began meanwhile: this failure belongs to the start it replaced
                     }
                     if (heldTun != null && new Settings(this).failureMode() == FailureMode.FAIL_CLOSED) {
@@ -1216,7 +1216,7 @@ public class Filt3rVpnService extends VpnService {
             }
         }, FIRST_MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
         ScheduledExecutorService sweep = Executors.newSingleThreadScheduledExecutor();
-        sweeper = sweep;
+        scope.adopt(sweep::shutdownNow);
         sweep.scheduleWithFixedDelay(() -> {
             try {
                 r.sweepStep();
@@ -1244,12 +1244,12 @@ public class Filt3rVpnService extends VpnService {
      * maintenance period whether the cache is older than the refresh interval. Call under
      * {@code lock} after {@link #startMaintenance}, which creates the refresher.
      */
-    private void startIpBlock(int gen, HttpsFetcher fetcher, long maxAgeMs) {
+    private void startIpBlock(StartScope scope, HttpsFetcher fetcher, long maxAgeMs) {
         File cache = new File(getFilesDir(), "ipblock.txt");
-        refresher.execute(() -> loadIpBlock(gen, fetcher, maxAgeMs));
+        refresher.execute(() -> loadIpBlock(scope, fetcher, maxAgeMs));
         refresher.scheduleWithFixedDelay(() -> {
             if (System.currentTimeMillis() - cache.lastModified() >= maxAgeMs) {
-                loadIpBlock(gen, fetcher, maxAgeMs);
+                loadIpBlock(scope, fetcher, maxAgeMs);
             }
         }, MAINTENANCE_MIN, MAINTENANCE_MIN, TimeUnit.MINUTES);
     }
@@ -1261,22 +1261,22 @@ public class Filt3rVpnService extends VpnService {
         if (fetcher == null || ref == null || ipBlockStatus.isEmpty()) { // empty: the IP list is off in this run
             return;
         }
-        int gen = generation.get();
+        StartScope current = scope;
         ipBlockStatus = getString(R.string.vpn_ip_block_updating);
         try {
-            ref.execute(() -> loadIpBlock(gen, fetcher, 0));
+            ref.execute(() -> loadIpBlock(current, fetcher, 0));
         } catch (RejectedExecutionException e) {
             // the tunnel is stopping
         }
     }
 
     /** Runs on the refresher thread. maxAgeMs 0 forces a download. */
-    private void loadIpBlock(int gen, HttpsFetcher fetcher, long maxAgeMs) {
+    private void loadIpBlock(StartScope scope, HttpsFetcher fetcher, long maxAgeMs) {
         File cache = new File(getFilesDir(), "ipblock.txt");
         try {
             IpBlockList list = IpBlockList.refresh(cache, IpBlockList.DEFAULT_URL, fetcher::stream, maxAgeMs);
             synchronized (lock) {
-                if (gen != generation.get()) {
+                if (scope.isClosed()) {
                     return; // stopped or restarted meanwhile: this list belongs to a bridge that is gone
                 }
                 bridge.setIpBlockList(list);
@@ -1589,10 +1589,10 @@ public class Filt3rVpnService extends VpnService {
     private void startFilter() {
         FilterGate gate = new FilterGate();
         filterGate = gate;
-        int gen = generation.get();
+        StartScope startScope = scope;
         FILTER_LIFE.execute(() -> {
             try {
-                if (gen != generation.get()) {
+                if (startScope.isClosed()) {
                     return; // stopped before it began: nothing to start
                 }
                 DNSFilterManager.getInstance().init();
@@ -1624,8 +1624,8 @@ public class Filt3rVpnService extends VpnService {
 
     /**
      * Stops the tunnel and everything it owns. Takes the lock so that a start running on the worker
-     * either handed its resources over before this (and they are closed here) or sees the new
-     * generation afterwards and discards them. The filter is stopped on its own thread, in order
+     * either handed its resources over before this (and they are closed here) or sees its scope
+     * closed afterwards and discards them. The filter is stopped on its own thread, in order
      * with its init, because stopping can wait for a download.
      *
      * @param keepInterface true for a restart: the VPN interface stays open with nobody reading it
@@ -1633,7 +1633,8 @@ public class Filt3rVpnService extends VpnService {
      */
     private void stopEverything(boolean keepInterface) {
         synchronized (lock) {
-            generation.incrementAndGet(); // a start still running in the worker will notice and stop
+            scope.close(); // a start still running in the worker will notice and stop
+            scope = new StartScope();
             unwatchNetwork();
             starting = false;
             ScheduledExecutorService m = maintenance;
@@ -1645,16 +1646,6 @@ public class Filt3rVpnService extends VpnService {
             refresher = null;
             if (ref != null) {
                 ref.shutdownNow();
-            }
-            ScheduledExecutorService sw = sweeper;
-            sweeper = null;
-            if (sw != null) {
-                sw.shutdownNow();
-            }
-            NodeHealth nh = nodeHealth;
-            nodeHealth = null;
-            if (nh != null) {
-                nh.close();
             }
             NodeRuntime r = runtime;
             if (r != null) {
