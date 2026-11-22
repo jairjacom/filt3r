@@ -12,3 +12,6 @@ NOTES.md
 local/
 *.p12
 *.pfx
+GLOSSARY.md
+docs/adr/
+.scratch/
