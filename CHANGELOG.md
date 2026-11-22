@@ -1,9 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- Other apps can no longer switch filt3r on or off by sending it a Connect or Disconnect request. Only the quick-settings tile, the widget and the launcher shortcuts can.
-
 ## v0.0.11
 
 - Internal cleanup only; nothing changes in how filt3r works.

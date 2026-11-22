@@ -22,12 +22,12 @@ final class IntentGuard {
     private IntentGuard() {}
 
     /** Adds the key to an intent that our own tile, widget or shortcut sends to MainActivity. */
-    static Intent sign(Context ctx, Intent intent) {
+    static Intent attachKey(Context ctx, Intent intent) {
         return intent.putExtra(EXTRA, key(ctx));
     }
 
     /** True if the intent carries this install's key. */
-    static boolean isSigned(Context ctx, Intent intent) {
+    static boolean hasKey(Context ctx, Intent intent) {
         String given = intent.getStringExtra(EXTRA);
         return given != null && MessageDigest.isEqual(
                 given.getBytes(StandardCharsets.UTF_8), key(ctx).getBytes(StandardCharsets.UTF_8));

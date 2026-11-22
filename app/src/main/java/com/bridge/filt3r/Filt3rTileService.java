@@ -46,7 +46,7 @@ public class Filt3rTileService extends TileService implements TunnelState.Listen
     }
 
     private void openApp() {
-        Intent open = IntentGuard.sign(this, new Intent(MainActivity.ACTION_CONNECT)
+        Intent open = IntentGuard.attachKey(this, new Intent(MainActivity.ACTION_CONNECT)
                 .setClass(this, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         startActivityAndCollapse(PendingIntent.getActivity(
