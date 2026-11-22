@@ -25,15 +25,21 @@ public final class FailoverCheck {
     private final NodeManager manager;
     private final NodeProbe probe;
     private final AtomicBoolean running = new AtomicBoolean();
-    private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "failover-check");
-        t.setDaemon(true);
-        return t;
-    });
+    private final ExecutorService pool;
 
     public FailoverCheck(NodeManager manager, NodeProbe probe) {
+        this(manager, probe, Executors.newCachedThreadPool(r -> {
+            Thread t = new Thread(r, "failover-check");
+            t.setDaemon(true);
+            return t;
+        }));
+    }
+
+    /** The executor runs the check and the standby tests; tests pass one that runs tasks inline. */
+    FailoverCheck(NodeManager manager, NodeProbe probe, ExecutorService pool) {
         this.manager = manager;
         this.probe = probe;
+        this.pool = pool;
     }
 
     /** The current node failed but is not blacklisted yet. Returns at once; one check runs at a time. */
