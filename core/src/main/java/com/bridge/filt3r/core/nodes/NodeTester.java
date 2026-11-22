@@ -166,7 +166,7 @@ public final class NodeTester implements NodeProbe {
                     round.anyOk.set(true);
                     round.firstOk.countDown();
                 } catch (IOException | RuntimeException e) {
-                    manager.recordFailure(n);
+                    manager.recordFailure(n, "test failed, " + e.getClass().getSimpleName());
                 } finally {
                     round.allDone.countDown();
                     if (round.allDone.getCount() == 0) {

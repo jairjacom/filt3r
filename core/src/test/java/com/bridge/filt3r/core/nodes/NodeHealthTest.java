@@ -42,7 +42,7 @@ class NodeHealthTest {
     @Test
     void aFailingNodeThatFailsItsProbeIsBlacklistedAtOnceAndAStandbyTakesOver() {
         probe.dead.add("a.example");
-        manager.recordFailure(a); // first failure: suspect, not blacklisted; the listener runs the check
+        manager.recordFailure(a, "test"); // first failure: suspect, not blacklisted; the listener runs the check
         assertSame(b, manager.current());
         assertEquals(1, manager.blacklistedCount());
         assertTrue(probe.calls.contains("test:b.example"), "standbys are tested while the suspect is checked");
@@ -51,7 +51,7 @@ class NodeHealthTest {
 
     @Test
     void aFailingNodeThatPassesItsProbeStaysCurrentAndUnblacklisted() {
-        manager.recordFailure(a);
+        manager.recordFailure(a, "test");
         assertSame(a, manager.current());
         assertEquals(0, manager.blacklistedCount());
     }
@@ -60,7 +60,7 @@ class NodeHealthTest {
     void aStandbyThatFailsItsTestIsNotPickedAtFailover() {
         probe.dead.add("a.example");
         probe.dead.add("b.example");
-        manager.recordFailure(a);
+        manager.recordFailure(a, "test");
         assertSame(c, manager.current());
     }
 
@@ -68,7 +68,7 @@ class NodeHealthTest {
     void nothingRunsWhileOffline() {
         probe.dead.add("a.example");
         manager.setOnline(false);
-        manager.recordFailure(a);
+        manager.recordFailure(a, "test");
         assertTrue(probe.calls.isEmpty());
         assertSame(a, manager.current());
     }

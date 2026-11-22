@@ -39,7 +39,7 @@ public final class FailoverUpstream implements DNSResolver.Upstream {
             throw e; // already counted by the dialer
         } catch (IOException e) {
             if (node != null && !health.looksFine(node)) {
-                manager.recordFailure(node);
+                manager.recordFailure(node, "DNS query failed, " + e.getClass().getSimpleName() + ", probe failed too");
             }
             throw e;
         }
