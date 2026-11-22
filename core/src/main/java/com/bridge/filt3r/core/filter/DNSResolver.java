@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
@@ -48,6 +49,7 @@ public class DNSResolver {
 
 	private static final int MAX_LOCAL_RESPONSE = 4096;
 	private static final AtomicInteger IN_FLIGHT = new AtomicInteger();
+	private static final int NXDOMAIN = 3;
 
 	private static boolean enableLocalResolver = false;
 	private static int localResolverTTL = 0;
@@ -72,8 +74,8 @@ public class DNSResolver {
 		this.allowIPv6 = allow;
 	}
 
-	/** NOERROR with no records: the query's header and question only, flagged as a response. */
-	private static byte[] emptyAnswer(byte[] request) throws IOException {
+	/** The query's header and question only, flagged as a response with the given RCODE (0 NOERROR, 3 NXDOMAIN). */
+	private static byte[] emptyAnswer(byte[] request, int rcode) throws IOException {
 		int pos = 12;
 		while (pos < request.length && request[pos] != 0)
 			pos += (request[pos] & 0xFF) + 1;
@@ -82,7 +84,7 @@ public class DNSResolver {
 			throw new IOException("malformed question");
 		byte[] r = Arrays.copyOf(request, end);
 		r[2] = (byte) (0x80 | (request[2] & 0x01)); // QR, keep RD, opcode 0
-		r[3] = (byte) 0x80;                          // RA, RCODE 0
+		r[3] = (byte) (0x80 | rcode);                // RA, RCODE
 		r[4] = 0; r[5] = 1;                          // one question
 		r[6] = 0; r[7] = 0; r[8] = 0; r[9] = 0; r[10] = 0; r[11] = 0;
 		return r;
@@ -101,12 +103,17 @@ public class DNSResolver {
 			if (query == null)
 				return null;
 			if (!allowIPv6 && query.qType == TYPE_AAAA)
-				return emptyAnswer(request);
+				return emptyAnswer(request, 0);
 
 			byte[] buf = new byte[MAX_LOCAL_RESPONSE];
 			DatagramPacket local = new DatagramPacket(buf, 0, buf.length);
 			if (resolveLocal(clientID, query, local))
 				return Arrays.copyOf(buf, local.getLength());
+
+			if (query.isStandardQuery() && isLocalName(query.qHost)) {
+				DNSResponsePatcher.trafficLog(clientID, query.qClass, query.qType, query.qHost, null, 0);
+				return emptyAnswer(request, NXDOMAIN);
+			}
 
 			byte[] response = upstream.query(request);
 			DNSResponsePatcher.patchResponse(clientID, response, 0); // patches in place
@@ -114,6 +121,29 @@ public class DNSResolver {
 		} finally {
 			IN_FLIGHT.decrementAndGet();
 		}
+	}
+
+	/**
+	 * Names for local networks: the standard ones (RFC 6762, 8375, 6303), the ones home routers use, and the
+	 * reverse zones of the private IPv4 ranges and the IPv6 local ranges. "localhost" is left out on purpose.
+	 */
+	private static final String[] LOCAL_SUFFIXES = {
+			"local", "home.arpa", "internal", "lan", "home", "intranet", "corp", "private",
+			"10.in-addr.arpa", "168.192.in-addr.arpa", "254.169.in-addr.arpa",
+			"16.172.in-addr.arpa", "17.172.in-addr.arpa", "18.172.in-addr.arpa", "19.172.in-addr.arpa",
+			"20.172.in-addr.arpa", "21.172.in-addr.arpa", "22.172.in-addr.arpa", "23.172.in-addr.arpa",
+			"24.172.in-addr.arpa", "25.172.in-addr.arpa", "26.172.in-addr.arpa", "27.172.in-addr.arpa",
+			"28.172.in-addr.arpa", "29.172.in-addr.arpa", "30.172.in-addr.arpa", "31.172.in-addr.arpa",
+			"d.f.ip6.arpa", "8.e.f.ip6.arpa", "9.e.f.ip6.arpa", "a.e.f.ip6.arpa", "b.e.f.ip6.arpa"};
+
+	/** True for a name that only means something on a local network: asking a public resolver would only leak it. */
+	private static boolean isLocalName(String host) {
+		String name = host.toLowerCase(Locale.ROOT);
+		for (String suffix : LOCAL_SUFFIXES) {
+			if (name.equals(suffix) || name.endsWith("." + suffix))
+				return true;
+		}
+		return false;
 	}
 
 	public static int getResolverCount() {
