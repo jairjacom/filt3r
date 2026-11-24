@@ -56,10 +56,15 @@
     <string name="color_picker_select">Select</string>
     <string name="overrides_summary_none">None</string>
     <string name="overrides_summary_unreadable">Could not read</string>
-    <string name="overrides_domain_hint">Domain, for example example.com</string>
+    <string name="overrides_domain_hint">Domain, for example example.com or *.example.com</string>
+    <string name="overrides_ip_hint">IP address, only for Answer</string>
+    <string name="overrides_answer">Answer</string>
+    <string name="overrides_answer_row">%1$s \u2192 %2$s</string>
+    <string name="overrides_answered">%1$s now answers %2$s</string>
+    <string name="overrides_invalid_ip">Enter an IP address, like 192.168.1.1</string>
     <string name="overrides_allow">Allow</string>
     <string name="overrides_block">Block</string>
-    <string name="overrides_note">A rule covers the domain and its sub domains.</string>
+    <string name="overrides_note">A rule covers the domain and its sub domains. Use * as a wildcard, like *.example.com. Answer gives one exact name a fixed IP address and beats every rule and list; a wrong answer can break a site.</string>
     <string name="overrides_read_failed">Could not read the rules.</string>
     <string name="overrides_empty">No rules yet.</string>
     <string name="overrides_removed">Removed %1$s</string>

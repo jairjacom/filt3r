@@ -45,6 +45,17 @@ public final class BackupFormat {
         }
     }
 
+    /** A custom DNS answer: the name and the fixed address it gets. */
+    public static final class Answer {
+        public final String host;
+        public final String ip;
+
+        public Answer(String host, String ip) {
+            this.host = host;
+            this.ip = ip;
+        }
+    }
+
     public static final class Subscription {
         public final int slot;
         public final String url;
@@ -68,6 +79,7 @@ public final class BackupFormat {
         /** Null when the file has no list: the phone's list is left alone. */
         public List<String> exemptApps;
         public final List<Rule> rules = new ArrayList<>();
+        public final List<Answer> answers = new ArrayList<>();
         public final List<Subscription> subscriptions = new ArrayList<>();
         public final List<String> manualNodes = new ArrayList<>();
 
@@ -98,6 +110,16 @@ public final class BackupFormat {
             rules.add(m);
         }
         root.put("rules", rules);
+        if (!b.answers.isEmpty()) {
+            List<Object> answers = new ArrayList<>();
+            for (Answer a : b.answers) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("host", a.host);
+                m.put("ip", a.ip);
+                answers.add(m);
+            }
+            root.put("answers", answers);
+        }
         if (!b.subscriptions.isEmpty()) {
             List<Object> subs = new ArrayList<>();
             for (Subscription s : b.subscriptions) {
@@ -166,6 +188,17 @@ public final class BackupFormat {
                     throw new IllegalArgumentException("rules");
                 }
                 b.rules.add(new Rule(host, (Boolean) m.get("allow")));
+            }
+        }
+        if (root.get("answers") != null) {
+            for (Object o : asList(root.get("answers"), "answers", MAX_RULES)) {
+                Map<String, Object> m = asMap(o, "answers");
+                String host = asString(m.get("host"), "answers", 253);
+                String ip = asString(m.get("ip"), "answers", 45);
+                if (!HOST.matcher(host).matches()) {
+                    throw new IllegalArgumentException("answers");
+                }
+                b.answers.add(new Answer(host, ip)); // the address is checked when it is applied
             }
         }
         if (root.get("subscriptions") != null) {

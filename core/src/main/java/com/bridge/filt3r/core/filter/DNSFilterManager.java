@@ -38,10 +38,12 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.net.InetAddress;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.net.URLConnection;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
@@ -1217,19 +1219,30 @@ public class DNSFilterManager extends ConfigurationAccess  {
 	private void applyCustomIpMapping(String entry) {
 		StringTokenizer tokens = new StringTokenizer(entry);
 		try {
-			String host = tokens.nextToken().trim().toLowerCase();
-			String ip = tokens.nextToken().trim();
-
-			InetAddress address = InetAddress.getByName(ip);
-			byte[] addressBytes = address.getAddress();
-			if (addressBytes.length == 4)
-				customIPMappings.addPattern(">4"+host, addressBytes);
-			else
-				customIPMappings.addPattern(">6"+host, addressBytes);
-
+			addCustomIpMapping(customIPMappings, tokens.nextToken().trim().toLowerCase(), tokens.nextToken().trim());
 		} catch (Exception e) {
 			Logger.getLogger().logLine("Cannot apply custom mapping "+entry);
 			Logger.getLogger().logLine(e.toString());
+		}
+	}
+
+	private static void addCustomIpMapping(PatternSequence mappings, String host, String ip) throws UnknownHostException {
+		byte[] addressBytes = InetAddress.getByName(ip).getAddress();
+		mappings.addPattern((addressBytes.length == 4 ? ">4" : ">6") + host, addressBytes);
+	}
+
+	/** Replaces the custom answers ({host, ip} pairs) of the running filter at once. Not running: nothing to do, the file is read when it starts. */
+	static void applyAnswersLive(List<String[]> answers) {
+		PatternSequence mappings = customIPMappings;
+		if (mappings == null)
+			return;
+		mappings.clear();
+		for (String[] a : answers) {
+			try {
+				addCustomIpMapping(mappings, a[0], a[1]);
+			} catch (UnknownHostException e) {
+				Logger.getLogger().logLine("Cannot apply custom mapping " + a[0] + " " + a[1]);
+			}
 		}
 	}
 
