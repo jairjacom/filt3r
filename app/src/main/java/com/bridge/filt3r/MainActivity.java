@@ -315,6 +315,7 @@ public class MainActivity extends Activity
         setIntent(new Intent()); // so a rotation does not repeat the action
         if (Intent.ACTION_SEND.equals(action)) {
             // Any app may share text to us, so this only ever shows a confirm dialog.
+            openSection(1); // an open Settings page would keep its old fields and could overwrite the import
             LinkImport.fromText(this, frame, intent.getCharSequenceExtra(Intent.EXTRA_TEXT), this, this,
                     () -> {
                         if (panel instanceof NodesPanel) {

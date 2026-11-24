@@ -1,7 +1,6 @@
 package com.bridge.filt3r.ui;
 
 import android.content.Context;
-import android.net.Uri;
 import android.view.View;
 
 import com.bridge.filt3r.R;
@@ -19,17 +18,33 @@ public final class LinkImport {
     private LinkImport() {
     }
 
-    /** The first ss:// or https:// word in the text, or null. */
+    /**
+     * The first ss:// link in the text, else the first https:// one, else null. A node link wins because a
+     * chat post often has a channel link before it. Quotes, brackets and sentence punctuation around the
+     * link are cut off.
+     */
     static String firstLink(CharSequence text) {
         if (text == null) {
             return null;
         }
-        for (String word : text.toString().trim().split("\\s+")) {
-            if (word.regionMatches(true, 0, "ss://", 0, 5) || word.regionMatches(true, 0, "https://", 0, 8)) {
-                return word;
-            }
+        String s = text.toString();
+        String link = linkAfter(s, "ss://");
+        return link != null ? link : linkAfter(s, "https://");
+    }
+
+    private static String linkAfter(String text, String scheme) {
+        int start = text.toLowerCase(java.util.Locale.ROOT).indexOf(scheme);
+        if (start < 0) {
+            return null;
         }
-        return null;
+        int end = start;
+        while (end < text.length() && !Character.isWhitespace(text.charAt(end))) {
+            end++;
+        }
+        while (end > start + scheme.length() && ".,;:!?)]}>\"'".indexOf(text.charAt(end - 1)) >= 0) {
+            end--;
+        }
+        return end > start + scheme.length() ? text.substring(start, end) : null;
     }
 
     /**
@@ -76,11 +91,22 @@ public final class LinkImport {
 
     /** Puts the address in the first free subscription slot, after the user agrees. */
     private static void addSubscription(Context context, View anchor, String url, SettingsPanel.Backend backend) {
-        String host = Uri.parse(url).getHost();
+        String host;
+        try {
+            // java.net.URI, like the download, so the host shown is the host contacted
+            java.net.URI uri = new java.net.URI(url);
+            host = uri.getHost();
+            if (host != null && uri.getPort() != -1) {
+                host += ":" + uri.getPort();
+            }
+        } catch (java.net.URISyntaxException e) {
+            host = null;
+        }
         if (host == null || host.isEmpty()) {
             Messages.show(anchor, context.getString(R.string.settings_subscription_url_invalid));
             return;
         }
+        String shownHost = host;
         int free = -1;
         for (int slot = 0; slot < backend.subscriptionSlots(); slot++) {
             String existing = backend.subscriptionUrl(slot);
@@ -98,9 +124,13 @@ public final class LinkImport {
         }
         int slot = free;
         Dialogs.confirm(context, context.getString(R.string.link_import_sub_title),
-                context.getString(R.string.link_import_sub_message, host, slot + 1),
+                context.getString(R.string.link_import_sub_message, shownHost, slot + 1),
                 context.getString(R.string.nodes_add_action), () -> {
                     String error = backend.setSubscription(slot, url, backend.subscriptionHours(slot));
+                    if (error == null) {
+                        backend.setSubscriptionEnabled(slot, true); // a cleared slot can still be switched off
+                        backend.setRestartPending(backend.running()); // a new subscription joins at the next start
+                    }
                     Messages.show(anchor, error != null ? error
                             : context.getString(R.string.link_import_sub_added, slot + 1), Snackbar.LENGTH_LONG);
                 });
