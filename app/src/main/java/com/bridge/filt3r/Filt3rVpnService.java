@@ -305,7 +305,8 @@ public class Filt3rVpnService extends VpnService {
                 HttpsFetcher first = new HttpsFetcher(direct, doh);
                 bootstrapFetcher = first; // stopEverything cancels it
                 try {
-                    store.update(first, doh, true);
+                    // With nodes on hand, a subscription that already failed is left to the update through the node.
+                    store.updateMissing(first, doh, list.isEmpty());
                 } catch (IOException e) {
                     if (list.isEmpty()) {
                         throw e;

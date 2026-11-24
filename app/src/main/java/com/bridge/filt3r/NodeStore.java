@@ -181,6 +181,35 @@ final class NodeStore {
     }
 
     /**
+     * Downloads only the subscriptions that have no cached nodes (a new one), not the ones that are merely
+     * old: the hourly update refreshes those through the node.
+     *
+     * @param retryFailed false to skip a subscription whose last download failed, so a dead address does not
+     *                    slow every start; the first update through the node tries it again
+     * @throws IOException if every attempted download failed
+     */
+    synchronized void updateMissing(HttpsFetcher fetcher, NameResolver names, boolean retryFailed) throws IOException {
+        IOException last = null;
+        int attempted = 0;
+        int ok = 0;
+        for (Settings.Subscription s : subscriptions) {
+            if (!cachedLines(s).isEmpty() || (!retryFailed && ERRORS.containsKey(s.slot))) {
+                continue;
+            }
+            attempted++;
+            try {
+                updateOne(s, fetcher, names);
+                ok++;
+            } catch (IOException e) {
+                last = e;
+            }
+        }
+        if (attempted > 0 && ok == 0) {
+            throw last;
+        }
+    }
+
+    /**
      * Downloads one subscription now, whatever its interval. {@code s} need not be one of this store's
      * subscriptions: the cache file is chosen by {@code s.slot}, its {@code #url} line by {@code s.url}.
      * A failure keeps the old cache.
