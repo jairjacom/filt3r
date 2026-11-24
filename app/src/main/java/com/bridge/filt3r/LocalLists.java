@@ -112,8 +112,12 @@ final class LocalLists {
                         throw new ImportException(ctx.getString(IPS.equals(kind)
                                 ? R.string.local_ip_list_too_big : R.string.local_list_too_big));
                     }
-                    for (int i = 0; i < r && !text; i++) {
-                        text = buf[i] > ' ';
+                    for (int i = 0; i < r; i++) {
+                        text |= buf[i] > ' ';
+                        // The filter refuses these bytes and would fail the whole list every hour.
+                        if (HOSTS.equals(kind) && buf[i] >= 0 && buf[i] < 32 && buf[i] != 9 && buf[i] != 10 && buf[i] != 13) {
+                            throw new ImportException(ctx.getString(R.string.local_list_binary));
+                        }
                     }
                     out.write(buf, 0, r);
                 }
