@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.13
+
+- My rules can now answer a name with a fixed IP address and accepts * wildcards such as *.example.com. Both are included in the settings backup, and answered names show in the query log.
+- Subscriptions in the standard Shadowsocks SIP008 format now work.
+
 ## v0.0.12
 
 - Other apps can no longer switch filt3r on or off by sending it a Connect or Disconnect request. Only the quick-settings tile, the widget and the launcher shortcuts can. A shortcut you pinned before this update may need a second tap the first time.
