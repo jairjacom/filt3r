@@ -43,6 +43,7 @@ import com.bridge.filt3r.ui.ExemptAppsPanel;
 import com.bridge.filt3r.ui.FloatingToolbar;
 import com.bridge.filt3r.ui.GlowBackground;
 import com.bridge.filt3r.ui.Motion;
+import com.bridge.filt3r.ui.LinkImport;
 import com.bridge.filt3r.ui.NodesPanel;
 import com.bridge.filt3r.ui.QueryLogPanel;
 import com.bridge.filt3r.ui.SettingsPanel;
@@ -312,6 +313,16 @@ public class MainActivity extends Activity
             return; // nothing to do, or the app was reopened from Recents: do not repeat an old action
         }
         setIntent(new Intent()); // so a rotation does not repeat the action
+        if (Intent.ACTION_SEND.equals(action)) {
+            // Any app may share text to us, so this only ever shows a confirm dialog.
+            LinkImport.fromText(this, frame, intent.getCharSequenceExtra(Intent.EXTRA_TEXT), this, this,
+                    () -> {
+                        if (panel instanceof NodesPanel) {
+                            ((NodesPanel) panel).reload();
+                        }
+                    });
+            return;
+        }
         if ((ACTION_CONNECT.equals(action) || ACTION_DISCONNECT.equals(action))
                 && !IntentGuard.hasKey(this, intent)) {
             return; // another app sent this: only our tile, widget and shortcuts may connect or disconnect
