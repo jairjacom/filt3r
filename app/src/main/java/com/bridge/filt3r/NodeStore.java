@@ -42,6 +42,16 @@ final class NodeStore {
         return !subscriptions.isEmpty();
     }
 
+    /** True if a subscription has no cached nodes yet: just added, or never downloaded. */
+    boolean anySubscriptionWithoutNodes() {
+        for (Settings.Subscription s : subscriptions) {
+            if (cachedLines(s).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * The saved nodes of the user first, then the cached nodes of all subscriptions, without duplicates:
      * a node the user added owns its server and port, even if a subscription lists it too, so it shows as
