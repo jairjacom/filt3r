@@ -43,6 +43,8 @@ public final class IpBlockList {
     /** A range such as 10.0.0.0/4 is almost certainly a typo that would block the internet: ignored. */
     private static final int MIN_V4_BITS = 8;
     private static final int MIN_V6_BITS = 16;
+    /** isBlocked walks these one by one on every answer, so there must be few. */
+    private static final int MAX_V6_PREFIXES = 5000;
 
     private final int[] v4; // sorted, each address XOR 0x80000000 so that signed order equals unsigned order
     private final long[] ranges; // sorted, non-overlapping CIDR ranges: (first address key << 32) | last address key
@@ -260,7 +262,7 @@ public final class IpBlockList {
                 continue;
             }
             builder.add(token);
-            if (builder.count() > MAX_ENTRIES) {
+            if (builder.count() > MAX_ENTRIES || builder.v6Prefixes.size() > MAX_V6_PREFIXES) {
                 throw new IOException("IP list has too many entries");
             }
         } while (c != -1);

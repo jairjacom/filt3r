@@ -641,19 +641,11 @@ public class MainActivity extends Activity
     }
 
     @Override
-    public void pickFilterFile() {
+    public void pickListFile(boolean ip) {
         Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE)
                 .setType("*/*");
-        startActivityForResult(pick, REQUEST_FILTER_FILE);
-    }
-
-    @Override
-    public void pickIpFile() {
-        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT)
-                .addCategory(Intent.CATEGORY_OPENABLE)
-                .setType("*/*");
-        startActivityForResult(pick, REQUEST_IP_FILE);
+        startActivityForResult(pick, ip ? REQUEST_IP_FILE : REQUEST_FILTER_FILE);
     }
 
     /** Copies the picked list into the app, off the main thread (a big file on slow storage). */
@@ -662,8 +654,10 @@ public class MainActivity extends Activity
             String error = null;
             try {
                 LocalLists.importFile(this, kind, uri);
+            } catch (LocalLists.ImportException e) {
+                error = e.getMessage(); // written for the user
             } catch (IOException | RuntimeException e) {
-                error = e.getMessage() == null ? getString(R.string.local_list_read_failed) : e.getMessage();
+                error = getString(R.string.local_list_read_failed); // the raw message can hold an app path
             }
             String shown = error;
             runOnUiThread(() -> {
@@ -679,23 +673,13 @@ public class MainActivity extends Activity
     }
 
     @Override
-    public List<String> localFilterLists() {
-        return LocalLists.names(this, LocalLists.HOSTS);
+    public List<String> localLists(boolean ip) {
+        return LocalLists.names(this, ip ? LocalLists.IPS : LocalLists.HOSTS);
     }
 
     @Override
-    public void removeLocalFilterList(String name) {
-        LocalLists.remove(this, LocalLists.HOSTS, name);
-    }
-
-    @Override
-    public List<String> localIpLists() {
-        return LocalLists.names(this, LocalLists.IPS);
-    }
-
-    @Override
-    public void removeLocalIpList(String name) {
-        LocalLists.remove(this, LocalLists.IPS, name);
+    public void removeLocalList(boolean ip, String name) {
+        LocalLists.remove(this, ip ? LocalLists.IPS : LocalLists.HOSTS, name);
     }
 
     /** Tells the query log screen how the export ended, so its icon can show the result. */

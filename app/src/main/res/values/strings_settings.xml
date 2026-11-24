@@ -124,7 +124,7 @@
     <string name="settings_dns_saved">Saved: %1$s</string>
     <string name="settings_dns_filter_urls">Filter-list URLs</string>
     <string name="settings_dns_add_file">Add list from file</string>
-    <string name="settings_dns_add_file_note">Pick a text file of host names (one per line, or hosts-file format). It is copied into filt3r and loads after a restart or "Update lists now". The file is not read again from where you picked it.</string>
+    <string name="settings_dns_add_file_note">Pick a text file of host names (one per line, or hosts-file format). It is copied into filt3r and loads after a restart. The file is not read again from where you picked it.</string>
     <string name="settings_dns_file_list_summary">List from a file. Tap to remove.</string>
     <string name="settings_dns_file_remove_title">Remove this list?</string>
     <string name="settings_dns_file_remove_message">%1$s stops blocking after the next restart. Your original file is not touched.</string>
@@ -134,7 +134,8 @@
     <string name="local_list_read_failed">Could not read that file.</string>
     <string name="local_list_too_big">That file is larger than 64 MB.</string>
     <string name="settings_block_ip_add_file">Add IP list from file</string>
-    <string name="settings_block_ip_add_file_note">Pick a text file with one IP address or range per line, for example 203.0.113.7 or 203.0.113.0/24. It is used together with the Hagezi list while the IP blocklist is switched on, and loads after a restart or "Update lists now".</string>
+    <string name="settings_block_ip_add_file_note">Pick a text file with one IP address or range per line, for example 203.0.113.7 or 203.0.113.0/24. It is used together with the Hagezi list while the IP blocklist is switched on, and loads after a restart or "Update lists now". Ranges wider than /8 (IPv4) or /16 (IPv6) are ignored.</string>
+    <string name="local_ip_list_too_big">That IP list is larger than 8 MB or has too many entries.</string>
     <string name="local_ip_list_bad">That file has no IP addresses or ranges in it.</string>
     <string name="local_list_empty">That file has no text in it.</string>
     <string name="settings_dns_filter_urls_note">Host lists that block ads and trackers (https:// only; separate several with spaces). They are used in addition to the lists switched on under Block lists.</string>

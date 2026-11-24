@@ -29,7 +29,16 @@ final class LocalLists {
 
     /** Same cap as a downloaded list (core DNSFilterManager.MAX_LIST_BYTES). */
     private static final long MAX_BYTES = 64L * 1024 * 1024;
+    /** An IP list is read whole into memory, so IpBlockList.MAX_BYTES (8 MB) is the limit there. */
+    private static final long MAX_IP_BYTES = 8L * 1024 * 1024;
     private static final int MAX_FILES = 8;
+
+    /** Its message is written for the user and safe to show; any other exception is not. */
+    static final class ImportException extends IOException {
+        ImportException(String message) {
+            super(message);
+        }
+    }
 
     private LocalLists() {}
 
@@ -81,16 +90,16 @@ final class LocalLists {
     static String importFile(Context ctx, String kind, Uri uri) throws IOException {
         File dir = dir(ctx, kind);
         if (!dir.isDirectory() && !dir.mkdirs()) {
-            throw new IOException(ctx.getString(R.string.local_list_save_failed));
+            throw new ImportException(ctx.getString(R.string.local_list_save_failed));
         }
         if (names(ctx, kind).size() >= MAX_FILES) {
-            throw new IOException(ctx.getString(R.string.local_list_too_many, MAX_FILES));
+            throw new ImportException(ctx.getString(R.string.local_list_too_many, MAX_FILES));
         }
         File target = uniqueFile(dir, safeName(displayName(ctx, uri)));
         File tmp = new File(dir, target.getName() + ".tmp");
         try (InputStream in = ctx.getContentResolver().openInputStream(uri)) {
             if (in == null) {
-                throw new IOException(ctx.getString(R.string.local_list_read_failed));
+                throw new ImportException(ctx.getString(R.string.local_list_read_failed));
             }
             try (OutputStream out = Files.newOutputStream(tmp.toPath())) {
                 byte[] buf = new byte[8192];
@@ -99,8 +108,9 @@ final class LocalLists {
                 int r;
                 while ((r = in.read(buf)) != -1) {
                     total += r;
-                    if (total > MAX_BYTES) {
-                        throw new IOException(ctx.getString(R.string.local_list_too_big));
+                    if (total > (IPS.equals(kind) ? MAX_IP_BYTES : MAX_BYTES)) {
+                        throw new ImportException(ctx.getString(IPS.equals(kind)
+                                ? R.string.local_ip_list_too_big : R.string.local_list_too_big));
                     }
                     for (int i = 0; i < r && !text; i++) {
                         text = buf[i] > ' ';
@@ -108,14 +118,16 @@ final class LocalLists {
                     out.write(buf, 0, r);
                 }
                 if (!text) {
-                    throw new IOException(ctx.getString(R.string.local_list_empty));
+                    throw new ImportException(ctx.getString(R.string.local_list_empty));
                 }
             }
             if (IPS.equals(kind)) {
                 try (InputStream check = Files.newInputStream(tmp.toPath())) {
                     IpBlockList.parse(check); // refuses a file with no address in it
                 } catch (IOException e) {
-                    throw new IOException(ctx.getString(R.string.local_ip_list_bad));
+                    boolean noAddress = "not an IP list".equals(e.getMessage()) || "IP list is empty".equals(e.getMessage());
+                    throw new ImportException(ctx.getString(noAddress
+                            ? R.string.local_ip_list_bad : R.string.local_ip_list_too_big));
                 }
             }
             Files.move(tmp.toPath(), target.toPath());
@@ -145,16 +157,24 @@ final class LocalLists {
     /** Letters, digits, dot, dash and underscore only, so the name can never be a path. */
     private static String safeName(String name) {
         String s = name.replaceAll("[^A-Za-z0-9._-]", "_").replaceAll("^\\.+", "");
+        if (s.endsWith(".tmp")) {
+            s += ".txt"; // names() hides *.tmp (crash leftovers), so such a list would be saved but never used
+        }
         if (s.length() > 60) {
             s = s.substring(s.length() - 60);
         }
         return s.isEmpty() ? "list.txt" : s;
     }
 
+    /**
+     * A time prefix makes every saved name new. The filter reloads a list only when the list of
+     * addresses changes, so removing ads.txt and adding another ads.txt must not give the same path.
+     */
     private static File uniqueFile(File dir, String name) {
-        File f = new File(dir, name);
+        String stamp = Long.toString(System.currentTimeMillis() / 1000, 36);
+        File f = new File(dir, stamp + "-" + name);
         for (int i = 2; f.exists(); i++) {
-            f = new File(dir, i + "-" + name);
+            f = new File(dir, stamp + "-" + i + "-" + name);
         }
         return f;
     }
