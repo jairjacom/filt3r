@@ -462,7 +462,7 @@ public class NodesPanel extends LinearLayout {
         }
     }
 
-    private void reload() {
+    public void reload() {
         List<NodeInfo> everything = new ArrayList<>(backend.nodes());
         if (everything.isEmpty() && busy) {
             // The tunnel stopped while a re-test was queued: its callback will never run.
@@ -850,27 +850,7 @@ public class NodesPanel extends LinearLayout {
             Messages.show(this, context.getString(R.string.nodes_add_clipboard_empty));
             return;
         }
-        ShadowsocksNode node;
-        try {
-            node = ShadowsocksNode.parse(link);
-        } catch (IllegalArgumentException e) {
-            Messages.show(this, context.getString(R.string.nodes_add_bad, e.getMessage()));
-            return;
-        }
-        if (com.bridge.filt3r.core.util.IpLiteral.parse(node.host) == null) {
-            Messages.show(this, context.getString(R.string.nodes_add_hostname));
-            return;
-        }
-        ShadowsocksNode chosen = node;
-        Dialogs.confirm(context, context.getString(R.string.nodes_add_title),
-                context.getString(R.string.nodes_add_message, node.host, node.port, node.suite.methodName),
-                context.getString(R.string.nodes_add_action), () -> {
-                    int result = backend.addManualNode(chosen);
-                    Messages.show(this, context.getString(result == Backend.ADD_OK ? R.string.nodes_added
-                            : result == Backend.ADD_DUPLICATE ? R.string.nodes_add_duplicate
-                            : R.string.nodes_add_failed), Snackbar.LENGTH_SHORT);
-                    reload();
-                });
+        LinkImport.addNode(context, this, link, backend, this::reload);
     }
 
     /** The link holds the password, so it is only copied after the user agrees, and marked sensitive. */

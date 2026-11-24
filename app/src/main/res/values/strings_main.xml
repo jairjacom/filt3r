@@ -274,6 +274,12 @@
     <string name="nodes_updating">Updating subscriptions...</string>
     <string name="nodes_update_failed">A subscription could not be updated. Settings &gt; Connection shows why.</string>
     <string name="nodes_update_not_possible">Not possible now (tunnel off, no subscription, or already updating).</string>
+    <string name="link_import_none">Nothing to add: the shared text has no ss:// node link or https:// subscription address.</string>
+    <string name="link_import_sub_title">Add this subscription?</string>
+    <string name="link_import_sub_message">Nodes will come from %1$s, saved as subscription %2$d. The full address is not shown. filt3r loads it through the VPN, so the site sees your node, not you.</string>
+    <string name="link_import_sub_added">Subscription %1$d saved. Its nodes load the next time you connect, or tap Update on the Nodes screen.</string>
+    <string name="link_import_sub_duplicate">That subscription is already saved.</string>
+    <string name="link_import_sub_full">All subscription slots are in use. Clear one in Settings, then share the link again.</string>
     <string name="nodes_add_clipboard_empty">The clipboard holds no ss:// link. Copy a node link, then tap + again.</string>
     <string name="nodes_add_bad">That is not a usable node link: %1$s</string>
     <string name="nodes_add_hostname">This node uses a host name. Only IP addresses work for added nodes, because a name lookup would happen outside the VPN.</string>
