@@ -191,8 +191,10 @@ public class DNSResolver {
 
 			DNSResponsePatcher.trafficLog(client,clss,type,host, addrStr, ip.length);
 
-			if (ip != filterIP)
+			if (ip != filterIP) {
 				Logger.getLogger().logLine("MAPPED_CUSTOM_IP: "+host+"->"+addrStr);
+				DNSResponsePatcher.logNstats(false, host); // a custom answer is an allowed query; the query log lists it
+			}
 			
 			return true;
 		} else
