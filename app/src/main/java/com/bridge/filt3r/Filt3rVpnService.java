@@ -370,7 +370,7 @@ public class Filt3rVpnService extends VpnService {
                 // Filter lists are downloaded through the node, never directly. The filter starts only
                 // now, because its first run downloads the lists and needs a working node.
                 DNSFilterManager.setUrlOpener(listFetcher::stream);
-                DNSFilterManager.setFilterListOverride(settings.filterListUrl());
+                DNSFilterManager.setFilterListOverride(LocalLists.withHostLists(this, settings.filterListUrl()));
                 DNSFilterManager.setEnabledLists(settings.enabledFilterLists());
                 DNSFilterManager.setReloadIntervalDays(settings.listRefreshDays());
                 filterFetcher = listFetcher;

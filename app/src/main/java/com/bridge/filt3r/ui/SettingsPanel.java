@@ -133,6 +133,14 @@ public class SettingsPanel extends LinearLayout {
         /** Saves the text. @return an error message to show, or null if it was saved */
         String setFilterListUrl(String text);
 
+        /** Opens the system file picker for a block list; the activity calls {@link SettingsPanel#localListsChanged} when one was added. */
+        void pickFilterFile();
+
+        /** Names of the block lists picked from files, sorted. */
+        java.util.List<String> localFilterLists();
+
+        void removeLocalFilterList(String name);
+
         /** The downloadable block lists in dnsfilter.conf order. */
         List<FilterCatalog.Entry> filterCatalog();
 
@@ -234,6 +242,7 @@ public class SettingsPanel extends LinearLayout {
     private final LinearLayout banner;
     private boolean changed;
     private TextView filterStatus;
+    private LinearLayout localLists;
     private TextView ipBlockStatus;
     private TextView ipBlockStatusInFilters;
     public SettingsPanel(Context context, Backend backend, Runnable onClose) {
@@ -486,6 +495,18 @@ public class SettingsPanel extends LinearLayout {
         });
         card.addView(lists, fieldParams());
         card.addView(note(context, context.getString(R.string.settings_dns_filter_urls_note)));
+        localLists = new LinearLayout(context);
+        localLists.setOrientation(VERTICAL);
+        card.addView(localLists);
+        showLocalLists();
+        MaterialButton addFile = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        addFile.setText(R.string.settings_dns_add_file);
+        addFile.setOnClickListener(v -> backend.pickFilterFile());
+        LayoutParams addFileParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        addFileParams.setMargins(dp(16), 0, dp(16), dp(4));
+        card.addView(addFile, addFileParams);
+        card.addView(note(context, context.getString(R.string.settings_dns_add_file_note)));
         filterStatus = note(context, backend.filterStatus());
         card.addView(filterStatus);
         ipBlockStatusInFilters = note(context, "");
@@ -509,6 +530,30 @@ public class SettingsPanel extends LinearLayout {
         LayoutParams updateParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         updateParams.setMargins(dp(16), 0, dp(16), dp(8));
         card.addView(update, updateParams);
+    }
+
+    /** Rows for the block lists picked from files; tapping one asks before removing it. */
+    private void showLocalLists() {
+        Context context = getContext();
+        localLists.removeAllViews();
+        for (String name : backend.localFilterLists()) {
+            Row row = valueRow(context, name, context.getString(R.string.settings_dns_file_list_summary));
+            row.setOnClickListener(v -> Dialogs.confirm(context, context.getString(R.string.settings_dns_file_remove_title),
+                    context.getString(R.string.settings_dns_file_remove_message, name),
+                    context.getString(R.string.settings_dns_file_remove_action), () -> {
+                        backend.removeLocalFilterList(name);
+                        localListsChanged();
+                    }));
+            localLists.addView(row);
+        }
+    }
+
+    /** A block list file was added or removed: show the rows again and offer the restart. */
+    public void localListsChanged() {
+        if (localLists != null) {
+            showLocalLists();
+        }
+        markChanged();
     }
 
     private void buildBlockLists(Context context) {
