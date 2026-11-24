@@ -24,9 +24,10 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * "My rules": the user's own allow and block rules for single domains. Add a domain with Allow or
- * Block, remove a rule with the bin. A rule covers the domain and its sub domains and applies at
- * once while the tunnel runs.
+ * "My rules": the user's own allow and block rules for domains, and custom answers (a name that
+ * gets a fixed IP address). Add a domain with Allow or Block, or with an address and Answer; remove
+ * an entry with the bin. A rule covers the domain and its sub domains, an answer one exact name; both
+ * accept a "*" wildcard and apply at once while the tunnel runs.
  */
 public final class OverridesDialog {
 
@@ -46,6 +47,16 @@ public final class OverridesDialog {
         String setRule(String host, boolean allow) throws IOException;
 
         void removeRule(String host) throws IOException;
+
+        /**
+         * Answers a name with a fixed IP address.
+         *
+         * @return the name as stored
+         * @throws IllegalArgumentException if the name or the address is not valid
+         */
+        String setAnswer(String host, String ip) throws IOException;
+
+        void removeAnswer(String host) throws IOException;
     }
 
     private OverridesDialog() {
@@ -78,6 +89,15 @@ public final class OverridesDialog {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         content.addView(field);
 
+        TextInputLayout ipField = new TextInputLayout(context);
+        ipField.setHint(context.getString(R.string.overrides_ip_hint));
+        TextInputEditText ipEdit = new TextInputEditText(ipField.getContext());
+        ipEdit.setSingleLine(true);
+        ipEdit.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        ipField.addView(ipEdit, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        content.addView(ipField);
+
         LinearLayout buttons = new LinearLayout(context);
         buttons.setGravity(Gravity.END);
         MaterialButton allow = new MaterialButton(context, null,
@@ -86,8 +106,12 @@ public final class OverridesDialog {
         MaterialButton block = new MaterialButton(context, null,
                 com.google.android.material.R.attr.materialButtonOutlinedStyle);
         block.setText(R.string.overrides_block);
+        MaterialButton answer = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        answer.setText(R.string.overrides_answer);
         buttons.addView(allow);
         buttons.addView(block);
+        buttons.addView(answer);
         content.addView(buttons);
 
         TextView note = new TextView(context);
@@ -121,12 +145,20 @@ public final class OverridesDialog {
                 for (UserOverrides.Entry e : rules) {
                     list.addView(row(context, e, () -> {
                         try {
-                            backend.removeRule(e.host);
+                            if (e.isAnswer()) {
+                                backend.removeAnswer(e.host);
+                            } else {
+                                backend.removeRule(e.host);
+                            }
                             Effects.haptic(list, HapticFeedbackConstants.CONFIRM);
                             Messages.showHere(content, context.getString(R.string.overrides_removed, e.host),
                                     context.getString(R.string.overrides_undo), () -> {
                                 try {
-                                    backend.setRule(e.host, e.allow);
+                                    if (e.isAnswer()) {
+                                        backend.setAnswer(e.host, e.ip);
+                                    } else {
+                                        backend.setRule(e.host, e.allow);
+                                    }
                                 } catch (IOException | IllegalArgumentException ex) {
                                     Messages.showHere(content, context.getString(R.string.overrides_restore_failed), Snackbar.LENGTH_SHORT);
                                 }
@@ -142,13 +174,29 @@ public final class OverridesDialog {
         };
 
         View.OnClickListener add = v -> {
-            boolean allowIt = v == allow;
+            String name = edit.getText() == null ? "" : edit.getText().toString();
+            field.setError(null);
+            ipField.setError(null);
             try {
-                String host = backend.setRule(edit.getText() == null ? "" : edit.getText().toString(), allowIt);
+                if (v == answer) {
+                    String ip = ipEdit.getText() == null ? "" : ipEdit.getText().toString();
+                    try {
+                        ip = UserOverrides.normaliseIp(ip);
+                    } catch (IllegalArgumentException e) {
+                        ipField.setError(context.getString(R.string.overrides_invalid_ip));
+                        Effects.haptic(content, HapticFeedbackConstants.REJECT);
+                        return;
+                    }
+                    String host = backend.setAnswer(name, ip);
+                    ipEdit.setText("");
+                    Messages.showHere(content, context.getString(R.string.overrides_answered, host, ip), Snackbar.LENGTH_SHORT);
+                } else {
+                    boolean allowIt = v == allow;
+                    String host = backend.setRule(name, allowIt);
+                    Messages.showHere(content, context.getString(allowIt ? R.string.overrides_allowed : R.string.overrides_blocked, host), Snackbar.LENGTH_SHORT);
+                }
                 edit.setText("");
-                field.setError(null);
                 Effects.haptic(content, HapticFeedbackConstants.CONFIRM);
-                Messages.showHere(content, context.getString(allowIt ? R.string.overrides_allowed : R.string.overrides_blocked, host), Snackbar.LENGTH_SHORT);
                 refill.run();
             } catch (IllegalArgumentException e) {
                 field.setError(context.getString(R.string.overrides_invalid_domain));
@@ -159,6 +207,7 @@ public final class OverridesDialog {
         };
         allow.setOnClickListener(add);
         block.setOnClickListener(add);
+        answer.setOnClickListener(add);
         refill.run();
 
         Dialogs.builder(context)
@@ -183,13 +232,17 @@ public final class OverridesDialog {
         row.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView mark = new TextView(context);
-        mark.setText(e.allow ? R.string.overrides_allow : R.string.overrides_block);
+        mark.setText(e.isAnswer() ? R.string.overrides_answer : e.allow ? R.string.overrides_allow : R.string.overrides_block);
         mark.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
-        mark.setTextColor(e.allow ? Colors.active(context) : context.getColor(R.color.brand_red));
-        row.addView(mark, new LinearLayout.LayoutParams(dp(context, 52), LinearLayout.LayoutParams.WRAP_CONTENT));
+        if (e.isAnswer()) {
+            dim(mark);
+        } else {
+            mark.setTextColor(e.allow ? Colors.active(context) : context.getColor(R.color.brand_red));
+        }
+        row.addView(mark, new LinearLayout.LayoutParams(dp(context, 60), LinearLayout.LayoutParams.WRAP_CONTENT));
 
         TextView host = new TextView(context);
-        host.setText(e.host);
+        host.setText(e.isAnswer() ? context.getString(R.string.overrides_answer_row, e.host, e.ip) : e.host);
         host.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
         host.setSingleLine(true);
         host.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);

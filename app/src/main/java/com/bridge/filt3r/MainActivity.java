@@ -1448,6 +1448,16 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public String setAnswer(String host, String ip) throws IOException {
+        return overrides.setAnswer(host, ip).host;
+    }
+
+    @Override
+    public void removeAnswer(String host) throws IOException {
+        overrides.removeAnswer(host);
+    }
+
+    @Override
     public boolean toolbarPinned() {
         return settings.toolbarPinned();
     }

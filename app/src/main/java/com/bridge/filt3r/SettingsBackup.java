@@ -35,7 +35,11 @@ final class SettingsBackup {
         b.settings.putAll(settings.backupValues());
         b.exemptApps = new ArrayList<>(new java.util.TreeSet<>(settings.exemptApps()));
         for (UserOverrides.Entry e : overrides.list()) {
-            b.rules.add(new BackupFormat.Rule(e.host, e.allow));
+            if (e.isAnswer()) {
+                b.answers.add(new BackupFormat.Answer(e.host, e.ip));
+            } else {
+                b.rules.add(new BackupFormat.Rule(e.host, e.allow));
+            }
         }
         if (secrets) {
             for (Settings.Subscription s : settings.subscriptions()) {
@@ -64,6 +68,14 @@ final class SettingsBackup {
                 r.rulesApplied++;
             } catch (IllegalArgumentException e) {
                 r.rulesSkipped++; // not a domain name UserOverrides accepts
+            }
+        }
+        for (BackupFormat.Answer answer : b.answers) {
+            try {
+                overrides.setAnswer(answer.host, answer.ip);
+                r.rulesApplied++;
+            } catch (IllegalArgumentException e) {
+                r.rulesSkipped++; // not a name or address UserOverrides accepts
             }
         }
         for (BackupFormat.Subscription s : b.subscriptions) {
