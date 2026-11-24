@@ -133,6 +133,17 @@ public class SettingsPanel extends LinearLayout {
         /** Saves the text. @return an error message to show, or null if it was saved */
         String setFilterListUrl(String text);
 
+        /**
+         * Opens the system file picker for a list: block-list host names, or (ip true) IP addresses and
+         * CIDR ranges. The activity calls {@link SettingsPanel#localListsChanged} when one was added.
+         */
+        void pickListFile(boolean ip);
+
+        /** Names of the lists picked from files (host lists or IP lists), sorted. */
+        java.util.List<String> localLists(boolean ip);
+
+        void removeLocalList(boolean ip, String name);
+
         /** The downloadable block lists in dnsfilter.conf order. */
         List<FilterCatalog.Entry> filterCatalog();
 
@@ -234,6 +245,8 @@ public class SettingsPanel extends LinearLayout {
     private final LinearLayout banner;
     private boolean changed;
     private TextView filterStatus;
+    private LinearLayout localLists;
+    private LinearLayout localIpLists;
     private TextView ipBlockStatus;
     private TextView ipBlockStatusInFilters;
     public SettingsPanel(Context context, Backend backend, Runnable onClose) {
@@ -486,6 +499,18 @@ public class SettingsPanel extends LinearLayout {
         });
         card.addView(lists, fieldParams());
         card.addView(note(context, context.getString(R.string.settings_dns_filter_urls_note)));
+        localLists = new LinearLayout(context);
+        localLists.setOrientation(VERTICAL);
+        card.addView(localLists);
+        showLocalLists(localLists, false);
+        MaterialButton addFile = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        addFile.setText(R.string.settings_dns_add_file);
+        addFile.setOnClickListener(v -> backend.pickListFile(false));
+        LayoutParams addFileParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        addFileParams.setMargins(dp(16), 0, dp(16), dp(4));
+        card.addView(addFile, addFileParams);
+        card.addView(note(context, context.getString(R.string.settings_dns_add_file_note)));
         filterStatus = note(context, backend.filterStatus());
         card.addView(filterStatus);
         ipBlockStatusInFilters = note(context, "");
@@ -511,6 +536,33 @@ public class SettingsPanel extends LinearLayout {
         card.addView(update, updateParams);
     }
 
+    /** Rows for the lists picked from files; tapping one asks before removing it. */
+    private void showLocalLists(LinearLayout target, boolean ip) {
+        Context context = getContext();
+        target.removeAllViews();
+        for (String name : backend.localLists(ip)) {
+            Row row = valueRow(context, name, context.getString(R.string.settings_dns_file_list_summary));
+            row.setOnClickListener(v -> Dialogs.confirm(context, context.getString(R.string.settings_dns_file_remove_title),
+                    context.getString(R.string.settings_dns_file_remove_message, name),
+                    context.getString(R.string.settings_dns_file_remove_action), () -> {
+                        backend.removeLocalList(ip, name);
+                        localListsChanged();
+                    }));
+            target.addView(row);
+        }
+    }
+
+    /** A list file was added or removed: show the rows again and offer the restart. */
+    public void localListsChanged() {
+        if (localLists != null) {
+            showLocalLists(localLists, false);
+        }
+        if (localIpLists != null) {
+            showLocalLists(localIpLists, true);
+        }
+        markChanged();
+    }
+
     private void buildBlockLists(Context context) {
         LinearLayout card = group(null);
         for (FilterCatalog.Entry entry : backend.filterCatalog()) {
@@ -529,6 +581,18 @@ public class SettingsPanel extends LinearLayout {
         ipBlockStatus = note(context, "");
         showIpBlockStatus();
         card.addView(ipBlockStatus);
+        localIpLists = new LinearLayout(context);
+        localIpLists.setOrientation(VERTICAL);
+        card.addView(localIpLists);
+        showLocalLists(localIpLists, true);
+        MaterialButton addIpFile = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        addIpFile.setText(R.string.settings_block_ip_add_file);
+        addIpFile.setOnClickListener(v -> backend.pickListFile(true));
+        LayoutParams addIpFileParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        addIpFileParams.setMargins(dp(16), 0, dp(16), dp(4));
+        card.addView(addIpFile, addIpFileParams);
+        card.addView(note(context, context.getString(R.string.settings_block_ip_add_file_note)));
         card.addView(note(context, context.getString(R.string.settings_block_note)));
     }
 

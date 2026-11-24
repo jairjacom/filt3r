@@ -77,6 +77,8 @@ public class MainActivity extends Activity
     private static final int REQUEST_EXPORT_LOG = 3;
     private static final int REQUEST_EXPORT_SETTINGS = 4;
     private static final int REQUEST_IMPORT_SETTINGS = 5;
+    private static final int REQUEST_FILTER_FILE = 6;
+    private static final int REQUEST_IP_FILE = 7;
     private boolean backupSecrets;
     private boolean exportBlocked = true;
     private boolean exportAllowed = true;
@@ -630,7 +632,55 @@ public class MainActivity extends Activity
         } else if (requestCode == REQUEST_IMPORT_SETTINGS && resultCode == RESULT_OK
                 && data != null && data.getData() != null) {
             readSettingsBackup(data.getData());
+        } else if (requestCode == REQUEST_FILTER_FILE && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            copyListFile(LocalLists.HOSTS, data.getData());
+        } else if (requestCode == REQUEST_IP_FILE && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            copyListFile(LocalLists.IPS, data.getData());
         }
+    }
+
+    @Override
+    public void pickListFile(boolean ip) {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*");
+        startActivityForResult(pick, ip ? REQUEST_IP_FILE : REQUEST_FILTER_FILE);
+    }
+
+    /** Copies the picked list into the app, off the main thread (a big file on slow storage). */
+    private void copyListFile(String kind, Uri uri) {
+        Thread t = new Thread(() -> {
+            String error = null;
+            try {
+                LocalLists.importFile(this, kind, uri);
+            } catch (LocalLists.ImportException e) {
+                error = e.getMessage(); // written for the user
+            } catch (IOException | RuntimeException e) {
+                error = getString(R.string.local_list_read_failed); // the raw message can hold an app path
+            }
+            String shown = error;
+            runOnUiThread(() -> {
+                if (shown != null) {
+                    Messages.show(frame, shown);
+                } else if (panel instanceof SettingsPanel) {
+                    ((SettingsPanel) panel).localListsChanged();
+                }
+            });
+        }, "import-list");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    @Override
+    public List<String> localLists(boolean ip) {
+        return LocalLists.names(this, ip ? LocalLists.IPS : LocalLists.HOSTS);
+    }
+
+    @Override
+    public void removeLocalList(boolean ip, String name) {
+        LocalLists.remove(this, ip ? LocalLists.IPS : LocalLists.HOSTS, name);
     }
 
     /** Tells the query log screen how the export ended, so its icon can show the result. */

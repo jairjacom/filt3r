@@ -380,7 +380,7 @@ public class Filt3rVpnService extends VpnService {
                 // Filter lists are downloaded through the node, never directly. The filter starts only
                 // now, because its first run downloads the lists and needs a working node.
                 DNSFilterManager.setUrlOpener(listFetcher::stream);
-                DNSFilterManager.setFilterListOverride(settings.filterListUrl());
+                DNSFilterManager.setFilterListOverride(LocalLists.withHostLists(this, settings.filterListUrl()));
                 DNSFilterManager.setEnabledLists(settings.enabledFilterLists());
                 DNSFilterManager.setReloadIntervalDays(settings.listRefreshDays());
                 filterFetcher = listFetcher;
@@ -1334,21 +1334,34 @@ public class Filt3rVpnService extends VpnService {
     /** Runs on the refresher thread. maxAgeMs 0 forces a download. */
     private void loadIpBlock(StartScope scope, HttpsFetcher fetcher, long maxAgeMs) {
         File cache = new File(getFilesDir(), "ipblock.txt");
+        IpBlockList own = LocalLists.loadIpLists(this); // lists the user picked from files; may be null
+        IpBlockList list = null;
+        String failure = null;
         try {
-            IpBlockList list = IpBlockList.refresh(cache, IpBlockList.DEFAULT_URL, fetcher::stream, maxAgeMs);
+            list = IpBlockList.refresh(cache, IpBlockList.DEFAULT_URL, fetcher::stream, maxAgeMs);
+        } catch (IOException | RuntimeException | Error e) {
+            failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            Log.w(TAG, "IP blocklist not loaded: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+        if (list != null && own != null) {
+            list = list.plus(own);
+        } else if (list == null) {
+            list = own; // the download failed: the user's own lists still apply
+        }
+        if (list != null) {
             synchronized (lock) {
                 if (scope.isClosed()) {
                     return; // stopped or restarted meanwhile: this list belongs to a bridge that is gone
                 }
                 applyIpBlock(bridge, list);
             }
-            ipBlockStatus = getString(R.string.vpn_ip_block_loaded, list.size());
             Log.i(TAG, "IP blocklist loaded: " + list.size() + " entries");
-        } catch (IOException | RuntimeException | Error e) {
-            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            ipBlockStatus = getString(R.string.vpn_ip_block_not_loaded_status, reason);
-            notice.set(getString(R.string.vpn_notice_ip_block_not_loaded, reason));
-            Log.w(TAG, "IP blocklist not loaded: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+        if (failure == null) {
+            ipBlockStatus = getString(R.string.vpn_ip_block_loaded, list.size());
+        } else {
+            ipBlockStatus = getString(R.string.vpn_ip_block_not_loaded_status, failure);
+            notice.set(getString(R.string.vpn_notice_ip_block_not_loaded, failure));
         }
     }
 
