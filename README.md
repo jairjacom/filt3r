@@ -46,3 +46,23 @@ tap. The optional node history stays on the phone, is off by default and can be 
 
 The app reads the clipboard only when you tap + on the Nodes screen. A settings backup is a plain file you
 save yourself; it holds subscription addresses and added nodes only if you tick the box that says so.
+
+## Install and updates
+
+Download the APK from the [Releases](https://github.com/jairjacom/filt3r/releases) page. filt3r has no
+in-app update check. To get updates, add the repository to [Obtainium](https://obtainium.imranr.dev/) with
+`obtainium://add/https://github.com/jairjacom/filt3r`, or check Releases yourself.
+
+Every release is signed with the same key. Check an APK before installing it:
+
+```
+apksigner verify --print-certs filt3r-X.Y.Z.apk
+```
+
+The signer certificate SHA-256 must be:
+
+```
+ad4d703317c1393eb22edbda657fb26cf52a2dd3bcadf0288dd35fb4a4c5d70b
+```
+
+Each release also lists this fingerprint in its notes and ships a `.sha256` file for the APK.
