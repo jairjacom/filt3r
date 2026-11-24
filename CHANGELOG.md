@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.0.14
+
+- Share a node link (ss://) or a subscription address (https://) to filt3r from a chat or browser. It asks before adding anything, and shows the host (and port). A subscription goes in the first free slot and its nodes load at the next connect or restart.
+- You can add block lists and IP lists from files on your phone: Settings > DNS has "Add list from file", and Block lists has "Add IP list from file". The files are copied into filt3r, up to 8 of each, and load after a restart. Tap a list to remove it.
+- The IP blocklist now understands ranges such as 203.0.113.0/24 (and IPv6 ranges). Ranges wider than /8 (IPv4) or /16 (IPv6) are ignored, so a typo cannot block everything.
+- Connecting no longer fails when you have nodes of your own and have just added a subscription: the new subscription is downloaded at the start.
+- The README now explains how to install, update with Obtainium and check the signing certificate.
+
 ## v0.0.13
 
 - My rules can now answer a name with a fixed IP address and accepts * wildcards such as *.example.com. Both are included in the settings backup, and answered names show in the query log.
