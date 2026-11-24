@@ -1326,6 +1326,10 @@ public class Filt3rVpnService extends VpnService {
         File cache = new File(getFilesDir(), "ipblock.txt");
         try {
             IpBlockList list = IpBlockList.refresh(cache, IpBlockList.DEFAULT_URL, fetcher::stream, maxAgeMs);
+            IpBlockList own = LocalLists.loadIpLists(this); // lists the user picked from files
+            if (own != null) {
+                list = list.plus(own);
+            }
             synchronized (lock) {
                 if (scope.isClosed()) {
                     return; // stopped or restarted meanwhile: this list belongs to a bridge that is gone

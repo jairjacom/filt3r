@@ -78,6 +78,7 @@ public class MainActivity extends Activity
     private static final int REQUEST_EXPORT_SETTINGS = 4;
     private static final int REQUEST_IMPORT_SETTINGS = 5;
     private static final int REQUEST_FILTER_FILE = 6;
+    private static final int REQUEST_IP_FILE = 7;
     private boolean backupSecrets;
     private boolean exportBlocked = true;
     private boolean exportAllowed = true;
@@ -632,7 +633,10 @@ public class MainActivity extends Activity
             readSettingsBackup(data.getData());
         } else if (requestCode == REQUEST_FILTER_FILE && resultCode == RESULT_OK
                 && data != null && data.getData() != null) {
-            copyFilterFile(data.getData());
+            copyListFile(LocalLists.HOSTS, data.getData());
+        } else if (requestCode == REQUEST_IP_FILE && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
+            copyListFile(LocalLists.IPS, data.getData());
         }
     }
 
@@ -644,12 +648,20 @@ public class MainActivity extends Activity
         startActivityForResult(pick, REQUEST_FILTER_FILE);
     }
 
-    /** Copies the picked block list into the app, off the main thread (a big file on slow storage). */
-    private void copyFilterFile(Uri uri) {
+    @Override
+    public void pickIpFile() {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*");
+        startActivityForResult(pick, REQUEST_IP_FILE);
+    }
+
+    /** Copies the picked list into the app, off the main thread (a big file on slow storage). */
+    private void copyListFile(String kind, Uri uri) {
         Thread t = new Thread(() -> {
             String error = null;
             try {
-                LocalLists.importFile(this, LocalLists.HOSTS, uri);
+                LocalLists.importFile(this, kind, uri);
             } catch (IOException | RuntimeException e) {
                 error = e.getMessage() == null ? getString(R.string.local_list_read_failed) : e.getMessage();
             }
@@ -674,6 +686,16 @@ public class MainActivity extends Activity
     @Override
     public void removeLocalFilterList(String name) {
         LocalLists.remove(this, LocalLists.HOSTS, name);
+    }
+
+    @Override
+    public List<String> localIpLists() {
+        return LocalLists.names(this, LocalLists.IPS);
+    }
+
+    @Override
+    public void removeLocalIpList(String name) {
+        LocalLists.remove(this, LocalLists.IPS, name);
     }
 
     /** Tells the query log screen how the export ended, so its icon can show the result. */

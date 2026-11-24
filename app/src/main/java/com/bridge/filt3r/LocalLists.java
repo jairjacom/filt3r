@@ -5,6 +5,8 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.provider.OpenableColumns;
 
+import com.bridge.filt3r.core.filter.IpBlockList;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,6 +24,8 @@ import java.util.List;
 final class LocalLists {
 
     static final String HOSTS = "lists";
+    /** Lists of IP addresses and CIDR ranges for the IP blocklist. */
+    static final String IPS = "iplists";
 
     /** Same cap as a downloaded list (core DNSFilterManager.MAX_LIST_BYTES). */
     private static final long MAX_BYTES = 64L * 1024 * 1024;
@@ -53,6 +57,20 @@ final class LocalLists {
             out.append("file://").append(new File(dir(ctx, HOSTS), name).getAbsolutePath());
         }
         return out.toString();
+    }
+
+    /** Every picked IP list as one list, or null when there is none. A file that no longer parses is skipped. */
+    static IpBlockList loadIpLists(Context ctx) {
+        IpBlockList all = null;
+        for (String name : names(ctx, IPS)) {
+            try (InputStream in = Files.newInputStream(new File(dir(ctx, IPS), name).toPath())) {
+                IpBlockList one = IpBlockList.parse(in);
+                all = all == null ? one : all.plus(one);
+            } catch (IOException | RuntimeException e) {
+                // skipped: it was checked when it was added
+            }
+        }
+        return all;
     }
 
     /**
@@ -91,6 +109,13 @@ final class LocalLists {
                 }
                 if (!text) {
                     throw new IOException(ctx.getString(R.string.local_list_empty));
+                }
+            }
+            if (IPS.equals(kind)) {
+                try (InputStream check = Files.newInputStream(tmp.toPath())) {
+                    IpBlockList.parse(check); // refuses a file with no address in it
+                } catch (IOException e) {
+                    throw new IOException(ctx.getString(R.string.local_ip_list_bad));
                 }
             }
             Files.move(tmp.toPath(), target.toPath());

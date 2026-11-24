@@ -141,6 +141,14 @@ public class SettingsPanel extends LinearLayout {
 
         void removeLocalFilterList(String name);
 
+        /** Opens the system file picker for an IP list (addresses or CIDR ranges); the activity calls {@link SettingsPanel#localListsChanged} when one was added. */
+        void pickIpFile();
+
+        /** Names of the IP lists picked from files, sorted. */
+        java.util.List<String> localIpLists();
+
+        void removeLocalIpList(String name);
+
         /** The downloadable block lists in dnsfilter.conf order. */
         List<FilterCatalog.Entry> filterCatalog();
 
@@ -243,6 +251,7 @@ public class SettingsPanel extends LinearLayout {
     private boolean changed;
     private TextView filterStatus;
     private LinearLayout localLists;
+    private LinearLayout localIpLists;
     private TextView ipBlockStatus;
     private TextView ipBlockStatusInFilters;
     public SettingsPanel(Context context, Backend backend, Runnable onClose) {
@@ -548,10 +557,29 @@ public class SettingsPanel extends LinearLayout {
         }
     }
 
-    /** A block list file was added or removed: show the rows again and offer the restart. */
+    /** Rows for the IP lists picked from files, like {@link #showLocalLists}. */
+    private void showLocalIpLists() {
+        Context context = getContext();
+        localIpLists.removeAllViews();
+        for (String name : backend.localIpLists()) {
+            Row row = valueRow(context, name, context.getString(R.string.settings_dns_file_list_summary));
+            row.setOnClickListener(v -> Dialogs.confirm(context, context.getString(R.string.settings_dns_file_remove_title),
+                    context.getString(R.string.settings_dns_file_remove_message, name),
+                    context.getString(R.string.settings_dns_file_remove_action), () -> {
+                        backend.removeLocalIpList(name);
+                        localListsChanged();
+                    }));
+            localIpLists.addView(row);
+        }
+    }
+
+    /** A list file was added or removed: show the rows again and offer the restart. */
     public void localListsChanged() {
         if (localLists != null) {
             showLocalLists();
+        }
+        if (localIpLists != null) {
+            showLocalIpLists();
         }
         markChanged();
     }
@@ -574,6 +602,18 @@ public class SettingsPanel extends LinearLayout {
         ipBlockStatus = note(context, "");
         showIpBlockStatus();
         card.addView(ipBlockStatus);
+        localIpLists = new LinearLayout(context);
+        localIpLists.setOrientation(VERTICAL);
+        card.addView(localIpLists);
+        showLocalIpLists();
+        MaterialButton addIpFile = new MaterialButton(context, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        addIpFile.setText(R.string.settings_block_ip_add_file);
+        addIpFile.setOnClickListener(v -> backend.pickIpFile());
+        LayoutParams addIpFileParams = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        addIpFileParams.setMargins(dp(16), 0, dp(16), dp(4));
+        card.addView(addIpFile, addIpFileParams);
+        card.addView(note(context, context.getString(R.string.settings_block_ip_add_file_note)));
         card.addView(note(context, context.getString(R.string.settings_block_note)));
     }
 
