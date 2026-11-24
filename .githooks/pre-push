@@ -1,0 +1,7 @@
+#!/bin/sh
+# Pushes need the user's OK. The agent sets FILT3R_PUSH_OK=1 only after the user says yes.
+# Enable once per clone: git config core.hooksPath .githooks
+if [ "$FILT3R_PUSH_OK" != "1" ]; then
+  echo "pre-push: blocked. Ask the user, then run: FILT3R_PUSH_OK=1 git push ..." >&2
+  exit 1
+fi
