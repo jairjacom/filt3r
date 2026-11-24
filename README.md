@@ -6,7 +6,7 @@ An Android VPN app that filters DNS and sends your traffic through a Shadowsocks
   switch), your own allow and block rules, and an optional IP blocklist. Blocked names are answered with a
   local address (127.0.0.1 or ::1).
 - **Encrypted DNS.** DNSCrypt, with the queries sent through the tunnel.
-- **Shadowsocks tunnel.** Add nodes from `ss://` links or a Clash or plain subscription. The app tests
+- **Shadowsocks tunnel.** Add nodes from `ss://` links or a Clash, SIP008 or plain subscription. The app tests
   them, picks the fastest, switches when the current one dies and retries blacklisted ones later.
 - **Failure mode.** Block all traffic when no node works, or connect directly. Your choice.
 - **Exempt apps.** Pick apps that bypass the VPN.

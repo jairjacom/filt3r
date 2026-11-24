@@ -15,7 +15,8 @@ import com.bridge.filt3r.core.util.Text;
  * Reads a subscription body into nodes. Accepted: (a) a JSON array of
  * {server, server_port, password, method, plugin, remarks} (Shadowmere), (b) base64 text of
  * newline-separated ss:// URLs, (c) plain ss:// lines, (d) a Clash YAML file (its type: ss
- * proxies). Entries we cannot use (plugins, other
+ * proxies), (e) a SIP008 online configuration: a JSON object whose "servers" holds the same
+ * entries as (a). Entries we cannot use (plugins, other
  * ciphers, malformed) are skipped and counted, never fatal.
  */
 public final class SubscriptionParser {
@@ -37,7 +38,7 @@ public final class SubscriptionParser {
     /** @throws IllegalArgumentException if the body is none of the accepted formats */
     public static Result parse(String body) {
         String text = body.trim();
-        if (text.startsWith("[")) {
+        if (text.startsWith("[") || text.startsWith("{")) {
             return fromJson(text);
         }
         if (ClashParser.looksLikeClash(text)) {
@@ -51,8 +52,11 @@ public final class SubscriptionParser {
 
     private static Result fromJson(String text) {
         Object root = MiniJson.parse(text);
+        if (root instanceof Map) {
+            root = ((Map<?, ?>) root).get("servers"); // SIP008: {"version": 1, "servers": [...]}
+        }
         if (!(root instanceof List)) {
-            throw new IllegalArgumentException("expected a JSON array");
+            throw new IllegalArgumentException("expected a JSON array or a SIP008 object with servers");
         }
         Set<String> seen = new LinkedHashSet<>();
         List<ShadowsocksNode> nodes = new ArrayList<>();
