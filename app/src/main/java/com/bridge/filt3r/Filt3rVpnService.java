@@ -297,12 +297,22 @@ public class Filt3rVpnService extends VpnService {
             }
 
             List<ShadowsocksNode> list = store.load();
-            if (list.isEmpty() && store.hasSubscriptions()) {
-                // First run: no node is up, so this download goes out directly (the bootstrap cost).
+            if (store.anySubscriptionWithoutNodes()) {
+                // First run of a subscription: no node is up, so this download goes out directly (the
+                // bootstrap cost). It also runs when the user's own nodes exist, otherwise a newly added
+                // subscription would never be read while those nodes are the only ones tried.
                 DohBootstrapResolver doh = new DohBootstrapResolver(BOOTSTRAP_DOH);
                 HttpsFetcher first = new HttpsFetcher(direct, doh);
                 bootstrapFetcher = first; // stopEverything cancels it
-                store.update(first, doh, false);
+                try {
+                    // With nodes on hand, a subscription that already failed is left to the update through the node.
+                    store.updateMissing(first, doh, list.isEmpty());
+                } catch (IOException e) {
+                    if (list.isEmpty()) {
+                        throw e;
+                    }
+                    Log.w(TAG, "first subscription download failed, starting with the nodes we have: " + e.getMessage());
+                }
                 list = store.load();
             }
             if (list.isEmpty()) {

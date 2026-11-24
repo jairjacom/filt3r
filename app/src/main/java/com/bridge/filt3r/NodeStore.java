@@ -42,6 +42,16 @@ final class NodeStore {
         return !subscriptions.isEmpty();
     }
 
+    /** True if a subscription has no cached nodes yet: just added, or never downloaded. */
+    boolean anySubscriptionWithoutNodes() {
+        for (Settings.Subscription s : subscriptions) {
+            if (cachedLines(s).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * The saved nodes of the user first, then the cached nodes of all subscriptions, without duplicates:
      * a node the user added owns its server and port, even if a subscription lists it too, so it shows as
@@ -155,6 +165,35 @@ final class NodeStore {
         int ok = 0;
         for (Settings.Subscription s : subscriptions) {
             if (onlyDue && !isDue(s)) {
+                continue;
+            }
+            attempted++;
+            try {
+                updateOne(s, fetcher, names);
+                ok++;
+            } catch (IOException e) {
+                last = e;
+            }
+        }
+        if (attempted > 0 && ok == 0) {
+            throw last;
+        }
+    }
+
+    /**
+     * Downloads only the subscriptions that have no cached nodes (a new one), not the ones that are merely
+     * old: the hourly update refreshes those through the node.
+     *
+     * @param retryFailed false to skip a subscription whose last download failed, so a dead address does not
+     *                    slow every start; the first update through the node tries it again
+     * @throws IOException if every attempted download failed
+     */
+    synchronized void updateMissing(HttpsFetcher fetcher, NameResolver names, boolean retryFailed) throws IOException {
+        IOException last = null;
+        int attempted = 0;
+        int ok = 0;
+        for (Settings.Subscription s : subscriptions) {
+            if (!cachedLines(s).isEmpty() || (!retryFailed && ERRORS.containsKey(s.slot))) {
                 continue;
             }
             attempted++;
