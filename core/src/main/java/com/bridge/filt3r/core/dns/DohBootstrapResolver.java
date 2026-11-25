@@ -31,8 +31,10 @@ public final class DohBootstrapResolver implements NameResolver {
     @Override
     public List<InetAddress> resolve(String host) throws IOException {
         byte[] query = DnsWire.query(host, DnsWire.TYPE_A);
-        HttpsURLConnection c = (HttpsURLConnection) url.openConnection();
+        byte[] response;
+        HttpsURLConnection c = null;
         try {
+            c = (HttpsURLConnection) url.openConnection();
             c.setRequestMethod("POST");
             c.setConnectTimeout(TIMEOUT_MS);
             c.setReadTimeout(TIMEOUT_MS);
@@ -45,18 +47,22 @@ public final class DohBootstrapResolver implements NameResolver {
             if (c.getResponseCode() != 200) {
                 throw new IOException("DoH bootstrap HTTP " + c.getResponseCode());
             }
-            byte[] response = readLimited(c.getInputStream());
-            List<InetAddress> out = new ArrayList<>();
-            for (byte[] a : DnsWire.answers(response, DnsWire.TYPE_A)) {
-                out.add(InetAddress.getByAddress(a));
-            }
-            if (out.isEmpty()) {
-                throw new IOException("no address for host");
-            }
-            return out;
+            response = readLimited(c.getInputStream());
+        } catch (IOException e) {
+            throw new ResolverUnreachableException(e.getMessage(), e);
         } finally {
-            c.disconnect();
+            if (c != null) {
+                c.disconnect();
+            }
         }
+        List<InetAddress> out = new ArrayList<>();
+        for (byte[] a : DnsWire.answers(response, DnsWire.TYPE_A)) {
+            out.add(InetAddress.getByAddress(a));
+        }
+        if (out.isEmpty()) {
+            throw new IOException("no address for host");
+        }
+        return out;
     }
 
     private static byte[] readLimited(InputStream in) throws IOException {

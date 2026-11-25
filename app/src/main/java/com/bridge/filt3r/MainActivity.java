@@ -455,6 +455,9 @@ public class MainActivity extends Activity
         if (state != TunnelState.State.RUNNING && state != TunnelState.State.STARTING) {
             setRestartPending(false); // a fresh start applies every change
         }
+        if (state == TunnelState.State.FAILED && Filt3rVpnService.takeResolverFailure()) {
+            Messages.show(frame, getString(R.string.main_resolver_unreachable), getString(R.string.main_retry), this::connect);
+        }
     }
 
     private void refresh() {

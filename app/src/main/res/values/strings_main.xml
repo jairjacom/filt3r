@@ -79,6 +79,8 @@
     <string name="vpn_notice_node_no_answer">%1$s did not answer</string>
     <string name="vpn_notice_node_switched">Switched to %1$s because %2$s stopped working</string>
     <string name="vpn_notice_node_faster">Switched to %1$s, which is much faster than %2$s</string>
+    <string name="main_resolver_unreachable">Can\'t reach the resolver, check your network</string>
+    <string name="main_retry">Retry</string>
     <string name="vpn_notice_ip_block_not_loaded">IP blocklist not loaded: %1$s</string>
     <string name="vpn_ip_block_downloading">Downloading...</string>
     <string name="vpn_ip_block_updating">Updating...</string>
@@ -93,10 +95,10 @@
     <string name="vpn_notification_paused_text">Nothing is blocked until %1$s.</string>
     <string name="vpn_notification_action_pause">Pause %1$d min</string>
     <string name="vpn_notification_action_resume">Resume</string>
-    <string name="vpn_check_bad_stamp">not a usable DNSCrypt stamp: %1$s</string>
+    <string name="vpn_check_bad_stamp">not a usable DNSCrypt or DoH stamp: %1$s</string>
     <string name="vpn_check_start_vpn_first">start the VPN first: resolvers are tested through the node</string>
     <string name="vpn_check_works">works, %1$d ms</string>
-    <string name="vpn_check_no_answer">resolver did not answer (it may use another cipher or no TCP): %1$s</string>
+    <string name="vpn_check_no_answer">resolver did not answer (a DNSCrypt resolver may use another cipher or no TCP): %1$s</string>
 
     <!-- Tile -->
     <string name="tile_on">On</string>

@@ -111,13 +111,13 @@
     <string name="settings_page_appearance">Appearance</string>
     <string name="settings_page_about">About</string>
     <string name="settings_dns_custom_stamp_name">Custom stamp</string>
-    <string name="settings_dns_stamp_help">Find DNSCrypt stamps (they start with sdns://AQ) in the public resolver list at github.com/DNSCrypt/dnscrypt-resolvers (file v3/public-resolvers.md). Only resolvers that support the XChaCha20 cipher and DNSCrypt over TCP work. The VPN has to be on: the stamp is tested through your node before it is saved.</string>
+    <string name="settings_dns_stamp_help">Find stamps in the public resolver list at github.com/DNSCrypt/dnscrypt-resolvers (file v3/public-resolvers.md). DNSCrypt stamps start with sdns://AQ and need the XChaCha20 cipher and DNSCrypt over TCP. DNS-over-HTTPS (DoH) stamps start with sdns://Ag. The VPN has to be on: the stamp is tested through your node before it is saved.</string>
     <string name="settings_back_description">Back</string>
     <string name="settings_restart_banner">Restart to apply</string>
     <string name="settings_restart_button">Restart</string>
     <string name="settings_connection_subscription_url">Subscription URL %1$d</string>
     <string name="settings_connection_update_interval">Update interval</string>
-    <string name="settings_dns_resolver">DNSCrypt resolver</string>
+    <string name="settings_dns_resolver">Resolver</string>
     <string name="settings_dns_custom_stamp_hint">Custom sdns:// stamp</string>
     <string name="settings_dns_test_and_use">Test and use</string>
     <string name="settings_dns_testing">Testing through the node...</string>

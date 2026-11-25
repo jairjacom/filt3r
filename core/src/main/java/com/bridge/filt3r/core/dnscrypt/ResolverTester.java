@@ -9,9 +9,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import com.bridge.filt3r.core.dns.DnsWire;
+import com.bridge.filt3r.core.dns.NameResolver;
 import com.bridge.filt3r.core.socks.Dialer;
 
-/** Tests DNSCrypt resolvers with one real query each, sent through a {@link Dialer} (the node). */
+/** Tests DNSCrypt and DoH resolvers with one real query each, sent through a {@link Dialer} (the node). */
 public final class ResolverTester {
 
     private static final String TEST_NAME = "example.com";
@@ -30,22 +31,26 @@ public final class ResolverTester {
     private ResolverTester() {
     }
 
-    /** @return milliseconds; @throws IOException if the resolver is unreachable or not usable (cipher, protocol, signature) */
-    public static long test(DnsCryptStamp stamp, Dialer dialer) throws IOException {
+    /**
+     * @param names looks up the host name of a DoH stamp that has no IP address
+     * @return milliseconds; @throws IOException if the resolver is unreachable or not usable (cipher, protocol, signature)
+     */
+    public static long test(ResolverStamp stamp, Dialer dialer, NameResolver names) throws IOException {
         long start = System.nanoTime();
-        byte[] answer = new DnsCryptUpstream(stamp, dialer).query(DnsWire.query(TEST_NAME, DnsWire.TYPE_A));
+        byte[] answer = stamp.upstream(dialer, names).query(DnsWire.query(TEST_NAME, DnsWire.TYPE_A));
         DnsWire.answers(answer, DnsWire.TYPE_A); // throws on a DNS error
         return (System.nanoTime() - start) / 1_000_000;
     }
 
     /** Tests all entries in parallel. @return the working ones, fastest first */
-    public static List<Result> testAll(List<ResolverList.Entry> entries, Dialer dialer, int threads, long timeoutSeconds) {
+    public static List<Result> testAll(List<ResolverList.Entry> entries, Dialer dialer, NameResolver names,
+                                       int threads, long timeoutSeconds) {
         List<Result> out = Collections.synchronizedList(new ArrayList<>());
         ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, Math.min(threads, entries.size())));
         for (ResolverList.Entry e : entries) {
             pool.execute(() -> {
                 try {
-                    out.add(new Result(e, test(e.stamp, dialer)));
+                    out.add(new Result(e, test(e.stamp, dialer, names)));
                 } catch (IOException | RuntimeException ex) {
                     // dead or unusable: dropped
                 }

@@ -22,6 +22,7 @@ import android.util.Log;
 
 import com.bridge.filt3r.core.dns.DohBootstrapResolver;
 import com.bridge.filt3r.core.dns.NameResolver;
+import com.bridge.filt3r.core.dns.ResolverUnreachableException;
 import com.bridge.filt3r.core.dns.UpstreamNameResolver;
 import com.bridge.filt3r.core.dnscrypt.DnsCryptStamp;
 import com.bridge.filt3r.core.dnscrypt.DnsCryptUpstream;
@@ -306,7 +307,16 @@ public class Filt3rVpnService extends VpnService {
                 // bootstrap cost). It also runs when the user's own nodes exist, otherwise a newly added
                 // subscription would never be read while those nodes are the only ones tried.
                 DohBootstrapResolver doh = new DohBootstrapResolver(BOOTSTRAP_DOH);
-                HttpsFetcher first = new HttpsFetcher(direct, doh);
+                boolean[] resolverDown = {false}; // the resolver, not the subscription server, was the problem
+                NameResolver bootstrap = host -> {
+                    try {
+                        return doh.resolve(host);
+                    } catch (ResolverUnreachableException e) {
+                        resolverDown[0] = true;
+                        throw e;
+                    }
+                };
+                HttpsFetcher first = new HttpsFetcher(direct, bootstrap);
                 bootstrapFetcher = first; // stopEverything cancels it
                 try {
                     // With nodes on hand, a subscription that already failed is left to the update through the node.
