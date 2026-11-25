@@ -108,6 +108,13 @@ public class SettingsPanel extends LinearLayout {
 
         void setSwitchToFaster(boolean on);
 
+        boolean allowAutomation();
+
+        void setAllowAutomation(boolean on);
+
+        /** The secret an automation app must send along; unique to this install. */
+        String automationKey();
+
         String resolverName();
 
         /** The built-in resolver first, then the ones that passed the last test (fastest first). */
@@ -421,6 +428,18 @@ public class SettingsPanel extends LinearLayout {
                     backend.setBypassLan(on);
                     markChanged();
                 }));
+        card.addView(switchRow(context, context.getString(R.string.settings_connection_automation),
+                context.getString(R.string.settings_connection_automation_summary),
+                backend.allowAutomation(), backend::setAllowAutomation));
+        Row automationKey = valueRow(context, context.getString(R.string.settings_connection_automation_key),
+                context.getString(R.string.settings_connection_automation_key_summary));
+        automationKey.setOnClickListener(v -> {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    context.getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("filt3r", backend.automationKey()));
+            Messages.show(this, context.getString(R.string.settings_about_diag_copied), Snackbar.LENGTH_SHORT);
+        });
+        card.addView(automationKey);
     }
 
     private void buildDns(Context context) {

@@ -85,6 +85,8 @@ public class MainActivity extends Activity
     private java.util.function.Consumer<Boolean> exportDone;
     static final String ACTION_CONNECT = "com.bridge.filt3r.action.CONNECT";
     static final String ACTION_DISCONNECT = "com.bridge.filt3r.action.DISCONNECT";
+    static final String ACTION_AUTOMATION_CONNECT = "com.bridge.filt3r.action.AUTOMATION_CONNECT";
+    static final String ACTION_AUTOMATION_DISCONNECT = "com.bridge.filt3r.action.AUTOMATION_DISCONNECT";
     static final String ACTION_OPEN_NODES = "com.bridge.filt3r.action.OPEN_NODES";
     static final String ACTION_OPEN_LOG = "com.bridge.filt3r.action.OPEN_LOG";
     private static final String KEY_SECTION = "section";
@@ -324,6 +326,18 @@ public class MainActivity extends Activity
                             ((NodesPanel) panel).reload();
                         }
                     });
+            return;
+        }
+        if (ACTION_AUTOMATION_CONNECT.equals(action) || ACTION_AUTOMATION_DISCONNECT.equals(action)) {
+            // Both gates must pass: the Settings switch, and the automation key that only the user can read in Settings.
+            if (!settings.allowAutomation() || !IntentGuard.hasAutomationKey(this, intent)) {
+                return;
+            }
+            if (ACTION_AUTOMATION_CONNECT.equals(action)) {
+                connect();
+            } else {
+                disconnect();
+            }
             return;
         }
         if ((ACTION_CONNECT.equals(action) || ACTION_DISCONNECT.equals(action))
@@ -1300,6 +1314,21 @@ public class MainActivity extends Activity
     @Override
     public void setBypassLan(boolean on) {
         settings.setBypassLan(on);
+    }
+
+    @Override
+    public boolean allowAutomation() {
+        return settings.allowAutomation();
+    }
+
+    @Override
+    public void setAllowAutomation(boolean on) {
+        settings.setAllowAutomation(on);
+    }
+
+    @Override
+    public String automationKey() {
+        return IntentGuard.automationKey(this);
     }
 
     @Override

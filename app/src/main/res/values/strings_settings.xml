@@ -262,6 +262,10 @@
     <string name="settings_connection_switch_faster_summary">After the hourly test, moves to a node that is at least twice as fast and 100 ms quicker. Open connections restart and your exit IP changes. A pinned node is never left. Off: the node changes only when it stops working, or after the full node scan when it answers in 800 ms or more.</string>
     <string name="settings_connection_bypass_lan">Keep local network out of the tunnel</string>
     <string name="settings_connection_bypass_lan_summary">Your router and other local devices stay reachable, and local traffic never goes to a node. Off: all traffic, including local, goes through the tunnel.</string>
+    <string name="settings_connection_automation">Allow automation apps</string>
+    <string name="settings_connection_automation_summary">Lets apps such as Tasker or MacroDroid connect and disconnect filt3r. Off: they are ignored. Not included in settings backups.</string>
+    <string name="settings_connection_automation_key">Automation key</string>
+    <string name="settings_connection_automation_key_summary">Tap to copy. In Tasker use Send Intent: Action com.bridge.filt3r.action.AUTOMATION_CONNECT or com.bridge.filt3r.action.AUTOMATION_DISCONNECT, Extra com.bridge.filt3r.extra.KEY:(the key), Package com.bridge.filt3r, Class com.bridge.filt3r.MainActivity, Target Activity. Anyone who has the key can switch filt3r on or off, so share it with no one.</string>
     <plurals name="overrides_summary_rules">
         <item quantity="one">%1$d rule</item>
         <item quantity="other">%1$d rules</item>
