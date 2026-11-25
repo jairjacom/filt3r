@@ -21,11 +21,13 @@ import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
 import com.bridge.filt3r.core.dns.DohBootstrapResolver;
+import com.bridge.filt3r.core.dns.NameResolver;
 import com.bridge.filt3r.core.dns.UpstreamNameResolver;
 import com.bridge.filt3r.core.dnscrypt.DnsCryptStamp;
 import com.bridge.filt3r.core.dnscrypt.DnsCryptUpstream;
 import com.bridge.filt3r.core.dnscrypt.MinisignVerifier;
 import com.bridge.filt3r.core.dnscrypt.ResolverList;
+import com.bridge.filt3r.core.dnscrypt.ResolverStamp;
 import com.bridge.filt3r.core.dnscrypt.ResolverTester;
 import com.bridge.filt3r.core.filter.DNSFilterManager;
 import com.bridge.filt3r.core.filter.DNSResolver;
@@ -153,6 +155,7 @@ public class Filt3rVpnService extends VpnService {
     private static final AtomicLong dnsBlocked = new AtomicLong();
     private static final AtomicLong dnsAllowed = new AtomicLong();
     private static final AtomicReference<String> notice = new AtomicReference<>();
+    private static final AtomicBoolean resolverFailed = new AtomicBoolean();
     private static volatile long baseUp; // hev counters at the last "reset session counters"
     private static volatile long baseDown;
     private final Object historyLock = new Object();
@@ -255,6 +258,7 @@ public class Filt3rVpnService extends VpnService {
     private void startTunnel(StartScope scope) {
         NodeTester.Round startRound = null; // the start round, until the runtime takes it over
         try {
+            resolverFailed.set(false);
             ExecutionEnvironment.setEnvironment(new FilterEnvironment(this));
             DirectDialer direct = new DirectDialer(protector);
             DnsCryptStamp testStamp = DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
@@ -306,9 +310,10 @@ public class Filt3rVpnService extends VpnService {
                 bootstrapFetcher = first; // stopEverything cancels it
                 try {
                     // With nodes on hand, a subscription that already failed is left to the update through the node.
-                    store.updateMissing(first, doh, list.isEmpty());
+                    store.updateMissing(first, bootstrap, list.isEmpty());
                 } catch (IOException e) {
                     if (list.isEmpty()) {
+                        resolverFailed.set(resolverDown[0]);
                         throw e;
                     }
                     Log.w(TAG, "first subscription download failed, starting with the nodes we have: " + e.getMessage());
@@ -359,10 +364,10 @@ public class Filt3rVpnService extends VpnService {
             manager.setBlacklistListener((node, verifiedDead, wasCurrent, wasPinned, strikes) ->
                     Log.i(TAG, "blacklisted " + node.name + ": " + (verifiedDead ? "failover check found it dead" : "3 failures in a row")
                             + ", current=" + wasCurrent + ", pinned=" + wasPinned + ", strike " + strikes));
-            HttpsFetcher listFetcher = new HttpsFetcher(viaNode,
-                    new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode)));
-            DnsCryptStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
-            FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp, viaNode, health);
+            UpstreamNameResolver names = new UpstreamNameResolver(new DnsCryptUpstream(testStamp, viaNode));
+            HttpsFetcher listFetcher = new HttpsFetcher(viaNode, names);
+            ResolverStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
+            FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp.upstream(viaNode, names), health);
             // DNS always goes through the node: it is never sent direct, whatever the failure mode.
             DNSResolver resolver = new DNSResolver(upstream);
             Socks5Bridge b = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
@@ -385,7 +390,7 @@ public class Filt3rVpnService extends VpnService {
                 DNSFilterManager.setReloadIntervalDays(settings.listRefreshDays());
                 filterFetcher = listFetcher;
                 startFilter();
-                resolverInfo = new String[] {settings.resolverName(), dnsStamp.address.getHostAddress()};
+                resolverInfo = new String[] {settings.resolverName(), dnsStamp.endpoint()};
                 dnsResolver = resolver;
                 scope.adopt(health::close);
                 bridge = b;
@@ -481,9 +486,9 @@ public class Filt3rVpnService extends VpnService {
     }
 
     /** The user's resolver, or the built-in one if the saved stamp cannot be read. */
-    private static DnsCryptStamp parseStampOrDefault(String stamp) {
+    private static ResolverStamp parseStampOrDefault(String stamp) {
         try {
-            return DnsCryptStamp.parse(stamp);
+            return ResolverStamp.parse(stamp);
         } catch (IllegalArgumentException e) {
             Log.w(TAG, "saved resolver is not usable, using the default");
             return DnsCryptStamp.parse(Settings.DEFAULT_RESOLVER_STAMP);
@@ -875,6 +880,11 @@ public class Filt3rVpnService extends VpnService {
         return notice.getAndSet(null);
     }
 
+    /** True once after a start failed because the bootstrap resolver could not be reached (no network at the first connect). */
+    static boolean takeResolverFailure() {
+        return resolverFailed.getAndSet(false);
+    }
+
     /** One line for Settings about the IP blocklist: empty when it is off or the tunnel is down. */
     static String ipBlockStatus() {
         return ipBlockStatus;
@@ -970,7 +980,7 @@ public class Filt3rVpnService extends VpnService {
         }
 
         /**
-         * Downloads the official resolver list, checks its signature, tests every DNSCrypt resolver in
+         * Downloads the official resolver list, checks its signature, tests every DNSCrypt and DoH resolver in
          * it through the node and keeps the ones that answer.
          *
          * @param force false to skip when the stored list is younger than a week
@@ -987,7 +997,7 @@ public class Filt3rVpnService extends VpnService {
                     throw new IOException("resolver list signature is not valid");
                 }
                 List<ResolverTester.Result> working = ResolverTester.testAll(
-                        ResolverList.parse(list), viaNode, TEST_THREADS, RESOLVER_TEST_TIMEOUT_S);
+                        ResolverList.parse(list), viaNode, names, TEST_THREADS, RESOLVER_TEST_TIMEOUT_S);
                 if (working.isEmpty()) {
                     throw new IOException("no resolver answered");
                 }
@@ -1481,9 +1491,9 @@ public class Filt3rVpnService extends VpnService {
      * @throws IOException with a reason a user can read
      */
     static String checkResolver(Context ctx, String stampText) throws IOException {
-        DnsCryptStamp stamp;
+        ResolverStamp stamp;
         try {
-            stamp = DnsCryptStamp.parse(stampText);
+            stamp = ResolverStamp.parse(stampText);
         } catch (IllegalArgumentException e) {
             throw new IOException(ctx.getString(R.string.vpn_check_bad_stamp, e.getMessage()));
         }
@@ -1493,7 +1503,7 @@ public class Filt3rVpnService extends VpnService {
             throw new IOException(ctx.getString(R.string.vpn_check_start_vpn_first));
         }
         try {
-            return ctx.getString(R.string.vpn_check_works, ResolverTester.test(stamp, r.viaNode));
+            return ctx.getString(R.string.vpn_check_works, ResolverTester.test(stamp, r.viaNode, r.names));
         } catch (IOException e) {
             throw new IOException(ctx.getString(R.string.vpn_check_no_answer, e.getMessage()));
         }

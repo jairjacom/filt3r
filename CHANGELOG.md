@@ -2,6 +2,8 @@
 
 ## Unreleased (planned v1.0.0)
 
+- DNS-over-HTTPS (DoH) resolvers. Settings > DNS > Resolver now lists DoH resolvers from the public list next to DNSCrypt ones (tagged "DoH"), and a custom sdns:// stamp may be a DoH stamp (sdns://Ag...). DNSCrypt stays the default. Expect DoH lookups to be slower, because each query opens its own secure connection through the node.
+- If the first connect fails because the resolver for the first subscription download cannot be reached, a message says so with a Retry button.
 - New switch in Settings > Connection, "Allow automation apps" (off by default). When on, a macro app such as Tasker can connect and disconnect filt3r by sending the action com.bridge.filt3r.action.AUTOMATION_CONNECT or AUTOMATION_DISCONNECT with the "Automation key" shown in Settings (tap to copy). The switch and the key are not part of settings backups.
 
 ## v0.0.14

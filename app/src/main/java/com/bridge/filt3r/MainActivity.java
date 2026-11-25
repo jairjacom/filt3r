@@ -1351,7 +1351,7 @@ public class MainActivity extends Activity
         List<SettingsPanel.Resolver> out = new ArrayList<>();
         out.add(new SettingsPanel.Resolver(Settings.DEFAULT_RESOLVER_NAME, Settings.DEFAULT_RESOLVER_STAMP, -1));
         for (ResolverStore.Info r : new ResolverStore(getFilesDir()).load()) {
-            out.add(new SettingsPanel.Resolver(r.name, r.stamp, r.millis));
+            out.add(new SettingsPanel.Resolver(r.doh ? r.name + " (DoH)" : r.name, r.stamp, r.millis));
         }
         return out;
     }

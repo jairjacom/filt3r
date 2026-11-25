@@ -1,18 +1,20 @@
 package com.bridge.filt3r.core.dnscrypt;
 
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 
-import com.bridge.filt3r.core.util.IpLiteral;
+import com.bridge.filt3r.core.dns.NameResolver;
+import com.bridge.filt3r.core.filter.DNSResolver;
+import com.bridge.filt3r.core.socks.Dialer;
 
 /**
  * A DNSCrypt resolver from an {@code sdns://} stamp: address, provider public key (Ed25519) and
  * provider name. The address must be an IP literal, so no name lookup is ever needed.
  */
-public final class DnsCryptStamp {
+public final class DnsCryptStamp implements ResolverStamp {
 
-    private static final int PROTOCOL_DNSCRYPT = 0x01;
+    static final int PROTOCOL = 0x01;
 
     public final InetAddress address;
     public final int port;
@@ -29,93 +31,53 @@ public final class DnsCryptStamp {
         this.props = props;
     }
 
+    @Override
     public boolean claimsDnssec() {
         return (props & 1) != 0;
     }
 
+    @Override
     public boolean claimsNoLogs() {
         return (props & 2) != 0;
     }
 
+    @Override
     public boolean claimsNoFilter() {
         return (props & 4) != 0;
     }
 
+    @Override
+    public String endpoint() {
+        return address.getHostAddress();
+    }
+
+    @Override
+    public boolean usable() {
+        return !(address instanceof Inet6Address); // the tunnel path is IPv4
+    }
+
+    @Override
+    public DNSResolver.Upstream upstream(Dialer dialer, NameResolver names) {
+        return new DnsCryptUpstream(this, dialer);
+    }
+
     /** @throws IllegalArgumentException if this is not a well-formed DNSCrypt stamp with an IP address */
     public static DnsCryptStamp parse(String stamp) {
-        String s = stamp.trim();
-        if (!s.startsWith("sdns://")) {
-            throw new IllegalArgumentException("not an sdns:// stamp");
-        }
-        byte[] b;
-        try {
-            b = Base64.getUrlDecoder().decode(s.substring(7));
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("bad stamp encoding");
-        }
-        if (b.length < 9 || b[0] != PROTOCOL_DNSCRYPT) {
+        byte[] b = StampText.decode(stamp);
+        if (b.length < 9 || b[0] != PROTOCOL) {
             throw new IllegalArgumentException("not a DNSCrypt stamp");
         }
         int[] pos = {9}; // protocol byte + 8 property bytes
-        String addr = new String(lengthPrefixed(b, pos), StandardCharsets.US_ASCII);
-        byte[] key = lengthPrefixed(b, pos);
-        String provider = new String(lengthPrefixed(b, pos), StandardCharsets.US_ASCII);
+        String addr = new String(StampText.lengthPrefixed(b, pos), StandardCharsets.US_ASCII);
+        byte[] key = StampText.lengthPrefixed(b, pos);
+        String provider = new String(StampText.lengthPrefixed(b, pos), StandardCharsets.US_ASCII);
         if (key.length != 32 || provider.isEmpty()) {
             throw new IllegalArgumentException("bad provider key or name");
         }
-        long props = 0;
-        for (int i = 8; i >= 1; i--) { // 8 bytes, little endian, after the protocol byte
-            props = props << 8 | (b[i] & 0xFF);
-        }
-        return hostPort(addr, key, provider, props);
-    }
-
-    private static DnsCryptStamp hostPort(String addr, byte[] key, String provider, long props) {
-        String host = addr;
-        int port = 443;
-        if (addr.startsWith("[")) {
-            int end = addr.indexOf(']');
-            if (end < 0) {
-                throw new IllegalArgumentException("bad address");
-            }
-            host = addr.substring(1, end);
-            if (end + 1 < addr.length()) {
-                port = port(addr.substring(end + 1));
-            }
-        } else if (addr.indexOf(':') == addr.lastIndexOf(':') && addr.indexOf(':') >= 0) {
-            host = addr.substring(0, addr.indexOf(':'));
-            port = port(addr.substring(addr.indexOf(':')));
-        }
-        InetAddress ip = IpLiteral.parse(host); // never a lookup, even for text that is almost an address
-        if (ip == null) {
+        StampText.Address a = StampText.address(addr);
+        if (a.ip == null) {
             throw new IllegalArgumentException("stamp address must be an IP, not a name");
         }
-        return new DnsCryptStamp(ip, port, key, provider, props);
-    }
-
-    /** @param colonPort for example ":443" */
-    private static int port(String colonPort) {
-        try {
-            int p = Integer.parseInt(colonPort.substring(1));
-            if (p < 1 || p > 65535) {
-                throw new NumberFormatException();
-            }
-            return p;
-        } catch (NumberFormatException | IndexOutOfBoundsException e) {
-            throw new IllegalArgumentException("bad port");
-        }
-    }
-
-    private static byte[] lengthPrefixed(byte[] b, int[] pos) {
-        if (pos[0] >= b.length) {
-            throw new IllegalArgumentException("truncated stamp");
-        }
-        int n = b[pos[0]] & 0xFF;
-        if (pos[0] + 1 + n > b.length) {
-            throw new IllegalArgumentException("truncated stamp");
-        }
-        byte[] out = java.util.Arrays.copyOfRange(b, pos[0] + 1, pos[0] + 1 + n);
-        pos[0] += 1 + n;
-        return out;
+        return new DnsCryptStamp(a.ip, a.port == 0 ? 443 : a.port, key, provider, StampText.props(b));
     }
 }
