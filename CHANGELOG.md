@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (planned v1.0.0)
+
+- New switch in Settings > Connection, "Allow automation apps" (off by default). When on, apps such as Tasker or MacroDroid that hold the permission com.bridge.filt3r.permission.AUTOMATION can connect and disconnect filt3r (actions com.bridge.filt3r.action.AUTOMATION_CONNECT and AUTOMATION_DISCONNECT, component .AutomationAlias). The switch is not part of settings backups.
+
 ## v0.0.14
 
 - Share a node link (ss://) or a subscription address (https://) to filt3r from a chat or browser. It asks before adding anything, and shows the host (and port). A subscription goes in the first free slot and its nodes load at the next connect or restart.
