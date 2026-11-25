@@ -263,7 +263,9 @@
     <string name="settings_connection_bypass_lan">Keep local network out of the tunnel</string>
     <string name="settings_connection_bypass_lan_summary">Your router and other local devices stay reachable, and local traffic never goes to a node. Off: all traffic, including local, goes through the tunnel.</string>
     <string name="settings_connection_automation">Allow automation apps</string>
-    <string name="settings_connection_automation_summary">Lets apps such as Tasker or MacroDroid connect and disconnect filt3r. They need the permission com.bridge.filt3r.permission.AUTOMATION and send the action com.bridge.filt3r.action.AUTOMATION_CONNECT or AUTOMATION_DISCONNECT to the component .AutomationAlias. Off: they are ignored. Not included in settings backups.</string>
+    <string name="settings_connection_automation_summary">Lets apps such as Tasker or MacroDroid connect and disconnect filt3r. Off: they are ignored. Not included in settings backups.</string>
+    <string name="settings_connection_automation_key">Automation key</string>
+    <string name="settings_connection_automation_key_summary">Tap to copy. In Tasker use Send Intent: Action com.bridge.filt3r.action.AUTOMATION_CONNECT or com.bridge.filt3r.action.AUTOMATION_DISCONNECT, Extra com.bridge.filt3r.extra.KEY:(the key), Package com.bridge.filt3r, Class com.bridge.filt3r.MainActivity, Target Activity. Anyone who has the key can switch filt3r on or off, so share it with no one.</string>
     <plurals name="overrides_summary_rules">
         <item quantity="one">%1$d rule</item>
         <item quantity="other">%1$d rules</item>

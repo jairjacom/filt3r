@@ -2,7 +2,7 @@
 
 ## Unreleased (planned v1.0.0)
 
-- New switch in Settings > Connection, "Allow automation apps" (off by default). When on, apps such as Tasker or MacroDroid that hold the permission com.bridge.filt3r.permission.AUTOMATION can connect and disconnect filt3r (actions com.bridge.filt3r.action.AUTOMATION_CONNECT and AUTOMATION_DISCONNECT, component .AutomationAlias). The switch is not part of settings backups.
+- New switch in Settings > Connection, "Allow automation apps" (off by default). When on, a macro app such as Tasker can connect and disconnect filt3r by sending the action com.bridge.filt3r.action.AUTOMATION_CONNECT or AUTOMATION_DISCONNECT with the "Automation key" shown in Settings (tap to copy). The switch and the key are not part of settings backups.
 
 ## v0.0.14
 

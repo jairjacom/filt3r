@@ -271,7 +271,7 @@ final class Settings {
         prefs.edit().putBoolean(KEY_SWITCH_FASTER, on).apply();
     }
 
-    /** True to let automation apps connect and disconnect through AutomationAlias. Off by default; not part of backups. */
+    /** True to let automation apps connect and disconnect when they send the automation key. Off by default; not part of backups. */
     boolean allowAutomation() {
         return prefs.getBoolean(KEY_ALLOW_AUTOMATION, false);
     }

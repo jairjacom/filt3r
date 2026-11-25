@@ -329,9 +329,8 @@ public class MainActivity extends Activity
             return;
         }
         if (ACTION_AUTOMATION_CONNECT.equals(action) || ACTION_AUTOMATION_DISCONNECT.equals(action)) {
-            // Only through AutomationAlias (its permission is checked by Android); an explicit intent to MainActivity has another component.
-            android.content.ComponentName via = intent.getComponent();
-            if (via == null || !via.getClassName().endsWith(".AutomationAlias") || !settings.allowAutomation()) {
+            // Both gates must pass: the Settings switch, and the automation key that only the user can read in Settings.
+            if (!settings.allowAutomation() || !IntentGuard.hasAutomationKey(this, intent)) {
                 return;
             }
             if (ACTION_AUTOMATION_CONNECT.equals(action)) {
@@ -1325,6 +1324,11 @@ public class MainActivity extends Activity
     @Override
     public void setAllowAutomation(boolean on) {
         settings.setAllowAutomation(on);
+    }
+
+    @Override
+    public String automationKey() {
+        return IntentGuard.automationKey(this);
     }
 
     @Override

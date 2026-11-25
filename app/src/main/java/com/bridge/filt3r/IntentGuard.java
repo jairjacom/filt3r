@@ -17,31 +17,46 @@ import java.security.SecureRandom;
 final class IntentGuard {
     private static final String PREFS = "intent_guard";
     private static final String KEY = "key";
+    private static final String AUTOMATION_KEY = "automation_key";
     private static final String EXTRA = "com.bridge.filt3r.extra.KEY";
 
     private IntentGuard() {}
 
     /** Adds the key to an intent that our own tile, widget or shortcut sends to MainActivity. */
     static Intent attachKey(Context ctx, Intent intent) {
-        return intent.putExtra(EXTRA, key(ctx));
+        return intent.putExtra(EXTRA, key(ctx, KEY));
     }
 
     /** True if the intent carries this install's key. */
     static boolean hasKey(Context ctx, Intent intent) {
-        String given = intent.getStringExtra(EXTRA);
-        return given != null && MessageDigest.isEqual(
-                given.getBytes(StandardCharsets.UTF_8), key(ctx).getBytes(StandardCharsets.UTF_8));
+        return matches(intent, key(ctx, KEY));
     }
 
-    private static synchronized String key(Context ctx) {
+    /** The separate key an automation app sends for the automation actions; shown to the user in Settings. */
+    static String automationKey(Context ctx) {
+        return key(ctx, AUTOMATION_KEY);
+    }
+
+    /** True if the intent carries this install's automation key. */
+    static boolean hasAutomationKey(Context ctx, Intent intent) {
+        return matches(intent, key(ctx, AUTOMATION_KEY));
+    }
+
+    private static boolean matches(Intent intent, String expected) {
+        String given = intent.getStringExtra(EXTRA);
+        return given != null && MessageDigest.isEqual(
+                given.getBytes(StandardCharsets.UTF_8), expected.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static synchronized String key(Context ctx, String name) {
         SharedPreferences prefs = ctx.getApplicationContext()
                 .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        String key = prefs.getString(KEY, null);
+        String key = prefs.getString(name, null);
         if (key == null) {
             byte[] bytes = new byte[32];
             new SecureRandom().nextBytes(bytes);
             key = Base64.encodeToString(bytes, Base64.NO_WRAP | Base64.URL_SAFE);
-            prefs.edit().putString(KEY, key).apply();
+            prefs.edit().putString(name, key).apply();
         }
         return key;
     }
