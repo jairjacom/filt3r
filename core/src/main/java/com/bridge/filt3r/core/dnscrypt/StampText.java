@@ -81,10 +81,13 @@ final class StampText {
         }
     }
 
-    /** Reads "ip", "ip:port", "[v6]" or "[v6]:port" without ever looking a name up; an empty field gives a null IP. */
+    /** Reads "", ":port", "ip", "ip:port", "[v6]" or "[v6]:port" without ever looking a name up; an empty field gives a null IP. */
     static Address address(String addr) {
         if (addr.isEmpty()) {
             return new Address(null, 0);
+        }
+        if (addr.startsWith(":")) { // just a port: the host name is looked up
+            return new Address(null, port(addr));
         }
         String host = addr;
         int port = 0;

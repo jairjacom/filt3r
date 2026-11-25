@@ -57,18 +57,28 @@ class DohStampTest {
     @Test
     void certificateHashesAreSkippedWhetherOneOrMany() {
         byte[][] hashes = {new byte[32], new byte[32]};
-        DohStamp s = DohStamp.parse(build(2, 0, "", hashes, "dns.example.net", "/q", new String[] {"9.9.9.10"}));
+        DohStamp s = DohStamp.parse(build(2, 0, "9.9.9.10", hashes, "dns.example.net", "/q", new String[0]));
         assertEquals("dns.example.net", s.hostname);
         assertEquals("9.9.9.10", s.endpoint());
     }
 
     @Test
-    void onlyIpv4AddressesAreKeptAndAnIpv6OnlyStampIsNotUsable() {
-        DohStamp mixed = DohStamp.parse(build(2, 0, "", new byte[0][], "dns.example.net", "/q",
-                new String[] {"2001:db8::1", "9.9.9.11", "9.9.9.11"}));
-        assertEquals(1, mixed.addresses.size());
-        assertTrue(mixed.usable());
+    void bootstrapListNamesPlainDnsServersSoItIsIgnored() {
+        DohStamp s = DohStamp.parse(build(2, 0, "", new byte[0][], "dns.example.net", "/q", new String[] {"9.9.9.11", "2001:db8::1"}));
+        assertTrue(s.addresses.isEmpty());
+        assertTrue(s.usable());
+        assertEquals("dns.example.net", s.endpoint());
+    }
 
+    @Test
+    void addressWithJustAPortMeansLookUpTheNameAndUsesThatPort() {
+        DohStamp s = DohStamp.parse(build(2, 0, ":8443", new byte[0][], "dns.example.net", "/q", new String[0]));
+        assertTrue(s.addresses.isEmpty());
+        assertEquals(8443, s.port);
+    }
+
+    @Test
+    void anIpv6OnlyStampIsNotUsable() {
         DohStamp v6 = DohStamp.parse(build(2, 0, "[2001:db8::1]", new byte[0][], "dns.example.net", "/q", new String[0]));
         assertTrue(v6.addresses.isEmpty());
         assertFalse(v6.usable());

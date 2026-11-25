@@ -92,7 +92,7 @@ public class Filt3rVpnService extends VpnService {
             "https://raw.githubusercontent.com/DNSCrypt/dnscrypt-resolvers/master/v3/public-resolvers.md";
     private static final String RESOLVER_LIST_KEY = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
     private static final long RESOLVER_LIST_MAX_AGE_MS = 7L * 24 * 3600 * 1000;
-    private static final long RESOLVER_TEST_TIMEOUT_S = 90;
+    private static final long RESOLVER_TEST_TIMEOUT_S = 240; // the official list has about 500 DNSCrypt and DoH entries
     private static final long FIRST_MAINTENANCE_MIN = 2;
     private static final int MTU = 1500;
     private static final long CONFIG_BACKSTOP_MS = 5000;

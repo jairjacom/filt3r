@@ -3,7 +3,6 @@ package com.bridge.filt3r.core.dnscrypt;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -11,12 +10,12 @@ import java.util.regex.Pattern;
 import com.bridge.filt3r.core.dns.NameResolver;
 import com.bridge.filt3r.core.filter.DNSResolver;
 import com.bridge.filt3r.core.socks.Dialer;
-import com.bridge.filt3r.core.util.IpLiteral;
 
 /**
  * A DNS-over-HTTPS resolver from an {@code sdns://} stamp (protocol 2): host name, port, path and
- * optional IPv4 addresses (the stamp's address and its bootstrap list). The certificate hashes in the
- * stamp are not used; the normal certificate and host name check applies.
+ * an optional IPv4 address of the server. The certificate hashes in the stamp are not used; the
+ * normal certificate and host name check applies. The stamp's bootstrap list names plain DNS servers
+ * (not the DoH server), so it is read and ignored.
  */
 public final class DohStamp implements ResolverStamp {
 
@@ -28,7 +27,7 @@ public final class DohStamp implements ResolverStamp {
     public final String hostname;
     public final int port;
     public final String path;
-    /** IPv4 addresses from the stamp; empty if it has none (the host name is then looked up). */
+    /** The server's IPv4 address from the stamp; empty if it has none (the host name is then looked up). */
     public final List<InetAddress> addresses;
     private final boolean onlyIpv6;
     /** The operator's claims, bit flags: 1 = DNSSEC, 2 = no logs, 4 = no filtering. Not verifiable. */
@@ -89,7 +88,6 @@ public final class DohStamp implements ResolverStamp {
         StampText.variableLength(b, pos); // certificate hashes: not used
         String hostPort = ascii(StampText.lengthPrefixed(b, pos));
         String path = ascii(StampText.lengthPrefixed(b, pos));
-        List<byte[]> bootstrap = pos[0] < b.length ? StampText.variableLength(b, pos) : Collections.emptyList();
 
         String host = hostPort;
         int port = 0;
@@ -105,31 +103,13 @@ public final class DohStamp implements ResolverStamp {
         if (!PATH.matcher(path).matches()) {
             throw new IllegalArgumentException("bad path");
         }
-        List<InetAddress> found = new ArrayList<>();
-        boolean sawIpv6 = false;
-        if (a.ip != null) {
-            if (a.ip instanceof Inet4Address) {
-                found.add(a.ip);
-            } else {
-                sawIpv6 = true;
-            }
-            if (port == 0) {
-                port = a.port;
-            }
+        // Anything after the path (the bootstrap list) is ignored.
+        if (port == 0) {
+            port = a.port;
         }
-        for (byte[] item : bootstrap) {
-            InetAddress ip = IpLiteral.parse(ascii(item));
-            if (ip == null) {
-                throw new IllegalArgumentException("bad bootstrap address");
-            }
-            if (!(ip instanceof Inet4Address)) {
-                sawIpv6 = true;
-            } else if (!found.contains(ip)) {
-                found.add(ip);
-            }
-        }
-        return new DohStamp(host, port == 0 ? 443 : port, path, Collections.unmodifiableList(found),
-                found.isEmpty() && sawIpv6, StampText.props(b));
+        List<InetAddress> found = a.ip instanceof Inet4Address ? Collections.singletonList(a.ip) : Collections.emptyList();
+        boolean onlyIpv6 = a.ip != null && found.isEmpty();
+        return new DohStamp(host, port == 0 ? 443 : port, path, found, onlyIpv6, StampText.props(b));
     }
 
     private static String ascii(byte[] b) {
