@@ -37,6 +37,7 @@
     <string name="main_backup_confirm_action">Restore</string>
     <string name="main_backup_done_title">Settings restored</string>
     <string name="main_backup_done_message">"%1$d domain rules added, %2$d skipped. Connection and DNS changes apply after a restart."</string>
+    <string name="main_backup_done_secrets">"\n\n%1$d subscriptions and %2$d nodes restored. The nodes of a subscription are downloaded the next time you connect."</string>
     <string name="main_backup_restart_now">Restart now</string>
     <string name="main_backup_later">Later</string>
     <string name="main_nodes_not_tested">Nodes not tested yet</string>

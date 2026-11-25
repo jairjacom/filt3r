@@ -808,7 +808,9 @@ public class MainActivity extends Activity
                 boolean on = running();
                 com.google.android.material.dialog.MaterialAlertDialogBuilder b = Dialogs.builder(this)
                         .setTitle(R.string.main_backup_done_title)
-                        .setMessage(getString(R.string.main_backup_done_message, done.rulesApplied, done.rulesSkipped));
+                        .setMessage(getString(R.string.main_backup_done_message, done.rulesApplied, done.rulesSkipped)
+                                + (done.subscriptions + done.nodes > 0
+                                        ? getString(R.string.main_backup_done_secrets, done.subscriptions, done.nodes) : ""));
                 if (on) {
                     b.setPositiveButton(R.string.main_backup_restart_now, (d, w) -> restart())
                             .setNegativeButton(R.string.main_backup_later, null);
