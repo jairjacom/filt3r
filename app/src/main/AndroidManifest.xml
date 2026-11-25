@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Automation apps (Tasker, MacroDroid) must hold this to reach AutomationAlias. Normal level: the real gate is the "Allow automation apps" switch in Settings, off by default. -->
+    <permission
+        android:name="${applicationId}.permission.AUTOMATION"
+        android:protectionLevel="normal" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -43,6 +47,19 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!-- Connect/Disconnect for automation apps. MainActivity only acts on these actions when they arrive through this alias and the Settings switch is on. -->
+        <activity-alias
+            android:name=".AutomationAlias"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:permission="${applicationId}.permission.AUTOMATION">
+            <intent-filter>
+                <action android:name="com.bridge.filt3r.action.AUTOMATION_CONNECT" />
+                <action android:name="com.bridge.filt3r.action.AUTOMATION_DISCONNECT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".Filt3rVpnService"

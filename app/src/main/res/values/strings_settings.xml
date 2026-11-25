@@ -262,6 +262,8 @@
     <string name="settings_connection_switch_faster_summary">After the hourly test, moves to a node that is at least twice as fast and 100 ms quicker. Open connections restart and your exit IP changes. A pinned node is never left. Off: the node changes only when it stops working, or after the full node scan when it answers in 800 ms or more.</string>
     <string name="settings_connection_bypass_lan">Keep local network out of the tunnel</string>
     <string name="settings_connection_bypass_lan_summary">Your router and other local devices stay reachable, and local traffic never goes to a node. Off: all traffic, including local, goes through the tunnel.</string>
+    <string name="settings_connection_automation">Allow automation apps</string>
+    <string name="settings_connection_automation_summary">Lets apps such as Tasker or MacroDroid connect and disconnect filt3r. They need the permission com.bridge.filt3r.permission.AUTOMATION and send the action com.bridge.filt3r.action.AUTOMATION_CONNECT or AUTOMATION_DISCONNECT to the component .AutomationAlias. Off: they are ignored. Not included in settings backups.</string>
     <plurals name="overrides_summary_rules">
         <item quantity="one">%1$d rule</item>
         <item quantity="other">%1$d rules</item>

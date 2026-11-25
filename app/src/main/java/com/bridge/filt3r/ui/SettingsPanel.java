@@ -108,6 +108,10 @@ public class SettingsPanel extends LinearLayout {
 
         void setSwitchToFaster(boolean on);
 
+        boolean allowAutomation();
+
+        void setAllowAutomation(boolean on);
+
         String resolverName();
 
         /** The built-in resolver first, then the ones that passed the last test (fastest first). */
@@ -421,6 +425,9 @@ public class SettingsPanel extends LinearLayout {
                     backend.setBypassLan(on);
                     markChanged();
                 }));
+        card.addView(switchRow(context, context.getString(R.string.settings_connection_automation),
+                context.getString(R.string.settings_connection_automation_summary),
+                backend.allowAutomation(), backend::setAllowAutomation));
     }
 
     private void buildDns(Context context) {

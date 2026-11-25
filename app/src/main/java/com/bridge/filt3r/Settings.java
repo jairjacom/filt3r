@@ -71,6 +71,7 @@ final class Settings {
     private static final String KEY_TEST_CHEAP = "test_only_cheap";
     private static final String KEY_SWITCH_FASTER = "switch_faster";
     private static final String KEY_BYPASS_LAN = "bypass_lan";
+    private static final String KEY_ALLOW_AUTOMATION = "allow_automation";
     private static final String KEY_LIST_DAYS = "list_refresh_days";
     private static final String KEY_TOOLBAR_PINNED = "toolbar_pinned";
     private static final String KEY_TOOLBAR_STYLE = "toolbar_style";
@@ -268,6 +269,15 @@ final class Settings {
 
     void setSwitchToFaster(boolean on) {
         prefs.edit().putBoolean(KEY_SWITCH_FASTER, on).apply();
+    }
+
+    /** True to let automation apps connect and disconnect through AutomationAlias. Off by default; not part of backups. */
+    boolean allowAutomation() {
+        return prefs.getBoolean(KEY_ALLOW_AUTOMATION, false);
+    }
+
+    void setAllowAutomation(boolean on) {
+        prefs.edit().putBoolean(KEY_ALLOW_AUTOMATION, on).apply();
     }
 
     /** Days between updates of the block lists and the IP blocklist. Applies at the next (re)start. */
