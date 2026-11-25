@@ -129,7 +129,7 @@ final class Settings {
                 .apply();
     }
 
-    /** The chosen DNSCrypt resolver's display name. Applies at the next (re)start. */
+    /** The chosen resolver's display name. Applies at the next (re)start. */
     String resolverName() {
         return prefs.getString(KEY_RESOLVER_NAME, DEFAULT_RESOLVER_NAME);
     }

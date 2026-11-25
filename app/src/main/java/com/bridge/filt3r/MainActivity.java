@@ -455,6 +455,9 @@ public class MainActivity extends Activity
         if (state != TunnelState.State.RUNNING && state != TunnelState.State.STARTING) {
             setRestartPending(false); // a fresh start applies every change
         }
+        if (state == TunnelState.State.FAILED && Filt3rVpnService.takeResolverFailure()) {
+            Messages.show(frame, getString(R.string.main_resolver_unreachable), getString(R.string.main_retry), this::connect);
+        }
     }
 
     private void refresh() {
@@ -1351,7 +1354,7 @@ public class MainActivity extends Activity
         List<SettingsPanel.Resolver> out = new ArrayList<>();
         out.add(new SettingsPanel.Resolver(Settings.DEFAULT_RESOLVER_NAME, Settings.DEFAULT_RESOLVER_STAMP, -1));
         for (ResolverStore.Info r : new ResolverStore(getFilesDir()).load()) {
-            out.add(new SettingsPanel.Resolver(r.name, r.stamp, r.millis));
+            out.add(new SettingsPanel.Resolver(r.doh ? getString(R.string.settings_dns_resolver_doh, r.name) : r.name, r.stamp, r.millis));
         }
         return out;
     }

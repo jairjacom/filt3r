@@ -102,7 +102,7 @@ public final class HttpsFetcher {
         String target = url;
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
             URI uri = parse(target);
-            Opened o = open(uri);
+            Opened o = open(uri, null);
             if (o.status == 200) {
                 return o.body;
             }
@@ -114,6 +114,45 @@ public final class HttpsFetcher {
             throw new IOException("HTTP " + o.status);
         }
         throw new IOException("too many redirects");
+    }
+
+    /** The body and limits of a POST; a GET passes null. */
+    private static final class Post {
+        final String contentType;
+        final byte[] body;
+        final int readTimeoutMs;
+
+        Post(String contentType, byte[] body, int readTimeoutMs) {
+            this.contentType = contentType;
+            this.body = body;
+            this.readTimeoutMs = readTimeoutMs;
+        }
+    }
+
+    /**
+     * Sends one POST (no redirects) and returns the body of a 200 answer, for DNS-over-HTTPS.
+     *
+     * @param maxResponse the largest body accepted, in bytes
+     * @param readTimeoutMs how long one read may stall
+     * @throws IOException on any failure, a non-200 answer or a body over the limit
+     */
+    public byte[] post(String url, String contentType, byte[] body, int maxResponse, int readTimeoutMs) throws IOException {
+        Opened o = open(parse(url), new Post(contentType, body, readTimeoutMs));
+        try (InputStream in = o.body) {
+            if (o.status != 200) {
+                throw new IOException("HTTP " + o.status);
+            }
+            ByteArrayOutputStream b = new ByteArrayOutputStream();
+            byte[] buf = new byte[2048];
+            int n;
+            while ((n = in.read(buf)) >= 0) {
+                b.write(buf, 0, n);
+                if (b.size() > maxResponse) {
+                    throw new IOException("response too large");
+                }
+            }
+            return b.toByteArray();
+        }
     }
 
     private static URI parse(String url) throws IOException {
@@ -134,7 +173,7 @@ public final class HttpsFetcher {
         InputStream body; // closing it closes the connection
     }
 
-    private Opened open(URI uri) throws IOException {
+    private Opened open(URI uri, Post post) throws IOException {
         if (cancelled) {
             throw new IOException("cancelled");
         }
@@ -162,14 +201,14 @@ public final class HttpsFetcher {
                 if (cancelled) {
                     throw new IOException("cancelled");
                 }
-                plain.setSoTimeout(READ_TIMEOUT_MS);
+                plain.setSoTimeout(post == null ? READ_TIMEOUT_MS : post.readTimeoutMs);
                 SSLSocket tls = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault())
                         .createSocket(plain, host, port, true);
                 SSLParameters p = tls.getSSLParameters();
                 p.setEndpointIdentificationAlgorithm("HTTPS"); // verify the certificate against the host
                 tls.setSSLParameters(p);
                 tls.startHandshake();
-                return request(tls, uri, release);
+                return request(tls, uri, post, release);
             } catch (IOException e) {
                 last = e;
                 release.run();
@@ -182,15 +221,22 @@ public final class HttpsFetcher {
         throw last != null ? last : new IOException("no address to connect to");
     }
 
-    private static Opened request(SSLSocket tls, URI uri, Runnable release) throws IOException {
+    private static Opened request(SSLSocket tls, URI uri, Post post, Runnable release) throws IOException {
         String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         if (uri.getRawQuery() != null) {
             path += "?" + uri.getRawQuery();
         }
-        String req = "GET " + path + " HTTP/1.1\r\nHost: " + uri.getHost()
-                + "\r\nUser-Agent: filt3r\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n";
+        String host = uri.getPort() > 0 && uri.getPort() != 443 ? uri.getHost() + ":" + uri.getPort() : uri.getHost();
+        String head = (post == null ? "GET " : "POST ") + path + " HTTP/1.1\r\nHost: " + host
+                + "\r\nUser-Agent: filt3r\r\nAccept: " + (post == null ? "*/*" : post.contentType)
+                + "\r\nAccept-Encoding: identity\r\nConnection: close\r\n"
+                + (post == null ? "" : "Content-Type: " + post.contentType + "\r\nContent-Length: " + post.body.length + "\r\n")
+                + "\r\n";
         OutputStream out = tls.getOutputStream();
-        out.write(req.getBytes(StandardCharsets.US_ASCII));
+        out.write(head.getBytes(StandardCharsets.US_ASCII));
+        if (post != null) {
+            out.write(post.body);
+        }
         out.flush();
 
         InputStream in = tls.getInputStream();

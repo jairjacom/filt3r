@@ -46,7 +46,7 @@ import java.util.Set;
  */
 public class SettingsPanel extends LinearLayout {
 
-    /** One DNSCrypt resolver the user can pick. {@code millis} is -1 if it was not measured. */
+    /** One resolver (DNSCrypt or DoH) the user can pick. {@code millis} is -1 if it was not measured. */
     public static final class Resolver {
         public final String name;
         public final String stamp;

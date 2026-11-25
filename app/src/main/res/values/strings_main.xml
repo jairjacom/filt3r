@@ -52,6 +52,9 @@
     </plurals>
     <string name="main_subscription_failed">Last update failed: %1$s</string>
 
+    <string name="main_resolver_unreachable">Can\'t reach the resolver, check your network</string>
+    <string name="main_retry">Retry</string>
+
     <!-- FilterStatusText -->
     <string name="filter_status_downloading">Downloading filter lists (%1$d of %2$d)...</string>
     <string name="filter_status_ok">"%1$,d blocked names  ·  updated %2$s"</string>
@@ -93,10 +96,10 @@
     <string name="vpn_notification_paused_text">Nothing is blocked until %1$s.</string>
     <string name="vpn_notification_action_pause">Pause %1$d min</string>
     <string name="vpn_notification_action_resume">Resume</string>
-    <string name="vpn_check_bad_stamp">not a usable DNSCrypt stamp: %1$s</string>
+    <string name="vpn_check_bad_stamp">not a usable DNSCrypt or DoH stamp: %1$s</string>
     <string name="vpn_check_start_vpn_first">start the VPN first: resolvers are tested through the node</string>
     <string name="vpn_check_works">works, %1$d ms</string>
-    <string name="vpn_check_no_answer">resolver did not answer (it may use another cipher or no TCP): %1$s</string>
+    <string name="vpn_check_no_answer">resolver did not answer (a DNSCrypt resolver may use another cipher or no TCP): %1$s</string>
 
     <!-- Tile -->
     <string name="tile_on">On</string>

@@ -1,13 +1,12 @@
 package com.bridge.filt3r.core.dnscrypt;
 
-import java.net.Inet6Address;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Reads the DNSCrypt project's public resolver list (markdown: "## name", a description, then one
- * or more sdns:// stamps). Keeps only DNSCrypt stamps with an IPv4 address; DoH, relay and IPv6
- * entries are skipped.
+ * or more sdns:// stamps). Keeps DNSCrypt and DoH stamps the tunnel can reach (not IPv6-only);
+ * relay and other stamp types are skipped.
  */
 public final class ResolverList {
 
@@ -16,9 +15,9 @@ public final class ResolverList {
         public final String name;
         public final String description;
         public final String stampText;
-        public final DnsCryptStamp stamp;
+        public final ResolverStamp stamp;
 
-        Entry(String name, String description, String stampText, DnsCryptStamp stamp) {
+        Entry(String name, String description, String stampText, ResolverStamp stamp) {
             this.name = name;
             this.description = description;
             this.stampText = stampText;
@@ -42,14 +41,14 @@ public final class ResolverList {
                 stampsInEntry = 0;
             } else if (name != null && line.startsWith("sdns://")) {
                 try {
-                    DnsCryptStamp s = DnsCryptStamp.parse(line);
-                    if (!(s.address instanceof Inet6Address)) {
+                    ResolverStamp s = ResolverStamp.parse(line);
+                    if (s.usable()) {
                         stampsInEntry++;
                         out.add(new Entry(stampsInEntry == 1 ? name : name + " #" + stampsInEntry,
                                 description.toString().trim(), line, s));
                     }
                 } catch (IllegalArgumentException e) {
-                    // not a DNSCrypt stamp we can use
+                    // not a DNSCrypt or DoH stamp we can use
                 }
             } else if (name != null && !line.isEmpty() && stampsInEntry == 0) {
                 if (description.length() > 0) {

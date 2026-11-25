@@ -2,8 +2,6 @@ package com.bridge.filt3r.core.nodes;
 
 import java.io.IOException;
 
-import com.bridge.filt3r.core.dnscrypt.DnsCryptStamp;
-import com.bridge.filt3r.core.dnscrypt.DnsCryptUpstream;
 import com.bridge.filt3r.core.filter.DNSResolver;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 
@@ -17,12 +15,12 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 public final class FailoverUpstream implements DNSResolver.Upstream {
 
     private final NodeManager manager;
-    private final DnsCryptUpstream upstream;
+    private final DNSResolver.Upstream upstream;
     private final NodeHealth health;
 
-    public FailoverUpstream(NodeManager manager, DnsCryptStamp stamp, FailoverDialer dialer, NodeHealth health) {
+    public FailoverUpstream(NodeManager manager, DNSResolver.Upstream upstream, NodeHealth health) {
         this.manager = manager;
-        this.upstream = new DnsCryptUpstream(stamp, dialer);
+        this.upstream = upstream;
         this.health = health;
     }
 

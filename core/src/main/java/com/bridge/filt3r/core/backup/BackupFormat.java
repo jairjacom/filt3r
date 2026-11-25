@@ -1,6 +1,6 @@
 package com.bridge.filt3r.core.backup;
 
-import com.bridge.filt3r.core.dnscrypt.DnsCryptStamp;
+import com.bridge.filt3r.core.dnscrypt.ResolverStamp;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.subscription.MiniJson;
@@ -254,7 +254,7 @@ public final class BackupFormat {
             case "resolver_stamp": {
                 String stamp = asString(v, key, 1024);
                 try {
-                    DnsCryptStamp.parse(stamp);
+                    ResolverStamp.parse(stamp);
                 } catch (IllegalArgumentException e) {
                     throw new IllegalArgumentException(key);
                 }

@@ -1,6 +1,7 @@
 package com.bridge.filt3r;
 
-import com.bridge.filt3r.core.dnscrypt.DnsCryptStamp;
+import com.bridge.filt3r.core.dnscrypt.DohStamp;
+import com.bridge.filt3r.core.dnscrypt.ResolverStamp;
 import com.bridge.filt3r.core.dnscrypt.ResolverTester;
 
 import java.io.File;
@@ -27,8 +28,9 @@ final class ResolverStore {
         final boolean dnssec;
         final boolean noLogs;
         final boolean noFilter;
+        final boolean doh;
 
-        Info(String name, String description, String stamp, long millis, DnsCryptStamp parsed) {
+        Info(String name, String description, String stamp, long millis, ResolverStamp parsed) {
             this.name = name;
             this.description = description;
             this.stamp = stamp;
@@ -36,6 +38,7 @@ final class ResolverStore {
             this.dnssec = parsed.claimsDnssec();
             this.noLogs = parsed.claimsNoLogs();
             this.noFilter = parsed.claimsNoFilter();
+            this.doh = parsed instanceof DohStamp;
         }
     }
 
@@ -61,7 +64,7 @@ final class ResolverStore {
                     continue;
                 }
                 try {
-                    out.add(new Info(p[1], p.length > 3 ? p[3] : "", p[2], Long.parseLong(p[0]), DnsCryptStamp.parse(p[2])));
+                    out.add(new Info(p[1], p.length > 3 ? p[3] : "", p[2], Long.parseLong(p[0]), ResolverStamp.parse(p[2])));
                 } catch (IllegalArgumentException e) {
                     // a bad line is skipped
                 }
