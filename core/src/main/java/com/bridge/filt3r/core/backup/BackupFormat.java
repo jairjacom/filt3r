@@ -32,7 +32,8 @@ public final class BackupFormat {
     private static final int MAX_URL = 2048;
     private static final Pattern PACKAGE = Pattern.compile("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+");
     private static final Pattern HOST = Pattern.compile("[A-Za-z0-9_*]([A-Za-z0-9_.*-]*[A-Za-z0-9_*])?");
-    private static final Pattern LIST_ID = Pattern.compile("[A-Za-z0-9_.-]{1,64}");
+    // List ids are the short names in dnsfilter.conf, split on ";" there: "ad&malware", "HageziPro++" and "Dan Pollock's Hosts" are real ones.
+    private static final Pattern LIST_ID = Pattern.compile("[^;]{1,64}");
     private static final Pattern EFFECT_KEY = Pattern.compile("fx_[a-z]{1,16}");
 
     public static final class Rule {
