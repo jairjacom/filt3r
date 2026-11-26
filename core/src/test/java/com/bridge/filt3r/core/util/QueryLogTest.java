@@ -9,11 +9,13 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.Set;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** The DNS query log: each line keeps the asking app's package name (the key) beside its label. */
+/** The DNS query log: each line keeps the asking app's name and package name (the key) when known. */
 class QueryLogTest {
 
     @TempDir
@@ -21,6 +23,56 @@ class QueryLogTest {
 
     private QueryLog log() {
         return new QueryLog(new File(dir, "query.log"), () -> true);
+    }
+
+    @Test
+    void appNameFollowsTheHostAfterATabAndSurvivesAReload() {
+        File file = new File(dir, "q.txt");
+        QueryLog log = new QueryLog(file, () -> true);
+        log.add("example.org", false, "Chrome", null);
+        log.add("ads.example", true, null, null);
+
+        List<String> lines = new QueryLog(file, () -> true).lines();
+        assertEquals(2, lines.size());
+        QueryLog.Entry first = QueryLog.parse(lines.get(0));
+        assertEquals("example.org", first.host);
+        assertEquals("Chrome", first.app);
+        assertFalse(first.blocked);
+        QueryLog.Entry second = QueryLog.parse(lines.get(1));
+        assertEquals("ads.example", second.host);
+        assertNull(second.app);
+        assertTrue(second.blocked);
+    }
+
+    @Test
+    void anAppLabelCannotSplitOrCorruptTheLine() {
+        QueryLog log = log();
+        log.add("example.org", false, "Evil\nApp\tName\u202Egnp", null);
+
+        List<String> lines = log.lines();
+        assertEquals(1, lines.size());
+        assertEquals("Evil App Name gnp", QueryLog.parse(lines.get(0)).app);
+    }
+
+    @Test
+    void aVeryLongAppLabelIsCutAndAnEmptyOneIsDropped() {
+        QueryLog log = log();
+        log.add("a.example", false, "x".repeat(500), null);
+        log.add("b.example", false, " \n ", null);
+
+        List<String> lines = log.lines();
+        assertEquals(64, QueryLog.parse(lines.get(0)).app.length());
+        assertNull(QueryLog.parse(lines.get(1)).app);
+    }
+
+    @Test
+    void aLineWithoutAnAppStillParsesAndGarbageDoesNot() {
+        QueryLog.Entry e = QueryLog.parse("11-26 12:03:44 BLOCKED ads.example");
+        assertEquals("11-26 12:03:44", e.time);
+        assertEquals("ads.example", e.host);
+        assertNull(e.app);
+        assertNull(QueryLog.parse("11-26 12:03:44 MAYBE ads.example"));
+        assertNull(QueryLog.parse("short"));
     }
 
     @Test
