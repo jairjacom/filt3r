@@ -23,6 +23,7 @@ import com.bridge.filt3r.R;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
+import com.bridge.filt3r.core.util.QueryLog;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
@@ -60,7 +61,6 @@ public class QueryLogPanel extends LinearLayout {
     }
 
     private static final long REFRESH_MS = 2000;
-    private static final int TIME_LENGTH = "MM-dd HH:mm:ss".length();
 
     private static final int ALL = 0;
     private static final int BLOCKED = 1;
@@ -326,25 +326,10 @@ public class QueryLogPanel extends LinearLayout {
         return out;
     }
 
-    /** "MM-dd HH:mm:ss ALLOWED name" -> Entry; null for a line that does not fit. */
+    /** A log line as a panel row; null for a line that does not fit. */
     private static Entry parse(String line) {
-        if (line.length() < TIME_LENGTH + 9) {
-            return null;
-        }
-        String time = line.substring(0, TIME_LENGTH);
-        String rest = line.substring(TIME_LENGTH + 1);
-        int space = rest.indexOf(' ');
-        if (space < 0) {
-            return null;
-        }
-        String verdict = rest.substring(0, space);
-        if (!verdict.equals("BLOCKED") && !verdict.equals("ALLOWED")) {
-            return null;
-        }
-        String name = rest.substring(space + 1);
-        int tab = name.indexOf('\t'); // the asking app's name follows the host name after a tab
-        String app = tab < 0 ? null : name.substring(tab + 1);
-        return new Entry(time, verdict.equals("BLOCKED"), tab < 0 ? name : name.substring(0, tab), app, null);
+        QueryLog.Entry e = QueryLog.parse(line);
+        return e == null ? null : new Entry(e.time, e.blocked, e.host, e.app, null);
     }
 
     private MaterialButton chip(Context context, String text, int icon) {

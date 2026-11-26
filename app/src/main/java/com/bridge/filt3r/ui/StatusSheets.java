@@ -14,6 +14,7 @@ import androidx.appcompat.app.AlertDialog;
 
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.http.IpLookup;
+import com.bridge.filt3r.core.util.QueryLog;
 import com.google.android.material.color.MaterialColors;
 
 import java.io.IOException;
@@ -261,20 +262,12 @@ public final class StatusSheets {
 
     /** "name  ×count" for the most blocked names, most first. Lines look like "MM-dd HH:mm:ss BLOCKED name". */
     static List<String> topBlocked(List<String> lines, int limit) {
-        int timeLength = "MM-dd HH:mm:ss".length();
         Map<String, Integer> counts = new HashMap<>();
         for (String line : lines) {
-            if (line.length() <= timeLength + 1) {
-                continue;
+            QueryLog.Entry e = QueryLog.parse(line);
+            if (e != null && e.blocked) {
+                counts.merge(e.host, 1, Integer::sum);
             }
-            String rest = line.substring(timeLength + 1);
-            int space = rest.indexOf(' ');
-            if (space < 0 || !rest.substring(0, space).equals("BLOCKED")) {
-                continue;
-            }
-            String host = rest.substring(space + 1);
-            int tab = host.indexOf('\t'); // the asking app follows the name after a tab
-            counts.merge(tab < 0 ? host : host.substring(0, tab), 1, Integer::sum);
         }
         List<Map.Entry<String, Integer>> sorted = new ArrayList<>(counts.entrySet());
         sorted.sort((a, b) -> {

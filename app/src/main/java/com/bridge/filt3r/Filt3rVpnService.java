@@ -10,6 +10,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
 import android.net.ConnectivityManager;
+import android.net.InetAddresses;
 import android.net.IpPrefix;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -20,6 +21,7 @@ import android.os.BatteryManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.os.Process;
 import android.util.Log;
 
 import com.bridge.filt3r.core.dns.DohBootstrapResolver;
@@ -388,7 +390,8 @@ public class Filt3rVpnService extends VpnService {
             DNSResolver resolver = new DNSResolver(upstream);
             Socks5Bridge b = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
-                queryApp.set(appOf(client)); // read by the query observer, which runs inside resolve()
+                // The owner is asked only when the log will keep it. The observer reads it inside resolve().
+                queryApp.set(settings.queryLogEnabled() ? appOf(client) : null);
                 try {
                     return resolver.resolve(client, query);
                 } finally {
@@ -1545,7 +1548,7 @@ public class Filt3rVpnService extends VpnService {
         return hev != null && hev.length >= 4 ? new long[] {hev[1], hev[3]} : null;
     }
 
-    /** App name for a uid: the app's label, or "System (name)" for a uid below 10000. Cached per run. */
+    /** App name for a uid: the app's label, "System (name)" below the app range, else "App <uid>". Cached per run. */
     private String appName(int uid) {
         String cached = appNames.get(uid);
         if (cached != null) {
@@ -1560,14 +1563,22 @@ public class Filt3rVpnService extends VpnService {
             } catch (PackageManager.NameNotFoundException e) {
                 name = pkgs[0];
             }
-        } else if (uid == 0) {
-            name = "System (root)";
+        } else if (uid < Process.FIRST_APPLICATION_UID) {
+            name = getString(R.string.qlog_app_system, systemUidName(pm, uid));
         } else {
-            String raw = pm.getNameForUid(uid);
-            name = uid < 10000 ? "System (" + (raw == null ? uid : raw) + ")" : raw == null ? "Unknown app" : raw;
+            // The owner is known but Android hides the package from us.
+            name = getString(R.string.qlog_app_uid, uid);
         }
         appNames.put(uid, name);
         return name;
+    }
+
+    private static String systemUidName(PackageManager pm, int uid) {
+        if (uid == 0) {
+            return "root";
+        }
+        String raw = pm.getNameForUid(uid);
+        return raw != null ? raw : String.valueOf(uid);
     }
 
     /**
@@ -1583,9 +1594,10 @@ public class Filt3rVpnService extends VpnService {
         try {
             String source = client.substring(4);
             int hash = source.lastIndexOf('#');
-            // hev writes the address as digits, so this never reaches a name lookup.
+            // parseNumericAddress never asks a name server, whatever the text holds.
             InetSocketAddress local = new InetSocketAddress(
-                    InetAddress.getByName(source.substring(0, hash)), Integer.parseInt(source.substring(hash + 1)));
+                    InetAddresses.parseNumericAddress(source.substring(0, hash)),
+                    Integer.parseInt(source.substring(hash + 1)));
             InetSocketAddress dns = new InetSocketAddress(InetAddress.getByAddress(DNS_V4_BYTES), 53);
             int uid = getSystemService(ConnectivityManager.class).getConnectionOwnerUid(
                     tcp ? OsConstants.IPPROTO_TCP : OsConstants.IPPROTO_UDP, local, dns);

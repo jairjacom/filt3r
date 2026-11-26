@@ -325,6 +325,8 @@
     <string name="qlog_chip_all">All</string>
     <string name="qlog_chip_top">Top</string>
     <string name="qlog_top_summary">"Blocked %1$d  ·  Allowed %2$d"</string>
+    <string name="qlog_app_system">System (%1$s)</string>
+    <string name="qlog_app_uid">App %1$d</string>
     <string name="qlog_menu_copy">Copy name</string>
     <string name="qlog_menu_only">Show only this domain</string>
     <string name="qlog_menu_rule">Allow or block this domain</string>
