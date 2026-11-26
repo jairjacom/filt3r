@@ -297,7 +297,7 @@ public class Filt3rVpnService extends VpnService {
                 }
                 DNSResponsePatcher.setObserver((host, blocked) -> {
                     (blocked ? dnsBlocked : dnsAllowed).incrementAndGet();
-                    queryLog.add(host, blocked, queryApp.get());
+                    queryLog.add(host, blocked, queryApp.get(), null);
                 });
                 nodes = manager;
                 synchronized (lastNodeLock) {

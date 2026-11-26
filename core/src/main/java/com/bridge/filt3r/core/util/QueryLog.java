@@ -12,11 +12,12 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 /**
- * A plain-text log of DNS queries, one line each: "MM-dd HH:mm:ss ALLOWED|BLOCKED name", followed by
- * a tab and the asking app's name when it is known. It keeps
+ * A plain-text log of DNS queries, one line each: "MM-dd HH:mm:ss ALLOWED|BLOCKED name[TAB app[TAB key]]",
+ * where app is the asking app's name and key its package name, each when known. It keeps
  * the last {@value #MAX_LINES} lines in memory and in one private file. Nothing is written while
  * the enabled switch is off. The file is compacted when it grows past twice the limit.
  */
@@ -44,12 +45,14 @@ public final class QueryLog {
         public final boolean blocked;
         public final String host;
         public final String app; // null when the line has no app
+        public final String key; // null when the line has no key (lines written before keys existed)
 
-        Entry(String time, boolean blocked, String host, String app) {
+        Entry(String time, boolean blocked, String host, String app, String key) {
             this.time = time;
             this.blocked = blocked;
             this.host = host;
             this.app = app;
+            this.key = key;
         }
     }
 
@@ -70,10 +73,10 @@ public final class QueryLog {
         if (!verdict.equals("BLOCKED") && !verdict.equals("ALLOWED")) {
             return null;
         }
-        String name = rest.substring(space + 1);
-        int tab = name.indexOf('\t');
-        return new Entry(line.substring(0, TIME_LENGTH), verdict.equals("BLOCKED"),
-                tab < 0 ? name : name.substring(0, tab), tab < 0 ? null : name.substring(tab + 1));
+        String[] fields = rest.substring(space + 1).split("\t", -1);
+        String app = fields.length > 1 && !fields[1].isEmpty() ? fields[1] : null;
+        String key = fields.length > 2 ? fields[2] : null;
+        return new Entry(line.substring(0, TIME_LENGTH), verdict.equals("BLOCKED"), fields[0], app, key);
     }
 
     /**
@@ -92,19 +95,33 @@ public final class QueryLog {
         return clean.isEmpty() ? null : clean;
     }
 
+    /** A package name is plain text; control characters are blanked so the key cannot break the line. */
+    private static String cleanKey(String key) {
+        if (key == null) {
+            return null;
+        }
+        String clean = key.replaceAll("[\\p{Cc}\\p{Cf}]", " ").trim();
+        return clean.isEmpty() ? null : clean;
+    }
+
     /**
      * Called for every A/AAAA query the filter decides on.
      *
      * @param app the asking app's name, or null when unknown
+     * @param key the asking app's package name, or null when unknown
      */
-    public synchronized void add(String host, boolean blocked, String app) {
+    public synchronized void add(String host, boolean blocked, String app, String key) {
         if (!enabled.getAsBoolean()) {
             return;
         }
         String line = time.format(new Date()) + (blocked ? " BLOCKED " : " ALLOWED ") + host;
         String name = cleanApp(app);
-        if (name != null) {
-            line += "\t" + name;
+        String appKey = cleanKey(key);
+        if (name != null || appKey != null) {
+            line += "\t" + (name == null ? "" : name);
+        }
+        if (appKey != null) {
+            line += "\t" + appKey;
         }
         lines.addLast(line);
         while (lines.size() > MAX_LINES) {
@@ -137,6 +154,19 @@ public final class QueryLog {
             Files.deleteIfExists(file.toPath());
         } catch (IOException e) {
             // an undeletable file is truncated on the next write
+        }
+    }
+
+    /** Drops every line whose app key is in keys, then rewrites the file. */
+    public synchronized void removeApps(Set<String> keys) {
+        lines.removeIf(line -> {
+            Entry entry = parse(line);
+            return entry != null && entry.key != null && keys.contains(entry.key);
+        });
+        try {
+            rewrite();
+        } catch (IOException e) {
+            closeWriter(); // the in-memory lines are already right; the next query writes the file again
         }
     }
 
