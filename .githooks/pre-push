@@ -1,7 +1,20 @@
 #!/bin/sh
 # Pushes need the user's OK. The agent sets FILT3R_PUSH_OK=1 only after the user says yes.
+# Pushing feat/* or fix/* also needs FILT3R_REVIEWED=1: set it only after skill://code-review ran on the
+# branch and every finding is fixed or knowingly accepted. spike/*, chore/* and tags are exempt.
 # Enable once per clone: git config core.hooksPath .githooks
 if [ "$FILT3R_PUSH_OK" != "1" ]; then
   echo "pre-push: blocked. Ask the user, then run: FILT3R_PUSH_OK=1 git push ..." >&2
   exit 1
 fi
+# git feeds one line per ref on stdin: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _ _ remote_ref _; do
+  case "$remote_ref" in
+    refs/heads/feat/*|refs/heads/fix/*)
+      if [ "$FILT3R_REVIEWED" != "1" ]; then
+        echo "pre-push: $remote_ref has no code-review yet. Run skill://code-review, then: FILT3R_PUSH_OK=1 FILT3R_REVIEWED=1 git push ..." >&2
+        exit 1
+      fi
+      ;;
+  esac
+done
