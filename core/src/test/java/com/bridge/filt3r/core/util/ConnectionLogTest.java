@@ -181,4 +181,40 @@ class ConnectionLogTest {
         assertEquals("evil .example", e.dest);
         assertEquals("IP list  x", e.reason);
     }
+
+    @Test
+    void removeAppsDropsOnlyThoseAppsLinesAndRewritesTheFile() throws IOException {
+        AppId mail = AppId.of(new String[] {"org.example.mail"}, 10101, "Mail", null);
+        ConnectionLog log = newLog();
+        log.add(CHROME, "a.example", 443, false, null);
+        log.add(mail, "b.example", 443, true, "IP blocklist");
+        log.removeApps(java.util.Set.of("org.example.chrome"));
+
+        List<String> lines = log.lines();
+        assertEquals(1, lines.size());
+        assertEquals("org.example.mail", ConnectionLog.parse(lines.get(0)).appKey);
+        String onDisk = new String(Files.readAllBytes(new File(dir, "connlog.txt").toPath()), StandardCharsets.UTF_8);
+        assertFalse(onDisk.contains("org.example.chrome"));
+    }
+
+    @Test
+    void aFlowOfARemovedAppStartsAFreshLineInsteadOfMergingIntoAGoneOne() {
+        ConnectionLog log = newLog();
+        log.add(CHROME, "a.example", 443, false, null);
+        log.removeApps(java.util.Set.of("org.example.chrome"));
+        now.set(5_000);
+        log.add(CHROME, "a.example", 443, false, null);
+
+        List<String> lines = log.lines();
+        assertEquals(1, lines.size());
+        assertEquals(1, ConnectionLog.parse(lines.get(0)).count);
+    }
+
+    @Test
+    void removeAppsWithNoMatchingKeyKeepsEverything() {
+        ConnectionLog log = newLog();
+        log.add(CHROME, "a.example", 443, false, null);
+        log.removeApps(java.util.Set.of("org.example.unknown"));
+        assertEquals(1, log.lines().size());
+    }
 }

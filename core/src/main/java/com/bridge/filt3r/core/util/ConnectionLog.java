@@ -179,6 +179,15 @@ public final class ConnectionLog {
         file.delete();
     }
 
+    /** Deletes every line of the apps with these keys (package names) and rewrites the file. */
+    public synchronized void removeApps(java.util.Set<String> keys) {
+        boolean removed = rows.removeIf(r -> keys.contains(r.app.substring(0, r.app.indexOf('\t'))));
+        if (removed) {
+            latest.values().removeIf(r -> !rows.contains(r));
+            write(clock.getAsLong());
+        }
+    }
+
     private String line(Row r) {
         String t = r.savedTime != null ? r.savedTime : time.format(new Date(r.lastMs));
         return t + "\t" + r.verdictAndTarget + "\tx" + r.count + "\t" + r.reason + "\t" + r.app;
