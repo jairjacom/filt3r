@@ -9,4 +9,8 @@ public interface FlowObserver {
      * @param dstPort destination port
      */
     void onFlow(boolean tcp, String source, byte[] dstIp, int dstPort);
+
+    /** A DNS query arrived on the association that {@code source} opened (spike: to name the lookups). */
+    default void onDnsQuery(String source, byte[] query) {
+    }
 }

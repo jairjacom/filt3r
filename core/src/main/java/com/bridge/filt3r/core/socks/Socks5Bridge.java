@@ -268,7 +268,7 @@ public final class Socks5Bridge {
                 observer.onFlow(!udp, source, udp ? dnsVirtual : ip, udp ? 53 : port);
             }
             if (cmd == CMD_UDP_ASSOCIATE) {
-                udpAssociate(client, in, out);
+                udpAssociate(client, in, out, source);
             } else if (cmd == CMD_CONNECT) {
                 connect(client, out, ip, port);
             } else {
@@ -519,14 +519,14 @@ public final class Socks5Bridge {
      * UDP ASSOCIATE. The association lives as long as the TCP control connection stays open.
      * Only datagrams to the virtual DNS address, port 53, are forwarded.
      */
-    private void udpAssociate(Socket control, DataInputStream in, OutputStream out) throws IOException {
+    private void udpAssociate(Socket control, DataInputStream in, OutputStream out, String source) throws IOException {
         DatagramSocket relay = new DatagramSocket(0, InetAddress.getByAddress(LOOPBACK));
         open.add(relay);
         try {
             reply(out, REP_OK, relay.getLocalPort());
             control.setSoTimeout(0);
 
-            UdpAssociation assoc = new UdpAssociation(relay);
+            UdpAssociation assoc = new UdpAssociation(relay, source);
             pool.execute(assoc::receiveLoop);
             while (in.read() != -1) {
                 // control connection carries nothing after the request; wait for it to close
@@ -539,9 +539,11 @@ public final class Socks5Bridge {
 
     private final class UdpAssociation {
         private final DatagramSocket relay;
+        private final String source;
 
-        UdpAssociation(DatagramSocket relay) {
+        UdpAssociation(DatagramSocket relay, String source) {
             this.relay = relay;
+            this.source = source;
         }
 
         void receiveLoop() {
@@ -559,6 +561,10 @@ public final class Socks5Bridge {
                         continue;
                     }
                     byte[] query = Arrays.copyOfRange(buf, UDP_HEADER, p.getLength());
+                    FlowObserver observer = flowObserver;
+                    if (observer != null && !source.isEmpty()) {
+                        observer.onDnsQuery(source, query);
+                    }
                     SocketAddress to = p.getSocketAddress();
                     try {
                         dnsPool.execute(() -> answer(query, to)); // full queue: rejected and counted as dropped; the client retries
