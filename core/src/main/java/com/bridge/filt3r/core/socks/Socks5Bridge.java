@@ -52,7 +52,6 @@ public final class Socks5Bridge {
     private static final int UDP_HEADER = 10; // RSV(2) FRAG(1) ATYP(1) IPv4(4) PORT(2)
     private static final int DNS_MAX = 4096;
     private static final int DNS_TCP_IDLE_MS = 30_000;
-    private static final String DNS_CLIENT = "tunnel"; // query log label when hev did not name the app
     private static final byte[] LOOPBACK = {127, 0, 0, 1};
 
     private static final int ATYP_IPV4 = 1;
@@ -127,6 +126,13 @@ public final class Socks5Bridge {
 
     public void setIpBlockList(IpBlockList list) {
         this.ipBlock = list;
+    }
+
+    private volatile ConnectionListener connectionListener;
+
+    /** Told about every tunnelled TCP connection and its verdict. Null = nobody. */
+    public void setConnectionListener(ConnectionListener listener) {
+        this.connectionListener = listener;
     }
 
     public void setFailureMode(FailureMode mode) {
@@ -256,7 +262,7 @@ public final class Socks5Bridge {
             byte[] ip = readAddress(in, atyp);
             int port = in.readUnsignedShort();
             if (cmd == CMD_UDP_ASSOCIATE) {
-                udpAssociate(client, in, out, source.isEmpty() ? DNS_CLIENT : "udp:" + source);
+                udpAssociate(client, in, out, AppSocket.parse(AppSocket.Proto.UDP, source));
             } else if (cmd == CMD_CONNECT) {
                 connect(client, out, ip, port, source);
             } else {
@@ -352,7 +358,7 @@ public final class Socks5Bridge {
             }
             reply(out, REP_OK, 0);
             client.setSoTimeout(DNS_TCP_IDLE_MS);
-            dnsOverTcp(client, out, source.isEmpty() ? DNS_CLIENT : "tcp:" + source);
+            dnsOverTcp(client, out, AppSocket.parse(AppSocket.Proto.TCP, source));
             return;
         }
         if (isLocalAddress(ip)) {
@@ -360,6 +366,7 @@ public final class Socks5Bridge {
         }
         if (ip.length == 16 && !allowIPv6) {
             // The node has no IPv6 exit: fail at once so the app falls back to IPv4 without waiting.
+            report(source, InetAddress.getByAddress(ip), port, true, ConnectionListener.REASON_IPV6_OFF);
             reply(out, REP_NET_UNREACHABLE, 0);
             refusedIPv6.incrementAndGet();
             return;
@@ -369,6 +376,7 @@ public final class Socks5Bridge {
         if (blockedIps != null && !paused.getAsBoolean()
                 && blockedIps.isBlocked(addr)) {
             // Refused before any node is dialled, so the FAIL_OPEN fallback cannot reach it either.
+            report(source, addr, port, true, ConnectionListener.REASON_IP_LIST);
             reply(out, REP_NOT_ALLOWED, 0);
             refusedIpBlock.incrementAndGet();
             return;
@@ -397,10 +405,13 @@ public final class Socks5Bridge {
                 }
             }
             if (up == null) {
+                boolean noNode = e instanceof NoNodeException;
+                report(source, addr, port, noNode, noNode ? ConnectionListener.REASON_NO_NODE : null);
                 reply(out, failureCode(e), 0);
                 return;
             }
         }
+        report(source, addr, port, false, null); // allowed: a node, or the direct fallback, accepted it
         open.add(up);
         try {
             connectOk.incrementAndGet();
@@ -413,8 +424,21 @@ public final class Socks5Bridge {
         }
     }
 
+    /** Tells the listener, if any. A listener that fails must not break the connection it was told about. */
+    private void report(String source, InetAddress dest, int port, boolean blocked, String reason) {
+        ConnectionListener listener = connectionListener;
+        if (listener == null) {
+            return;
+        }
+        try {
+            listener.onConnection(AppSocket.parse(AppSocket.Proto.TCP, source), dest, port, blocked, reason);
+        } catch (RuntimeException e) {
+            // logging is best effort
+        }
+    }
+
     /** DNS over TCP (RFC 1035 4.2.2): 2-byte length, then the message; any number of queries per connection. */
-    private void dnsOverTcp(Socket client, OutputStream out, String label) throws IOException {
+    private void dnsOverTcp(Socket client, OutputStream out, AppSocket label) throws IOException {
         DataInputStream in = new DataInputStream(client.getInputStream());
         while (true) { // ends with an exception: EOF, idle timeout or a bad length
             int len = in.readUnsignedShort();
@@ -507,7 +531,7 @@ public final class Socks5Bridge {
      * UDP ASSOCIATE. The association lives as long as the TCP control connection stays open.
      * Only datagrams to the virtual DNS address, port 53, are forwarded.
      */
-    private void udpAssociate(Socket control, DataInputStream in, OutputStream out, String label) throws IOException {
+    private void udpAssociate(Socket control, DataInputStream in, OutputStream out, AppSocket label) throws IOException {
         DatagramSocket relay = new DatagramSocket(0, InetAddress.getByAddress(LOOPBACK));
         open.add(relay);
         try {
@@ -527,9 +551,9 @@ public final class Socks5Bridge {
 
     private final class UdpAssociation {
         private final DatagramSocket relay;
-        private final String client; // query log label: who opened this association
+        private final AppSocket client; // query log label: who opened this association, null when hev named no app
 
-        UdpAssociation(DatagramSocket relay, String client) {
+        UdpAssociation(DatagramSocket relay, AppSocket client) {
             this.relay = relay;
             this.client = client;
         }
