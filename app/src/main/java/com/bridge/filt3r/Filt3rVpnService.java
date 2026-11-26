@@ -45,12 +45,15 @@ import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.nodes.NodeRankFile;
 import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
+import com.bridge.filt3r.core.socks.AppSocket;
 import com.bridge.filt3r.core.socks.DirectDialer;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.util.AppId;
+import com.bridge.filt3r.core.util.DnsAnswers;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
+import com.bridge.filt3r.core.util.NameCache;
 import com.bridge.filt3r.core.util.QueryLog;
 import com.bridge.filt3r.core.util.StartScope;
 
@@ -67,6 +70,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -74,6 +78,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -91,6 +96,10 @@ public class Filt3rVpnService extends VpnService {
     private static final byte[] DNS_V4_BYTES = {10, 10, 10, 10};
     private static final ThreadLocal<AppId> queryApp = new ThreadLocal<>();
     private final AppOwner owners = new AppOwner(this);
+    /** Which names each app resolved lately, so a connection to an IP can be logged by name. */
+    private final NameCache hostNames = new NameCache(System::currentTimeMillis);
+    /** Asks Android who owns each connection, off the connect path. When it falls behind, new connections go unlogged rather than slow the tunnel. */
+    private final ThreadPoolExecutor ownerLookups = newOwnerLookups();
     private static final String DNS_V4 = "10.10.10.10";
     private static final InetSocketAddress DNS_REMOTE = new InetSocketAddress(InetAddresses.parseNumericAddress(DNS_V4), 53);
     static final String ACTION_REFRESH_RESOLVERS = "com.bridge.filt3r.REFRESH_RESOLVERS";
@@ -393,14 +402,22 @@ public class Filt3rVpnService extends VpnService {
                 // hev names no app: the label is "tunnel", as before
                 String label = client == null ? "tunnel" : client.toString();
                 // The owner is asked only when the log will keep it. The observer reads it inside resolve().
-                queryApp.set(settings.queryLogEnabled() ? owners.owner(client, DNS_REMOTE) : null);
+                AppId app = settings.queryLogEnabled() ? owners.owner(client, DNS_REMOTE) : null;
+                queryApp.set(app);
                 try {
-                    return resolver.resolve(label, query);
+                    byte[] answer = resolver.resolve(label, query);
+                    rememberNames(app, answer);
+                    return answer;
                 } finally {
                     queryApp.remove();
                 }
             }, viaNode, direct, DNSResponsePatcher::isPaused);
             b.setFailureMode(settings.failureMode());
+            b.setConnectionListener((client, dest, port, blocked, reason) -> {
+                if (settings.queryLogEnabled()) {
+                    ownerLookups.execute(() -> logConnection(client, dest, port, blocked, reason));
+                }
+            });
             synchronized (lock) {
                 if (scope.isClosed()) {
                     if (startRound != null) {
@@ -1795,6 +1812,7 @@ public class Filt3rVpnService extends VpnService {
                 Log.i(TAG, "bridge stats: " + b.stats());
                 b.stop();
             }
+            ConnectionLogs.get(this).flush();
             FILTER_LIFE.execute(() -> {
                 try {
                     DNSFilterManager.getInstance().stop();
@@ -1813,5 +1831,34 @@ public class Filt3rVpnService extends VpnService {
                 heldTun = null;
             }
         }
+    }
+
+    private static ThreadPoolExecutor newOwnerLookups() {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(256), r -> {
+            Thread t = new Thread(r, "filt3r-owner");
+            t.setDaemon(true);
+            return t;
+        }, new ThreadPoolExecutor.DiscardPolicy());
+        pool.allowCoreThreadTimeOut(true);
+        return pool;
+    }
+
+    /** Remembers the name this app was just given for these addresses. */
+    private void rememberNames(AppId app, byte[] answer) {
+        DnsAnswers.Answer parsed = app == null ? null : DnsAnswers.parse(answer);
+        if (parsed == null) {
+            return;
+        }
+        for (InetAddress ip : parsed.addresses) {
+            hostNames.put(app.key(), ip.getHostAddress(), parsed.name);
+        }
+    }
+
+    /** Names the app, then the destination (by what that app resolved, else the IP), and writes the line. */
+    private void logConnection(AppSocket client, InetAddress dest, int port, boolean blocked, String reason) {
+        AppId app = owners.owner(client, new InetSocketAddress(dest, port));
+        String ip = dest.getHostAddress();
+        String name = app == null ? null : hostNames.get(app.key(), ip);
+        ConnectionLogs.get(this).add(app, name != null ? name : ip, port, blocked, reason);
     }
 }
