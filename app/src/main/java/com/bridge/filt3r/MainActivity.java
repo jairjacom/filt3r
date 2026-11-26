@@ -1490,6 +1490,28 @@ public class MainActivity extends Activity
     }
 
     @Override
+    public Set<String> removedApps(Set<String> keys) {
+        PackageManager pm = getPackageManager();
+        Set<String> gone = new HashSet<>();
+        for (String key : keys) {
+            if (key.indexOf(':') >= 0) {
+                continue; // "uid:<n>" and "system:<name>" are not packages, so they cannot be told apart
+            }
+            try {
+                pm.getPackageInfo(key, 0);
+            } catch (PackageManager.NameNotFoundException e) {
+                gone.add(key);
+            }
+        }
+        return gone;
+    }
+
+    @Override
+    public void removeQueryApps(Set<String> keys) {
+        QueryLogs.get(this).removeApps(keys);
+    }
+
+    @Override
     public void exportQueryLog(boolean blocked, boolean allowed, java.util.function.Consumer<Boolean> done) {
         String kind = blocked && allowed ? "" : blocked ? "blocked-" : "allowed-";
         if (exportLines(blocked, allowed).isEmpty()) {

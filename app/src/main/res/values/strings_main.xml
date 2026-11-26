@@ -339,6 +339,13 @@
     <string name="qlog_empty_no_match">Nothing matches.</string>
     <string name="qlog_empty_no_queries">No queries yet.</string>
     <string name="qlog_empty_off">The query log is off. Turn it on with the switch above.</string>
+    <string name="qlog_clear_menu_title">Clear</string>
+    <string name="qlog_clear_menu_all">Everything</string>
+    <string name="qlog_clear_menu_removed">Entries of removed apps</string>
+    <string name="qlog_removed_none">No removed apps in the log.</string>
+    <string name="qlog_removed_title">Remove entries of removed apps?</string>
+    <string name="qlog_removed_message">%1$d apps in the log are no longer installed. This removes their entries. It cannot be undone.</string>
+    <string name="qlog_app_removed">%1$s (removed)</string>
     <string name="qlog_rules_read_failed">Could not read your rules</string>
     <string name="qlog_state_blocked_by_lists">Blocked by the filter lists</string>
     <string name="qlog_state_you_allowed">You allowed this domain</string>

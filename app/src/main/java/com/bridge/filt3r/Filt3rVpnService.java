@@ -49,6 +49,7 @@ import com.bridge.filt3r.core.socks.DirectDialer;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.socks.SocketProtector;
+import com.bridge.filt3r.core.util.AppId;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
 import com.bridge.filt3r.core.util.QueryLog;
 import com.bridge.filt3r.core.util.StartScope;
@@ -88,7 +89,7 @@ public class Filt3rVpnService extends VpnService {
     private static final String ADDRESS_V4 = "10.0.2.15";
     private static final String ADDRESS_V6 = "fdc8:1095:91e1:aaaa:aaaa:aaaa:aaaa:aaa2";
     private static final byte[] DNS_V4_BYTES = {10, 10, 10, 10};
-    private static final ThreadLocal<String> queryApp = new ThreadLocal<>();
+    private static final ThreadLocal<AppId> queryApp = new ThreadLocal<>();
     private final AppOwner owners = new AppOwner(this);
     private static final String DNS_V4 = "10.10.10.10";
     private static final InetSocketAddress DNS_REMOTE = new InetSocketAddress(InetAddresses.parseNumericAddress(DNS_V4), 53);
@@ -297,7 +298,8 @@ public class Filt3rVpnService extends VpnService {
                 }
                 DNSResponsePatcher.setObserver((host, blocked) -> {
                     (blocked ? dnsBlocked : dnsAllowed).incrementAndGet();
-                    queryLog.add(host, blocked, queryApp.get(), null);
+                    AppId app = queryApp.get();
+                    queryLog.add(host, blocked, app == null ? null : app.label(), app == null ? null : app.key());
                 });
                 nodes = manager;
                 synchronized (lastNodeLock) {

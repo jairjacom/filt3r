@@ -5,8 +5,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets the logs tell an uninstalled app from an installed one, and name apps that have no launcher icon. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
-    <!-- Lets the Exempt apps list see launchable apps without the broad QUERY_ALL_PACKAGES permission. -->
+    <!-- Launchable apps for the Exempt apps list. QUERY_ALL_PACKAGES above now also covers this. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />

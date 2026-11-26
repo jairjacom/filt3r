@@ -33,6 +33,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Full-screen DNS query log, newest first. Each row shows allowed or blocked, the name and the
@@ -51,6 +54,12 @@ public class QueryLogPanel extends LinearLayout {
         void setQueryLogEnabled(boolean on);
 
         void clearQueryLog();
+
+        /** Of these app keys (package names), the ones no longer installed; hidden or system apps are never in it. */
+        Set<String> removedApps(Set<String> keys);
+
+        /** Deletes every kept line of the apps with these keys. */
+        void removeQueryApps(Set<String> keys);
 
         /**
          * Lets the user pick a place and saves the kept lines of the chosen kinds there as a .txt file.
@@ -73,13 +82,15 @@ public class QueryLogPanel extends LinearLayout {
         final boolean blocked;
         final String host;
         final String app; // the asking app's name; null when unknown
+        final boolean removed; // the asking app is no longer installed
         final String summary; // for the Top view: "Blocked 3 · Allowed 1"; null for a single query
 
-        Entry(String time, boolean blocked, String host, String app, String summary) {
+        Entry(String time, boolean blocked, String host, String app, boolean removed, String summary) {
             this.time = time;
             this.blocked = blocked;
             this.host = host;
             this.app = app;
+            this.removed = removed;
             this.summary = summary;
         }
     }
@@ -118,11 +129,7 @@ public class QueryLogPanel extends LinearLayout {
         title.setText(R.string.qlog_title);
         title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge);
         ImageButton clear = iconButton(context, R.drawable.ic_delete, context.getString(R.string.qlog_clear_description));
-        clear.setOnClickListener(v -> Dialogs.confirm(getContext(), context.getString(R.string.qlog_clear_title),
-                context.getString(R.string.qlog_clear_message), context.getString(R.string.qlog_clear_confirm), () -> {
-                    backend.clearQueryLog();
-                    reload();
-                }));
+        clear.setOnClickListener(v -> askClear());
         bar.addView(back);
         bar.addView(title, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
         ImageButton rules = iconButton(context, R.drawable.ic_rules, context.getString(R.string.qlog_rules_description));
@@ -269,12 +276,13 @@ public class QueryLogPanel extends LinearLayout {
         String needle = search.getText() == null ? ""
                 : search.getText().toString().trim().toLowerCase(Locale.ROOT);
         List<String> lines = backend.queryLines();
+        Set<String> removed = removedApps(lines);
         List<Entry> shown = new ArrayList<>();
         if (mode == TOP) {
             shown = top(lines, needle);
         } else {
             for (int i = lines.size() - 1; i >= 0; i--) { // newest first
-                Entry e = parse(lines.get(i));
+                Entry e = parse(lines.get(i), removed);
                 if (e == null || mode == BLOCKED && !e.blocked || mode == ALLOWED && e.blocked) {
                     continue;
                 }
@@ -301,11 +309,58 @@ public class QueryLogPanel extends LinearLayout {
         }
     }
 
+    /** Of the apps in these lines, the ones no longer installed. */
+    private Set<String> removedApps(List<String> lines) {
+        Set<String> keys = new HashSet<>();
+        for (String line : lines) {
+            QueryLog.Entry e = QueryLog.parse(line);
+            if (e != null && e.key != null) {
+                keys.add(e.key);
+            }
+        }
+        return keys.isEmpty() ? Collections.<String>emptySet() : backend.removedApps(keys);
+    }
+
+    /** The bin: clear everything, or only the entries of apps that are no longer installed. */
+    private void askClear() {
+        Context context = getContext();
+        String[] choices = {context.getString(R.string.qlog_clear_menu_all), context.getString(R.string.qlog_clear_menu_removed)};
+        Dialogs.builder(context)
+                .setTitle(R.string.qlog_clear_menu_title)
+                .setItems(choices, (d, which) -> {
+                    if (which == 0) {
+                        Dialogs.confirm(context, context.getString(R.string.qlog_clear_title),
+                                context.getString(R.string.qlog_clear_message), context.getString(R.string.qlog_clear_confirm), () -> {
+                                    backend.clearQueryLog();
+                                    reload();
+                                });
+                    } else {
+                        confirmRemoveRemoved();
+                    }
+                })
+                .setNegativeButton(R.string.qlog_cancel, null)
+                .show();
+    }
+
+    private void confirmRemoveRemoved() {
+        Context context = getContext();
+        Set<String> removed = removedApps(backend.queryLines());
+        if (removed.isEmpty()) {
+            Messages.show(this, context.getString(R.string.qlog_removed_none), Snackbar.LENGTH_SHORT);
+            return;
+        }
+        Dialogs.confirm(context, context.getString(R.string.qlog_removed_title),
+                context.getString(R.string.qlog_removed_message, removed.size()), context.getString(R.string.qlog_clear_confirm), () -> {
+                    backend.removeQueryApps(removed);
+                    reload();
+                });
+    }
+
     /** Every name once, most asked first, with how many times it was blocked and allowed. */
     private List<Entry> top(List<String> lines, String needle) {
         java.util.Map<String, int[]> counts = new java.util.HashMap<>(); // name -> {blocked, allowed}
         for (String line : lines) {
-            Entry e = parse(line);
+            Entry e = parse(line, Collections.<String>emptySet());
             if (e == null || !needle.isEmpty() && !e.host.toLowerCase(Locale.ROOT).contains(needle)) {
                 continue;
             }
@@ -320,16 +375,17 @@ public class QueryLogPanel extends LinearLayout {
         List<Entry> out = new ArrayList<>();
         for (java.util.Map.Entry<String, int[]> m : sorted) {
             int[] c = m.getValue();
-            out.add(new Entry("", c[0] >= c[1], m.getKey(), null,
+            out.add(new Entry("", c[0] >= c[1], m.getKey(), null, false,
                     getContext().getString(R.string.qlog_top_summary, c[0], c[1])));
         }
         return out;
     }
 
     /** A log line as a panel row; null for a line that does not fit. */
-    private static Entry parse(String line) {
+    private static Entry parse(String line, Set<String> removed) {
         QueryLog.Entry e = QueryLog.parse(line);
-        return e == null ? null : new Entry(e.time, e.blocked, e.host, e.app, null);
+        return e == null ? null : new Entry(e.time, e.blocked, e.host, e.app,
+                e.key != null && removed.contains(e.key), null);
     }
 
     private MaterialButton chip(Context context, String text, int icon) {
@@ -476,7 +532,7 @@ public class QueryLogPanel extends LinearLayout {
                 Entry y = b.get(i);
                 if (x.blocked != y.blocked || !x.time.equals(y.time) || !x.host.equals(y.host)
                         || !java.util.Objects.equals(x.summary, y.summary)
-                        || !java.util.Objects.equals(x.app, y.app)) {
+                        || x.removed != y.removed || !java.util.Objects.equals(x.app, y.app)) {
                     return false;
                 }
             }
@@ -545,11 +601,15 @@ public class QueryLogPanel extends LinearLayout {
             Context ctx = getContext();
             String said = e.summary != null ? e.summary
                     : ctx.getString(e.blocked ? R.string.qlog_blocked : R.string.qlog_allowed) + " · " + e.time
-                    + (e.app == null ? "" : " · " + e.app);
+                    + (e.app == null ? "" : " · " + appText(ctx, e));
             detail.setText(said);
             setContentDescription(ctx.getString(R.string.qlog_row_description, e.host,
                     ctx.getString(e.blocked ? R.string.qlog_said_blocked : R.string.qlog_said_allowed),
-                    e.summary != null ? e.summary : e.time + (e.app == null ? "" : ", " + e.app)));
+                    e.summary != null ? e.summary : e.time + (e.app == null ? "" : ", " + appText(ctx, e))));
+        }
+
+        private String appText(Context ctx, Entry e) {
+            return e.removed ? ctx.getString(R.string.qlog_app_removed, e.app) : e.app;
         }
     }
 }
