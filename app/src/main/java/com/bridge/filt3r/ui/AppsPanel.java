@@ -165,7 +165,7 @@ public class AppsPanel extends LinearLayout {
     /** Reads the apps and the log off the main thread, then fills the list. */
     private void load(Context context) {
         new Thread(() -> {
-            List<InstalledApps.App> found = InstalledApps.load(context, false);
+            List<InstalledApps.App> found = InstalledApps.load(context);
             List<AppList.App> core = new ArrayList<>();
             Map<String, InstalledApps.App> index = new HashMap<>();
             for (InstalledApps.App a : found) {

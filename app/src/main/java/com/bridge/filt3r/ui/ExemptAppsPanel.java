@@ -199,10 +199,10 @@ public class ExemptAppsPanel extends LinearLayout {
         super.onDetachedFromWindow();
     }
 
-    /** Reads the launchable apps off the main thread, then fills the list. */
+    /** Reads every installed app off the main thread, then fills the list. */
     private void loadApps(Context context) {
         new Thread(() -> {
-            List<App> found = InstalledApps.load(context, true);
+            List<App> found = InstalledApps.load(context);
             handler.post(() -> {
                 if (!detached) {
                     apps = found;

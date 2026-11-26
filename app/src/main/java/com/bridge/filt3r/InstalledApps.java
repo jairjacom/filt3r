@@ -1,10 +1,8 @@
 package com.bridge.filt3r;
 
 import android.content.Context;
-import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.graphics.drawable.Drawable;
 
 import com.bridge.filt3r.core.util.AppId;
@@ -40,24 +38,13 @@ public final class InstalledApps {
         }
     }
 
-    /**
-     * @param launchableOnly true for the apps that have a launcher icon (the Exempt apps screen);
-     *        false for every installed package, launchable or not (the Apps screen). This app is never listed.
-     */
-    public static List<App> load(Context context, boolean launchableOnly) {
+    /** Every installed package, launchable or not. This app is never listed. */
+    public static List<App> load(Context context) {
         PackageManager pm = context.getPackageManager();
         String own = context.getPackageName();
         Map<String, App> byPackage = new HashMap<>();
-        if (launchableOnly) {
-            Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-            for (ResolveInfo ri : pm.queryIntentActivities(launcher, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL))) {
-                ApplicationInfo info = ri.activityInfo.applicationInfo;
-                add(pm, own, byPackage, info, String.valueOf(ri.loadLabel(pm)), ri.loadIcon(pm));
-            }
-        } else {
-            for (ApplicationInfo info : pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(PackageManager.MATCH_ALL))) {
-                add(pm, own, byPackage, info, String.valueOf(info.loadLabel(pm)), info.loadIcon(pm));
-            }
+        for (ApplicationInfo info : pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(PackageManager.MATCH_ALL))) {
+            add(pm, own, byPackage, info, String.valueOf(info.loadLabel(pm)), info.loadIcon(pm));
         }
         return new ArrayList<>(byPackage.values());
     }
