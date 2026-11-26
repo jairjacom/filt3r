@@ -166,12 +166,12 @@ public class QueryLogPanel extends LinearLayout {
         addView(bar);
 
         // DNS queries or app connections.
-        MaterialButtonToggleGroup sides = new MaterialButtonToggleGroup(context);
+        sides = new MaterialButtonToggleGroup(context);
         sides.setSingleSelection(true);
         sides.setSelectionRequired(true);
         sides.setSpacing(dp(8));
         MaterialButton dnsSide = chip(context, context.getString(R.string.qlog_side_dns), R.drawable.ic_log);
-        MaterialButton connectionsSide = chip(context, context.getString(R.string.qlog_side_connections), R.drawable.ic_list);
+        connectionsSide = chip(context, context.getString(R.string.qlog_side_connections), R.drawable.ic_list);
         sides.addView(dnsSide);
         sides.addView(connectionsSide);
         sides.check(dnsSide.getId());
@@ -299,6 +299,14 @@ public class QueryLogPanel extends LinearLayout {
     private MaterialButton blockedChip;
     private MaterialButton topChip;
     private MaterialButton allChip;
+    private MaterialButtonToggleGroup sides;
+    private MaterialButton connectionsSide;
+
+    /** Opens the Connections side with the search field set to a package name; the Apps screen opens the log this way. */
+    public void showApp(String pkg) {
+        sides.check(connectionsSide.getId());
+        search.setText(pkg);
+    }
 
     /** Switches to the Blocked filter; the DNS card's "View blocked" opens the log this way. */
     public void showBlockedOnly() {
@@ -352,7 +360,8 @@ public class QueryLogPanel extends LinearLayout {
                     continue;
                 }
                 if (!needle.isEmpty() && !e.host.toLowerCase(Locale.ROOT).contains(needle)
-                        && (e.app == null || !e.app.toLowerCase(Locale.ROOT).contains(needle))) {
+                        && (e.app == null || !e.app.toLowerCase(Locale.ROOT).contains(needle))
+                        && (e.key == null || !e.key.toLowerCase(Locale.ROOT).contains(needle))) {
                     continue;
                 }
                 shown.add(e);
