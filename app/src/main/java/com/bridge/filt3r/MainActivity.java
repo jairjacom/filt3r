@@ -36,6 +36,7 @@ import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.filter.UserOverrides;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
+import com.bridge.filt3r.core.util.ConnectionLog;
 import com.bridge.filt3r.core.util.QueryLog;
 import com.bridge.filt3r.ui.BlurBehind;
 import com.bridge.filt3r.ui.Dialogs;
@@ -83,6 +84,7 @@ public class MainActivity extends Activity
     private boolean backupSecrets;
     private boolean exportBlocked = true;
     private boolean exportAllowed = true;
+    private boolean exportConnections;
     private java.util.function.Consumer<Boolean> exportDone;
     static final String ACTION_CONNECT = "com.bridge.filt3r.action.CONNECT";
     static final String ACTION_DISCONNECT = "com.bridge.filt3r.action.DISCONNECT";
@@ -827,9 +829,18 @@ public class MainActivity extends Activity
         t.start();
     }
 
-    /** The kept query lines of the kinds the user chose to save, oldest first. */
-    private List<String> exportLines(boolean blocked, boolean allowed) {
+    /** The kept lines of the chosen side (DNS or connections) and kinds, oldest first. */
+    private List<String> exportLines(boolean connections, boolean blocked, boolean allowed) {
         List<String> out = new ArrayList<>();
+        if (connections) {
+            for (String line : connectionLines()) {
+                ConnectionLog.Entry e = ConnectionLog.parse(line);
+                if (e != null && (e.blocked ? blocked : allowed)) {
+                    out.add(line);
+                }
+            }
+            return out;
+        }
         for (String line : queryLines()) {
             QueryLog.Entry e = QueryLog.parse(line);
             if (e != null && (e.blocked ? blocked : allowed)) {
@@ -841,7 +852,7 @@ public class MainActivity extends Activity
 
     /** Saves the chosen query lines to the file the user picked. Runs off the main thread: the target may be slow. */
     private void writeQueryLog(Uri uri) {
-        List<String> lines = exportLines(exportBlocked, exportAllowed);
+        List<String> lines = exportLines(exportConnections, exportBlocked, exportAllowed);
         StringBuilder text = new StringBuilder();
         for (String line : lines) {
             text.append(line).append('\n');
@@ -1487,6 +1498,27 @@ public class MainActivity extends Activity
     @Override
     public void clearQueryLog() {
         QueryLogs.get(this).clear();
+        ConnectionLogs.get(this).clear();
+    }
+
+    @Override
+    public void clearDnsLog() {
+        QueryLogs.get(this).clear();
+    }
+
+    @Override
+    public List<String> connectionLines() {
+        return ConnectionLogs.get(this).lines();
+    }
+
+    @Override
+    public void clearConnectionLog() {
+        ConnectionLogs.get(this).clear();
+    }
+
+    @Override
+    public void removeConnectionApps(Set<String> keys) {
+        ConnectionLogs.get(this).removeApps(keys);
     }
 
     @Override
@@ -1512,15 +1544,16 @@ public class MainActivity extends Activity
     }
 
     @Override
-    public void exportQueryLog(boolean blocked, boolean allowed, java.util.function.Consumer<Boolean> done) {
+    public void exportQueryLog(boolean connections, boolean blocked, boolean allowed, java.util.function.Consumer<Boolean> done) {
         String kind = blocked && allowed ? "" : blocked ? "blocked-" : "allowed-";
-        if (exportLines(blocked, allowed).isEmpty()) {
+        if (exportLines(connections, blocked, allowed).isEmpty()) {
             Messages.show(frame, getString(blocked && allowed ? R.string.main_export_nothing_to_save
                     : blocked ? R.string.main_export_no_blocked : R.string.main_export_no_allowed),
                     Snackbar.LENGTH_SHORT);
             done.accept(false);
             return;
         }
+        exportConnections = connections;
         exportBlocked = blocked;
         exportAllowed = allowed;
         exportDone = done;
@@ -1529,7 +1562,7 @@ public class MainActivity extends Activity
         Intent pick = new Intent(Intent.ACTION_CREATE_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE)
                 .setType("text/plain")
-                .putExtra(Intent.EXTRA_TITLE, "filt3r-query-log-" + kind + stamp + ".txt");
+                .putExtra(Intent.EXTRA_TITLE, "filt3r-" + (connections ? "connection-log-" : "query-log-") + kind + stamp + ".txt");
         startActivityForResult(pick, REQUEST_EXPORT_LOG);
     }
 

@@ -157,11 +157,11 @@
     <string name="settings_block_ip_status">IP blocklist: %1$s</string>
     <string name="settings_block_list_hagezi_pro_mini">Hagezi Domain Blocklist</string>
     <string name="settings_block_list_easyprivacy">EasyList trackers, about 47,000 domains</string>
-    <string name="settings_privacy_query_log">Query log</string>
-    <string name="settings_privacy_query_log_summary">Keeps the last 1,000 DNS queries on this phone.</string>
+    <string name="settings_privacy_query_log">Keep a log</string>
+    <string name="settings_privacy_query_log_summary">Keeps the last 1,000 DNS queries and 1,000 app connections, with app names, on this phone.</string>
     <string name="settings_privacy_clear">Clear query log</string>
     <string name="settings_privacy_clear_title">Clear the query log?</string>
-    <string name="settings_privacy_clear_message">This removes the DNS queries kept on this phone. It cannot be undone.</string>
+    <string name="settings_privacy_clear_message">This removes the DNS queries and app connections kept on this phone. It cannot be undone.</string>
     <string name="settings_privacy_clear_action">Clear</string>
     <string name="settings_privacy_cleared">Query log cleared</string>
     <string name="settings_privacy_history">Node history</string>

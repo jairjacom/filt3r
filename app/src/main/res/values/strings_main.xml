@@ -207,8 +207,8 @@
     <string name="dns_sheet_title">Most blocked names</string>
     <string name="dns_sheet_top_heading">From the last 1,000 queries in the query log</string>
     <string name="dns_sheet_none">Nothing has been blocked in the query log yet.</string>
-    <string name="dns_sheet_log_off">The query log is off, so there is nothing to rank. Turn it on to keep the last 1,000 DNS queries on this phone.</string>
-    <string name="dns_sheet_turn_on">Turn on query log</string>
+    <string name="dns_sheet_log_off">The log is off, so there is nothing to rank. Turn on Keep a log to save the last 1,000 DNS queries and app connections on this phone.</string>
+    <string name="dns_sheet_turn_on">Keep a log</string>
     <string name="dns_sheet_view_blocked">View blocked</string>
     <string name="dns_sheet_log_on">Query log is on</string>
 
@@ -320,7 +320,7 @@
     <string name="qlog_clear_confirm">Clear</string>
     <string name="qlog_rules_description">My rules</string>
     <string name="qlog_export_description">Save query log as a text file</string>
-    <string name="qlog_switch">Log DNS queries</string>
+    <string name="qlog_switch">Keep a log</string>
     <string name="qlog_search_hint">Search names</string>
     <string name="qlog_chip_all">All</string>
     <string name="qlog_chip_top">Top</string>
@@ -341,11 +341,20 @@
     <string name="qlog_empty_off">The query log is off. Turn it on with the switch above.</string>
     <string name="qlog_clear_menu_title">Clear</string>
     <string name="qlog_clear_menu_all">Everything</string>
-    <string name="qlog_clear_menu_removed">Entries of removed apps</string>
-    <string name="qlog_removed_none">No removed apps in the log.</string>
-    <string name="qlog_removed_title">Remove entries of removed apps?</string>
-    <string name="qlog_removed_message">%1$d apps in the log are no longer installed. This removes their entries. It cannot be undone.</string>
-    <string name="qlog_app_removed">%1$s (removed)</string>
+    <string name="qlog_clear_menu_removed">Entries of uninstalled apps</string>
+    <string name="qlog_removed_none">No uninstalled apps in the log.</string>
+    <string name="qlog_removed_title">Remove entries of uninstalled apps?</string>
+    <string name="qlog_removed_message">%1$d apps in the log are not installed any more. This removes their entries. It cannot be undone.</string>
+    <string name="qlog_app_removed">%1$s (not installed)</string>
+    <string name="qlog_side_dns">DNS</string>
+    <string name="qlog_side_connections">Connections</string>
+    <string name="qlog_empty_no_connections">No connections yet.</string>
+    <string name="qlog_clear_message_connections">This removes the app connections kept on this phone. It cannot be undone.</string>
+    <string name="qlog_app_unknown">Unknown app</string>
+    <string name="qlog_host_count">%1$s ×%2$d</string>
+    <string name="qlog_detail_app">App: %1$s</string>
+    <string name="qlog_detail_package">Package: %1$s</string>
+    <string name="qlog_detail_reason">Reason: %1$s</string>
     <string name="qlog_rules_read_failed">Could not read your rules</string>
     <string name="qlog_state_blocked_by_lists">Blocked by the filter lists</string>
     <string name="qlog_state_you_allowed">You allowed this domain</string>
