@@ -128,6 +128,13 @@ public final class Socks5Bridge {
         this.ipBlock = list;
     }
 
+    private volatile ConnectionListener connectionListener;
+
+    /** Told about every tunnelled TCP connection and its verdict. Null = nobody. */
+    public void setConnectionListener(ConnectionListener listener) {
+        this.connectionListener = listener;
+    }
+
     public void setFailureMode(FailureMode mode) {
         this.failureMode = mode;
     }
@@ -359,6 +366,7 @@ public final class Socks5Bridge {
         }
         if (ip.length == 16 && !allowIPv6) {
             // The node has no IPv6 exit: fail at once so the app falls back to IPv4 without waiting.
+            report(source, InetAddress.getByAddress(ip), port, true, ConnectionListener.REASON_IPV6_OFF);
             reply(out, REP_NET_UNREACHABLE, 0);
             refusedIPv6.incrementAndGet();
             return;
@@ -368,10 +376,12 @@ public final class Socks5Bridge {
         if (blockedIps != null && !paused.getAsBoolean()
                 && blockedIps.isBlocked(addr)) {
             // Refused before any node is dialled, so the FAIL_OPEN fallback cannot reach it either.
+            report(source, addr, port, true, ConnectionListener.REASON_IP_LIST);
             reply(out, REP_NOT_ALLOWED, 0);
             refusedIpBlock.incrementAndGet();
             return;
         }
+        report(source, addr, port, false, null);
         if (port == 53) {
             dnsBypassTcp.incrementAndGet();
         } else if (port == 853) {
@@ -409,6 +419,19 @@ public final class Socks5Bridge {
         } finally {
             open.remove(up);
             closeQuietly(up);
+        }
+    }
+
+    /** Tells the listener, if any. A listener that fails must not break the connection it was told about. */
+    private void report(String source, InetAddress dest, int port, boolean blocked, String reason) {
+        ConnectionListener listener = connectionListener;
+        if (listener == null) {
+            return;
+        }
+        try {
+            listener.onConnection(AppSocket.parse(AppSocket.Proto.TCP, source), dest, port, blocked, reason);
+        } catch (RuntimeException e) {
+            // logging is best effort
         }
     }
 
