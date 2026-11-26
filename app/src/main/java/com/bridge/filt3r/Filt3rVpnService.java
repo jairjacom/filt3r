@@ -390,10 +390,12 @@ public class Filt3rVpnService extends VpnService {
             DNSResolver resolver = new DNSResolver(upstream);
             Socks5Bridge b = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
+                // hev names no app: the label is "tunnel", as before
+                String label = client == null ? "tunnel" : client.toString();
                 // The owner is asked only when the log will keep it. The observer reads it inside resolve().
-                queryApp.set(settings.queryLogEnabled() ? appOf(client) : null);
+                queryApp.set(settings.queryLogEnabled() ? appOf(label) : null);
                 try {
-                    return resolver.resolve(client, query);
+                    return resolver.resolve(label, query);
                 } finally {
                     queryApp.remove();
                 }

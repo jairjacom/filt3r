@@ -52,7 +52,6 @@ public final class Socks5Bridge {
     private static final int UDP_HEADER = 10; // RSV(2) FRAG(1) ATYP(1) IPv4(4) PORT(2)
     private static final int DNS_MAX = 4096;
     private static final int DNS_TCP_IDLE_MS = 30_000;
-    private static final String DNS_CLIENT = "tunnel"; // query log label when hev did not name the app
     private static final byte[] LOOPBACK = {127, 0, 0, 1};
 
     private static final int ATYP_IPV4 = 1;
@@ -256,7 +255,7 @@ public final class Socks5Bridge {
             byte[] ip = readAddress(in, atyp);
             int port = in.readUnsignedShort();
             if (cmd == CMD_UDP_ASSOCIATE) {
-                udpAssociate(client, in, out, source.isEmpty() ? DNS_CLIENT : "udp:" + source);
+                udpAssociate(client, in, out, AppSocket.parse(AppSocket.Proto.UDP, source));
             } else if (cmd == CMD_CONNECT) {
                 connect(client, out, ip, port, source);
             } else {
@@ -352,7 +351,7 @@ public final class Socks5Bridge {
             }
             reply(out, REP_OK, 0);
             client.setSoTimeout(DNS_TCP_IDLE_MS);
-            dnsOverTcp(client, out, source.isEmpty() ? DNS_CLIENT : "tcp:" + source);
+            dnsOverTcp(client, out, AppSocket.parse(AppSocket.Proto.TCP, source));
             return;
         }
         if (isLocalAddress(ip)) {
@@ -414,7 +413,7 @@ public final class Socks5Bridge {
     }
 
     /** DNS over TCP (RFC 1035 4.2.2): 2-byte length, then the message; any number of queries per connection. */
-    private void dnsOverTcp(Socket client, OutputStream out, String label) throws IOException {
+    private void dnsOverTcp(Socket client, OutputStream out, AppSocket label) throws IOException {
         DataInputStream in = new DataInputStream(client.getInputStream());
         while (true) { // ends with an exception: EOF, idle timeout or a bad length
             int len = in.readUnsignedShort();
@@ -507,7 +506,7 @@ public final class Socks5Bridge {
      * UDP ASSOCIATE. The association lives as long as the TCP control connection stays open.
      * Only datagrams to the virtual DNS address, port 53, are forwarded.
      */
-    private void udpAssociate(Socket control, DataInputStream in, OutputStream out, String label) throws IOException {
+    private void udpAssociate(Socket control, DataInputStream in, OutputStream out, AppSocket label) throws IOException {
         DatagramSocket relay = new DatagramSocket(0, InetAddress.getByAddress(LOOPBACK));
         open.add(relay);
         try {
@@ -527,9 +526,9 @@ public final class Socks5Bridge {
 
     private final class UdpAssociation {
         private final DatagramSocket relay;
-        private final String client; // query log label: who opened this association
+        private final AppSocket client; // query log label: who opened this association, null when hev named no app
 
-        UdpAssociation(DatagramSocket relay, String client) {
+        UdpAssociation(DatagramSocket relay, AppSocket client) {
             this.relay = relay;
             this.client = client;
         }

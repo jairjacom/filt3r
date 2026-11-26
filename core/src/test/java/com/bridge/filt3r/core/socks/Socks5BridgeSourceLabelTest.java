@@ -1,6 +1,7 @@
 package com.bridge.filt3r.core.socks;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -25,7 +26,7 @@ class Socks5BridgeSourceLabelTest {
     private static final byte[] OUR_DNS = {10, 10, 10, 10};
     private static final byte[] QUERY = new byte[12];
 
-    private final AtomicReference<String> seen = new AtomicReference<>();
+    private final AtomicReference<AppSocket> seen = new AtomicReference<>();
     private Socks5Bridge bridge;
 
     @BeforeEach
@@ -46,13 +47,13 @@ class Socks5BridgeSourceLabelTest {
     }
 
     @Test
-    void thePlainUserNameKeepsTheTunnelLabel() throws IOException {
-        assertEquals("tunnel", tcpDnsLabel(bridge.getUsername()));
+    void thePlainUserNameNamesNoApp() throws IOException {
+        assertNull(tcpDnsLabel(bridge.getUsername()));
     }
 
     @Test
     void aSourceAfterTheNameBecomesTheTcpLabel() throws IOException {
-        assertEquals("tcp:10.0.2.15#40000", tcpDnsLabel(bridge.getUsername() + "#10.0.2.15#40000"));
+        assertEquals("tcp:10.0.2.15#40000", tcpDnsLabel(bridge.getUsername() + "#10.0.2.15#40000").toString());
     }
 
     @Test
@@ -77,7 +78,7 @@ class Socks5BridgeSourceLabelTest {
             udp.send(new DatagramPacket(packet, packet.length, InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), relayPort));
             udp.receive(new DatagramPacket(new byte[512], 512)); // the answer arrives after the handler ran
         }
-        assertEquals("udp:10.0.2.15#40001", seen.get());
+        assertEquals("udp:10.0.2.15#40001", seen.get().toString());
     }
 
     @Test
@@ -88,7 +89,7 @@ class Socks5BridgeSourceLabelTest {
     }
 
     /** CONNECT to the virtual DNS address over TCP, send one query, and return the label the handler saw. */
-    private String tcpDnsLabel(String user) throws IOException {
+    private AppSocket tcpDnsLabel(String user) throws IOException {
         try (Socket s = new Socket(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), bridge.getPort())) {
             s.setSoTimeout(5_000);
             DataInputStream in = new DataInputStream(s.getInputStream());
