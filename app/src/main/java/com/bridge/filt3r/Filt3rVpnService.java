@@ -1547,14 +1547,49 @@ public class Filt3rVpnService extends VpnService {
             InetSocketAddress local = new InetSocketAddress(
                     InetAddress.getByName(source.substring(0, hash)), Integer.parseInt(source.substring(hash + 1)));
             InetSocketAddress remote = new InetSocketAddress(InetAddress.getByAddress(dstIp), dstPort);
-            int uid = getSystemService(ConnectivityManager.class)
-                    .getConnectionOwnerUid(tcp ? OsConstants.IPPROTO_TCP : OsConstants.IPPROTO_UDP, local, remote);
-            String[] pkgs = uid < 0 ? null : getPackageManager().getPackagesForUid(uid);
+            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            int proto = tcp ? OsConstants.IPPROTO_TCP : OsConstants.IPPROTO_UDP;
+            int uid = cm.getConnectionOwnerUid(proto, local, remote);
+            String how = "exact";
+            if (uid < 0 && !tcp) {
+                // An unconnected UDP socket has no remote address in the kernel: ask with a wildcard.
+                InetSocketAddress any = new InetSocketAddress(
+                        InetAddress.getByAddress(new byte[remote.getAddress().getAddress().length]), 0);
+                uid = cm.getConnectionOwnerUid(proto, local, any);
+                how = "wildcard";
+            }
+            for (int retry = 1; uid < 0 && retry <= 3; retry++) {
+                // The app's socket may not be visible yet.
+                try {
+                    Thread.sleep(15);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                uid = cm.getConnectionOwnerUid(proto, local, remote);
+                how = "retry" + retry;
+            }
             Log.i(TAG, "owner " + (tcp ? "tcp " : "dns ") + source + " -> " + remote.getAddress().getHostAddress()
-                    + ":" + dstPort + " uid=" + uid + " " + (pkgs == null ? "?" : String.join(",", pkgs)));
+                    + ":" + dstPort + " uid=" + uid + " via " + (uid < 0 ? "none" : how) + " " + uidLabel(uid));
         } catch (RuntimeException | UnknownHostException e) {
             Log.w(TAG, "owner lookup failed for " + source + ": " + e);
         }
+    }
+
+    /** Package names for an app uid; a name or "system" for uids below 10000; "?" when unknown. */
+    private String uidLabel(int uid) {
+        if (uid < 0) {
+            return "?";
+        }
+        String[] pkgs = getPackageManager().getPackagesForUid(uid);
+        if (pkgs != null && pkgs.length > 0) {
+            return String.join(",", pkgs);
+        }
+        if (uid == 0) {
+            return "system:root";
+        }
+        String name = getPackageManager().getNameForUid(uid);
+        return uid < 10000 ? "system:" + (name == null ? uid : name) : (name == null ? "?" : name);
     }
 
     /** The DNS resolver in use as {name, ip}, or null while the tunnel is down. */
