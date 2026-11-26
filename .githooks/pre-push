@@ -7,6 +7,7 @@ if [ "$FILT3R_PUSH_OK" != "1" ]; then
   echo "pre-push: blocked. Ask the user, then run: FILT3R_PUSH_OK=1 git push ..." >&2
   exit 1
 fi
+sh "$(dirname "$0")/check-syntax.sh" || exit 1
 # git feeds one line per ref on stdin: <local ref> <local sha> <remote ref> <remote sha>
 while read -r _ _ remote_ref _; do
   case "$remote_ref" in
