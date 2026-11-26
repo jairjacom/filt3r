@@ -160,6 +160,11 @@ public class MainActivity extends Activity
                 onBackCancelled(); // undo the shrink preview: the panel stays open
                 return; // went back from the block-lists page to the main Settings page
             }
+            if (panel instanceof AppsPanel) {
+                onBackCancelled(); // undo the shrink preview: Back goes up to Settings, like the screen's own back button
+                showSettings();
+                return;
+            }
             closePanelAnimated();
         }
     };
@@ -592,15 +597,18 @@ public class MainActivity extends Activity
 
     @Override
     public void openApps() {
-        swapPanel(() -> new AppsPanel(this, this,
-                () -> swapPanel(() -> new SettingsPanel(this, this, this::closePanelAnimated))));
+        swapPanel(() -> new AppsPanel(this, this, this::showSettings));
+    }
+
+    private void showSettings() {
+        swapPanel(() -> new SettingsPanel(this, this, this::closePanelAnimated));
     }
 
     @Override
-    public void showAppConnections(String pkg) {
+    public void showAppConnections(Set<String> keys, String label) {
         openSection(3);
         if (panel instanceof QueryLogPanel) {
-            ((QueryLogPanel) panel).showApp(pkg);
+            ((QueryLogPanel) panel).showApp(keys, label);
         }
     }
 

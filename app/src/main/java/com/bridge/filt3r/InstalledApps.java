@@ -7,6 +7,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.drawable.Drawable;
 
+import com.bridge.filt3r.core.util.AppId;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -73,6 +75,7 @@ public final class InstalledApps {
             group.addAll(Arrays.asList(sharing));
         }
         group.add(info.packageName);
-        byPackage.put(info.packageName, new App(info.packageName, label, system, icon, group));
+        byPackage.put(info.packageName,
+                new App(info.packageName, AppId.cleanLabel(label, info.packageName), system, icon, group));
     }
 }

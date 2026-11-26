@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Full-screen list of every installed app with what the connection log says about it: how many
@@ -45,8 +46,11 @@ public class AppsPanel extends LinearLayout {
         /** The connection log's lines, oldest first. */
         List<String> connectionLines();
 
-        /** Closes this screen and shows the log's Connections side for the app with this package name. */
-        void showAppConnections(String pkg);
+        /**
+         * Closes this screen and shows the log's Connections side for one app: {@code keys} are the app
+         * keys its lines use (the packages that share its user ID), {@code label} its name.
+         */
+        void showAppConnections(Set<String> keys, String label);
     }
 
     private final Backend backend;
@@ -295,7 +299,7 @@ public class AppsPanel extends LinearLayout {
             } else {
                 shared.setVisibility(GONE);
             }
-            setOnClickListener(v -> backend.showAppConnections(row.app.pkg));
+            setOnClickListener(v -> backend.showAppConnections(row.app.group, row.app.label));
         }
     }
 }
