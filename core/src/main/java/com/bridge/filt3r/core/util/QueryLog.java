@@ -15,7 +15,8 @@ import java.util.Locale;
 import java.util.function.BooleanSupplier;
 
 /**
- * A plain-text log of DNS queries, one line each: "MM-dd HH:mm:ss ALLOWED|BLOCKED name". It keeps
+ * A plain-text log of DNS queries, one line each: "MM-dd HH:mm:ss ALLOWED|BLOCKED name", followed by
+ * a tab and the asking app's name when it is known. It keeps
  * the last {@value #MAX_LINES} lines in memory and in one private file. Nothing is written while
  * the enabled switch is off. The file is compacted when it grows past twice the limit.
  */
@@ -37,12 +38,17 @@ public final class QueryLog {
         load();
     }
 
-    /** Called for every A/AAAA query the filter decides on. */
-    public synchronized void add(String host, boolean blocked) {
+    /**
+     * Called for every A/AAAA query the filter decides on.
+     *
+     * @param app the asking app's name, or null when unknown
+     */
+    public synchronized void add(String host, boolean blocked, String app) {
         if (!enabled.getAsBoolean()) {
             return;
         }
-        String line = time.format(new Date()) + (blocked ? " BLOCKED " : " ALLOWED ") + host;
+        String line = time.format(new Date()) + (blocked ? " BLOCKED " : " ALLOWED ") + host
+                + (app == null ? "" : "\t" + app.replaceAll("[\\t\\r\\n]", " "));
         lines.addLast(line);
         while (lines.size() > MAX_LINES) {
             lines.removeFirst();

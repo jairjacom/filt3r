@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
 import android.net.ConnectivityManager;
@@ -47,7 +48,6 @@ import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.DirectDialer;
 import com.bridge.filt3r.core.socks.FailureMode;
-import com.bridge.filt3r.core.socks.FlowObserver;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
 import com.bridge.filt3r.core.socks.SocketProtector;
 import com.bridge.filt3r.core.util.ExecutionEnvironment;
@@ -67,6 +67,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -88,6 +89,8 @@ public class Filt3rVpnService extends VpnService {
     private static final String ADDRESS_V4 = "10.0.2.15";
     private static final String ADDRESS_V6 = "fdc8:1095:91e1:aaaa:aaaa:aaaa:aaaa:aaa2";
     private static final byte[] DNS_V4_BYTES = {10, 10, 10, 10};
+    private static final ThreadLocal<String> queryApp = new ThreadLocal<>();
+    private final ConcurrentHashMap<Integer, String> appNames = new ConcurrentHashMap<>();
     private static final String DNS_V4 = "10.10.10.10";
     static final String ACTION_REFRESH_RESOLVERS = "com.bridge.filt3r.REFRESH_RESOLVERS";
     // The official DNSCrypt list (what dnscrypt-proxy reads) and its minisign public key.
@@ -294,7 +297,7 @@ public class Filt3rVpnService extends VpnService {
                 }
                 DNSResponsePatcher.setObserver((host, blocked) -> {
                     (blocked ? dnsBlocked : dnsAllowed).incrementAndGet();
-                    queryLog.add(host, blocked);
+                    queryLog.add(host, blocked, queryApp.get());
                 });
                 nodes = manager;
                 synchronized (lastNodeLock) {
@@ -385,20 +388,14 @@ public class Filt3rVpnService extends VpnService {
             DNSResolver resolver = new DNSResolver(upstream);
             Socks5Bridge b = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 awaitFilter();
-                return resolver.resolve(client, query);
+                queryApp.set(appOf(client)); // read by the query observer, which runs inside resolve()
+                try {
+                    return resolver.resolve(client, query);
+                } finally {
+                    queryApp.remove();
+                }
             }, viaNode, direct, DNSResponsePatcher::isPaused);
             b.setFailureMode(settings.failureMode());
-            b.setFlowObserver(new FlowObserver() {
-                @Override
-                public void onFlow(boolean tcp, String source, byte[] dstIp, int dstPort) {
-                    logFlowOwner(tcp, source, dstIp, dstPort);
-                }
-
-                @Override
-                public void onDnsQuery(String source, byte[] query) {
-                    logDnsQuery(source, query);
-                }
-            });
             synchronized (lock) {
                 if (scope.isClosed()) {
                     if (startRound != null) {
@@ -1548,84 +1545,54 @@ public class Filt3rVpnService extends VpnService {
         return hev != null && hev.length >= 4 ? new long[] {hev[1], hev[3]} : null;
     }
 
-    /** Spike (spike/app-owner): asks Android which app owns the flow hev just handed to the bridge. */
-    private void logFlowOwner(boolean tcp, String source, byte[] dstIp, int dstPort) {
-        try {
-            int hash = source.lastIndexOf('#');
-            if (hash < 0 || dstIp == null) {
-                return;
-            }
-            InetSocketAddress local = new InetSocketAddress(
-                    InetAddress.getByName(source.substring(0, hash)), Integer.parseInt(source.substring(hash + 1)));
-            InetSocketAddress remote = new InetSocketAddress(InetAddress.getByAddress(dstIp), dstPort);
-            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
-            int proto = tcp ? OsConstants.IPPROTO_TCP : OsConstants.IPPROTO_UDP;
-            int uid = cm.getConnectionOwnerUid(proto, local, remote);
-            String how = "exact";
-            if (uid < 0 && !tcp) {
-                // An unconnected UDP socket has no remote address in the kernel: ask with a wildcard.
-                InetSocketAddress any = new InetSocketAddress(
-                        InetAddress.getByAddress(new byte[remote.getAddress().getAddress().length]), 0);
-                uid = cm.getConnectionOwnerUid(proto, local, any);
-                how = "wildcard";
-            }
-            for (int retry = 1; uid < 0 && retry <= 3; retry++) {
-                // The app's socket may not be visible yet.
-                try {
-                    Thread.sleep(15);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-                uid = cm.getConnectionOwnerUid(proto, local, remote);
-                how = "retry" + retry;
-            }
-            Log.i(TAG, "owner " + (tcp ? "tcp " : "dns ") + source + " -> " + remote.getAddress().getHostAddress()
-                    + ":" + dstPort + " uid=" + uid + " via " + (uid < 0 ? "none" : how) + " " + uidLabel(uid));
-        } catch (RuntimeException | UnknownHostException e) {
-            Log.w(TAG, "owner lookup failed for " + source + ": " + e);
+    /** App name for a uid: the app's label, or "System (name)" for a uid below 10000. Cached per run. */
+    private String appName(int uid) {
+        String cached = appNames.get(uid);
+        if (cached != null) {
+            return cached;
         }
-    }
-
-    /** Spike: names a DNS query and asks again who owns its socket right now (no retries). */
-    private void logDnsQuery(String source, byte[] query) {
-        try {
-            StringBuilder name = new StringBuilder();
-            int i = 12;
-            while (i < query.length && query[i] != 0) {
-                int len = query[i] & 0xFF;
-                if (len > 63 || i + 1 + len > query.length) {
-                    break;
-                }
-                name.append(new String(query, i + 1, len, StandardCharsets.US_ASCII)).append('.');
-                i += 1 + len;
-            }
-            int type = i + 2 < query.length ? ((query[i + 1] & 0xFF) << 8) | (query[i + 2] & 0xFF) : -1;
-            int hash = source.lastIndexOf('#');
-            InetSocketAddress local = new InetSocketAddress(
-                    InetAddress.getByName(source.substring(0, hash)), Integer.parseInt(source.substring(hash + 1)));
-            int uid = getSystemService(ConnectivityManager.class).getConnectionOwnerUid(
-                    OsConstants.IPPROTO_UDP, local, new InetSocketAddress(InetAddress.getByAddress(DNS_V4_BYTES), 53));
-            Log.i(TAG, "dnsq " + source + " " + name + " type=" + type + " uid=" + uid + " " + uidLabel(uid));
-        } catch (RuntimeException | UnknownHostException e) {
-            Log.w(TAG, "dnsq failed for " + source + ": " + e);
-        }
-    }
-
-    /** Package names for an app uid; a name or "system" for uids below 10000; "?" when unknown. */
-    private String uidLabel(int uid) {
-        if (uid < 0) {
-            return "?";
-        }
-        String[] pkgs = getPackageManager().getPackagesForUid(uid);
+        PackageManager pm = getPackageManager();
+        String[] pkgs = pm.getPackagesForUid(uid);
+        String name;
         if (pkgs != null && pkgs.length > 0) {
-            return String.join(",", pkgs);
+            try {
+                name = pm.getApplicationLabel(pm.getApplicationInfo(pkgs[0], 0)).toString();
+            } catch (PackageManager.NameNotFoundException e) {
+                name = pkgs[0];
+            }
+        } else if (uid == 0) {
+            name = "System (root)";
+        } else {
+            String raw = pm.getNameForUid(uid);
+            name = uid < 10000 ? "System (" + (raw == null ? uid : raw) + ")" : raw == null ? "Unknown app" : raw;
         }
-        if (uid == 0) {
-            return "system:root";
+        appNames.put(uid, name);
+        return name;
+    }
+
+    /**
+     * Asks Android which app owns the socket behind a bridge client label ("udp:ip#port" or
+     * "tcp:ip#port", see DnsHandler). Null when the label names no socket or the socket is already
+     * closed (browsers cancel lookups; about 1 query in 8 in a first phone test).
+     */
+    private String appOf(String client) {
+        boolean tcp = client.startsWith("tcp:");
+        if (!tcp && !client.startsWith("udp:")) {
+            return null;
         }
-        String name = getPackageManager().getNameForUid(uid);
-        return uid < 10000 ? "system:" + (name == null ? uid : name) : (name == null ? "?" : name);
+        try {
+            String source = client.substring(4);
+            int hash = source.lastIndexOf('#');
+            // hev writes the address as digits, so this never reaches a name lookup.
+            InetSocketAddress local = new InetSocketAddress(
+                    InetAddress.getByName(source.substring(0, hash)), Integer.parseInt(source.substring(hash + 1)));
+            InetSocketAddress dns = new InetSocketAddress(InetAddress.getByAddress(DNS_V4_BYTES), 53);
+            int uid = getSystemService(ConnectivityManager.class).getConnectionOwnerUid(
+                    tcp ? OsConstants.IPPROTO_TCP : OsConstants.IPPROTO_UDP, local, dns);
+            return uid < 0 ? null : appName(uid);
+        } catch (RuntimeException | UnknownHostException e) {
+            return null;
+        }
     }
 
     /** The DNS resolver in use as {name, ip}, or null while the tunnel is down. */

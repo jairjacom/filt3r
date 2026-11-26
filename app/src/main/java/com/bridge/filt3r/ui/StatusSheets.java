@@ -272,7 +272,9 @@ public final class StatusSheets {
             if (space < 0 || !rest.substring(0, space).equals("BLOCKED")) {
                 continue;
             }
-            counts.merge(rest.substring(space + 1), 1, Integer::sum);
+            String host = rest.substring(space + 1);
+            int tab = host.indexOf('\t'); // the asking app follows the name after a tab
+            counts.merge(tab < 0 ? host : host.substring(0, tab), 1, Integer::sum);
         }
         List<Map.Entry<String, Integer>> sorted = new ArrayList<>(counts.entrySet());
         sorted.sort((a, b) -> {
