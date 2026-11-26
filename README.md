@@ -10,7 +10,7 @@ An Android VPN app that filters DNS and sends your traffic through a Shadowsocks
   them, picks the fastest, switches when the current one dies and retries blacklisted ones later.
 - **Failure mode.** Block all traffic when no node works, or connect directly. Your choice.
 - **Exempt apps.** Pick apps that bypass the VPN.
-- **Local only.** No account, no analytics. The query log is off by default and stays on the phone.
+- **Local only.** No account, no analytics. The log (DNS queries and app connections) is off by default and stays on the phone.
 
 Nothing is preconfigured. You add your own subscription URL and switch on the block lists you want.
 
@@ -39,6 +39,11 @@ Settings > About.
 filt3r sends no data to its author. It talks to your Shadowsocks nodes, your DNS resolver, and the
 subscription and block-list URLs you configure. Block lists are downloaded through your node, so the
 servers hosting them see the node's address, not yours. All block lists start switched off.
+
+The log can show which app made each connection. To name an app, and to tell an app that was uninstalled from one
+that is installed, filt3r declares the Android permission `QUERY_ALL_PACKAGES`: it lets filt3r see the list of apps
+on your phone. The list never leaves the phone, and it is read only while the log screen is open or the log is on.
+Android hides some apps from this permission; they show as "App <number>" and are never marked as uninstalled.
 
 The node lookup on the Status screen is the one exception to "only your own URLs". When you tap the Node
 card, filt3r asks ipwho.is (or ipapi.co if that one fails) where the node's address is. The request goes
