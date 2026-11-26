@@ -13,6 +13,7 @@ import android.net.IpPrefix;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.VpnService;
+import android.system.OsConstants;
 import android.os.FileObserver;
 import android.os.BatteryManager;
 import android.os.Handler;
@@ -55,6 +56,7 @@ import com.bridge.filt3r.core.util.StartScope;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
@@ -385,6 +387,7 @@ public class Filt3rVpnService extends VpnService {
                 return resolver.resolve(client, query);
             }, viaNode, direct, DNSResponsePatcher::isPaused);
             b.setFailureMode(settings.failureMode());
+            b.setFlowObserver(this::logFlowOwner);
             synchronized (lock) {
                 if (scope.isClosed()) {
                     if (startRound != null) {
@@ -1532,6 +1535,26 @@ public class Filt3rVpnService extends VpnService {
         }
         long[] hev = TProxyService.TProxyGetStats();
         return hev != null && hev.length >= 4 ? new long[] {hev[1], hev[3]} : null;
+    }
+
+    /** Spike (spike/app-owner): asks Android which app owns the flow hev just handed to the bridge. */
+    private void logFlowOwner(boolean tcp, String source, byte[] dstIp, int dstPort) {
+        try {
+            int hash = source.lastIndexOf('#');
+            if (hash < 0 || dstIp == null) {
+                return;
+            }
+            InetSocketAddress local = new InetSocketAddress(
+                    InetAddress.getByName(source.substring(0, hash)), Integer.parseInt(source.substring(hash + 1)));
+            InetSocketAddress remote = new InetSocketAddress(InetAddress.getByAddress(dstIp), dstPort);
+            int uid = getSystemService(ConnectivityManager.class)
+                    .getConnectionOwnerUid(tcp ? OsConstants.IPPROTO_TCP : OsConstants.IPPROTO_UDP, local, remote);
+            String[] pkgs = uid < 0 ? null : getPackageManager().getPackagesForUid(uid);
+            Log.i(TAG, "owner " + (tcp ? "tcp " : "dns ") + source + " -> " + remote.getAddress().getHostAddress()
+                    + ":" + dstPort + " uid=" + uid + " " + (pkgs == null ? "?" : String.join(",", pkgs)));
+        } catch (RuntimeException | UnknownHostException e) {
+            Log.w(TAG, "owner lookup failed for " + source + ": " + e);
+        }
     }
 
     /** The DNS resolver in use as {name, ip}, or null while the tunnel is down. */

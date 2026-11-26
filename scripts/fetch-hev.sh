@@ -10,6 +10,7 @@ TASK_COMMIT=d0365c370aadd39129924b563b80751cb63332d7
 LWIP_COMMIT=495671e59d736ef59f6cfa7dc9d35b7359921062
 YAML_COMMIT=94441ec8777eb319936735a58b376963d09c73d4
 
+PATCH="$(cd "$(dirname "$0")" && pwd)/hev-app-owner.patch"
 DEST="$(dirname "$0")/../app/src/main/jni/hev-socks5-tunnel"
 rm -rf "$DEST"
 git clone --quiet --branch "$TAG" https://github.com/heiher/hev-socks5-tunnel "$DEST"
@@ -29,3 +30,5 @@ check third-part/hev-task-system "$TASK_COMMIT"
 check third-part/lwip "$LWIP_COMMIT"
 check third-part/yaml "$YAML_COMMIT"
 echo "hev $TAG pinned commits verified"
+git apply "$PATCH"
+echo "applied hev-app-owner.patch"

@@ -1,0 +1,93 @@
+diff --git a/src/hev-socks5-session-tcp.c b/src/hev-socks5-session-tcp.c
+index f2d9ddb..2c10458 100644
+--- a/src/hev-socks5-session-tcp.c
++++ b/src/hev-socks5-session-tcp.c
+@@ -7,6 +7,7 @@
+  ============================================================================
+  */
+ 
++#include <stdio.h>
+ #include <errno.h>
+ #include <string.h>
+ 
+@@ -337,6 +338,9 @@ hev_socks5_session_tcp_construct (HevSocks5SessionTCP *self,
+     self->pcb = pcb;
+     self->mutex = mutex;
+     self->data.self = self;
++    ipaddr_ntoa_r (&pcb->remote_ip, self->data.owner, 40);
++    snprintf (self->data.owner + strlen (self->data.owner), 16, "#%u",
++              pcb->remote_port);
+ 
+     return 0;
+ }
+diff --git a/src/hev-socks5-session-udp.c b/src/hev-socks5-session-udp.c
+index 6b636e8..1e7e53d 100644
+--- a/src/hev-socks5-session-udp.c
++++ b/src/hev-socks5-session-udp.c
+@@ -7,6 +7,7 @@
+  ============================================================================
+  */
+ 
++#include <stdio.h>
+ #include <errno.h>
+ #include <string.h>
+ 
+@@ -485,6 +486,9 @@ hev_socks5_session_udp_construct (HevSocks5SessionUDP *self,
+     self->pcb = pcb;
+     self->mutex = mutex;
+     self->data.self = self;
++    ipaddr_ntoa_r (&pcb->remote_ip, self->data.owner, 40);
++    snprintf (self->data.owner + strlen (self->data.owner), 16, "#%u",
++              pcb->remote_port);
+ 
+     return 0;
+ }
+diff --git a/src/hev-socks5-session.c b/src/hev-socks5-session.c
+index e9d8458..7a55ffb 100644
+--- a/src/hev-socks5-session.c
++++ b/src/hev-socks5-session.c
+@@ -7,6 +7,7 @@
+  ============================================================================
+  */
+ 
++#include <stdio.h>
+ #include <string.h>
+ 
+ #include "hev-utils.h"
+@@ -23,6 +24,7 @@ hev_socks5_session_run (HevSocks5Session *self)
+ {
+     HevSocks5SessionIface *iface;
+     HevConfigServer *srv;
++    char user[320];
+     int res;
+ 
+     LOG_D ("%p socks5 session run", self);
+@@ -37,9 +39,13 @@ hev_socks5_session_run (HevSocks5Session *self)
+     }
+ 
+     if (srv->user && srv->pass) {
+-        hev_socks5_client_set_auth (HEV_SOCKS5_CLIENT (self), srv->user,
+-                                    srv->pass);
+-        LOG_D ("%p socks5 client auth %s:%s", self, srv->user, srv->pass);
++        /* the node is the first member of the session data (filt3r patch) */
++        HevSocks5SessionData *data =
++            (HevSocks5SessionData *)hev_socks5_session_get_node (self);
++
++        snprintf (user, sizeof (user), "%s#%s", srv->user, data->owner);
++        hev_socks5_client_set_auth (HEV_SOCKS5_CLIENT (self), user, srv->pass);
++        LOG_D ("%p socks5 client auth %s:%s", self, user, srv->pass);
+     }
+ 
+     res = hev_socks5_client_handshake (HEV_SOCKS5_CLIENT (self), srv->pipeline);
+diff --git a/src/hev-socks5-session.h b/src/hev-socks5-session.h
+index e06dfc7..2761e48 100644
+--- a/src/hev-socks5-session.h
++++ b/src/hev-socks5-session.h
+@@ -27,6 +27,7 @@ struct _HevSocks5SessionData
+     HevListNode node;
+     HevTask *task;
+     HevSocks5Session *self;
++    char owner[64]; /* "<app ip>#<app port>", sent to the bridge in the user name */
+ };
+ 
+ struct _HevSocks5SessionIface

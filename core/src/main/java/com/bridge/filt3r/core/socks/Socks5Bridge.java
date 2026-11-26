@@ -79,6 +79,7 @@ public final class Socks5Bridge {
     private final DnsHandler dns;
     private final byte[] username;
     private final byte[] password;
+    private volatile FlowObserver flowObserver;
     private final Set<Closeable> open = ConcurrentHashMap.newKeySet();
 
     private final AtomicLong authFailed = new AtomicLong();
@@ -131,6 +132,11 @@ public final class Socks5Bridge {
 
     public void setFailureMode(FailureMode mode) {
         this.failureMode = mode;
+    }
+
+    /** Spike: told which app-side address and port opened each flow. */
+    public void setFlowObserver(FlowObserver observer) {
+        this.flowObserver = observer;
     }
 
     /** When off, IPv6 destinations are refused immediately. */
@@ -242,7 +248,8 @@ public final class Socks5Bridge {
             client.setTcpNoDelay(true);
             DataInputStream in = new DataInputStream(client.getInputStream());
             OutputStream out = client.getOutputStream();
-            if (!authenticate(in, out)) {
+            String source = authenticate(in, out);
+            if (source == null) {
                 authFailed.incrementAndGet();
                 return;
             }
@@ -254,6 +261,12 @@ public final class Socks5Bridge {
             int atyp = in.readUnsignedByte();
             byte[] ip = readAddress(in, atyp);
             int port = in.readUnsignedShort();
+            FlowObserver observer = flowObserver;
+            if (observer != null && !source.isEmpty()) {
+                // UDP is only ever answered for DNS, so that flow's destination is the virtual DNS.
+                boolean udp = cmd == CMD_UDP_ASSOCIATE;
+                observer.onFlow(!udp, source, udp ? dnsVirtual : ip, udp ? 53 : port);
+            }
             if (cmd == CMD_UDP_ASSOCIATE) {
                 udpAssociate(client, in, out);
             } else if (cmd == CMD_CONNECT) {
@@ -269,10 +282,14 @@ public final class Socks5Bridge {
         }
     }
 
-    /** RFC 1928 method selection, then RFC 1929 username/password. */
-    private boolean authenticate(DataInputStream in, OutputStream out) throws IOException {
+    /**
+     * RFC 1928 method selection, then RFC 1929 username/password. The user name is the bridge's
+     * name, optionally followed by '#' and the app-side "address#port" of the flow (hev patch).
+     * Returns that source text ("" when absent), or null when authentication failed.
+     */
+    private String authenticate(DataInputStream in, OutputStream out) throws IOException {
         if (in.readUnsignedByte() != 5) {
-            return false;
+            return null;
         }
         byte[] methods = new byte[in.readUnsignedByte()];
         in.readFully(methods);
@@ -283,23 +300,31 @@ public final class Socks5Bridge {
         if (!offered) {
             out.write(new byte[] {5, (byte) 0xFF});
             out.flush();
-            return false;
+            return null;
         }
         out.write(new byte[] {5, 2});
         out.flush();
 
         if (in.readUnsignedByte() != 1) {
-            return false;
+            return null;
         }
         byte[] user = new byte[in.readUnsignedByte()];
         in.readFully(user);
         byte[] pass = new byte[in.readUnsignedByte()];
         in.readFully(pass);
-        // Non-short-circuit on purpose: both comparisons always run.
-        boolean ok = MessageDigest.isEqual(user, username) & MessageDigest.isEqual(pass, password);
+        boolean named = user.length == username.length
+                || (user.length > username.length && user[username.length] == '#');
+        // Non-short-circuit on purpose: all comparisons always run.
+        boolean ok = named
+                & MessageDigest.isEqual(Arrays.copyOf(user, username.length), username)
+                & MessageDigest.isEqual(pass, password);
         out.write(new byte[] {1, (byte) (ok ? 0 : 1)});
         out.flush();
-        return ok;
+        if (!ok) {
+            return null;
+        }
+        return user.length == username.length ? ""
+                : new String(user, username.length + 1, user.length - username.length - 1, StandardCharsets.US_ASCII);
     }
 
     /** Reads the address field. Returns 4 bytes (IPv4), 16 bytes (IPv6), or null for a domain name. */
