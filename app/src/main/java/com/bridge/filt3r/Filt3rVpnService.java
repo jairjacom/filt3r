@@ -414,8 +414,15 @@ public class Filt3rVpnService extends VpnService {
             }, viaNode, direct, DNSResponsePatcher::isPaused);
             b.setFailureMode(settings.failureMode());
             b.setConnectionListener((client, dest, port, blocked, reason) -> {
-                if (settings.queryLogEnabled()) {
-                    ownerLookups.execute(() -> logConnection(client, dest, port, blocked, reason));
+                if (!settings.queryLogEnabled()) {
+                    return;
+                }
+                if (blocked) {
+                    // hev closes a refused socket right after the answer, and Android cannot name the owner
+                    // of a closed socket, so this one is looked up now. The flow is refused anyway.
+                    logConnection(client, dest, port, true, reason);
+                } else {
+                    ownerLookups.execute(() -> logConnection(client, dest, port, false, reason));
                 }
             });
             synchronized (lock) {
@@ -1812,7 +1819,7 @@ public class Filt3rVpnService extends VpnService {
                 Log.i(TAG, "bridge stats: " + b.stats());
                 b.stop();
             }
-            ConnectionLogs.get(this).flush();
+            ownerLookups.execute(() -> ConnectionLogs.get(this).flush()); // after the lookups still queued
             FILTER_LIFE.execute(() -> {
                 try {
                     DNSFilterManager.getInstance().stop();

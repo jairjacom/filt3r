@@ -123,6 +123,8 @@ public class QueryLogPanel extends LinearLayout {
     private final TextInputEditText search;
     private int mode = ALL;
     private boolean connections; // the visible side: app connections, else DNS queries
+    private final Set<String> checkedApps = new HashSet<>(); // app keys looked up since the screen opened
+    private final Set<String> uninstalledApps = new HashSet<>(); // those of them no longer installed
     private ImageButton exportButton;
     private ObjectAnimator exportSpin;
 
@@ -339,11 +341,11 @@ public class QueryLogPanel extends LinearLayout {
         String needle = search.getText() == null ? ""
                 : search.getText().toString().trim().toLowerCase(Locale.ROOT);
         List<String> lines = connections ? backend.connectionLines() : backend.queryLines();
-        Set<String> removed = removedApps(lines);
         List<Entry> shown = new ArrayList<>();
         if (mode == TOP) {
             shown = top(lines, needle);
         } else {
+            Set<String> removed = removedApps(lines);
             for (int i = lines.size() - 1; i >= 0; i--) { // newest first
                 Entry e = connections ? parseConnection(lines.get(i), removed) : parse(lines.get(i), removed);
                 if (e == null || mode == BLOCKED && !e.blocked || mode == ALLOWED && e.blocked) {
@@ -373,16 +375,25 @@ public class QueryLogPanel extends LinearLayout {
         }
     }
 
-    /** Of the apps in these lines, the ones no longer installed. */
+    /** Of the apps in these lines, the ones no longer installed. Each app is asked about once per screen open. */
     private Set<String> removedApps(List<String> lines) {
-        Set<String> keys = new HashSet<>();
+        Set<String> present = new HashSet<>();
+        Set<String> unseen = new HashSet<>();
         for (String line : lines) {
             String key = keyOf(line);
             if (key != null) {
-                keys.add(key);
+                present.add(key);
+                if (!checkedApps.contains(key)) {
+                    unseen.add(key);
+                }
             }
         }
-        return keys.isEmpty() ? Collections.<String>emptySet() : backend.removedApps(keys);
+        if (!unseen.isEmpty()) {
+            uninstalledApps.addAll(backend.removedApps(unseen));
+            checkedApps.addAll(unseen);
+        }
+        present.retainAll(uninstalledApps);
+        return present;
     }
 
     /** The app key (package name) of a line of the visible side; null when it has none. */

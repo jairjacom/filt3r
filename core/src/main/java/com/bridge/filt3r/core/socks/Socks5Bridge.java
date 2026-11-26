@@ -381,7 +381,6 @@ public final class Socks5Bridge {
             refusedIpBlock.incrementAndGet();
             return;
         }
-        report(source, addr, port, false, null);
         if (port == 53) {
             dnsBypassTcp.incrementAndGet();
         } else if (port == 853) {
@@ -406,10 +405,13 @@ public final class Socks5Bridge {
                 }
             }
             if (up == null) {
+                boolean noNode = e instanceof NoNodeException;
+                report(source, addr, port, noNode, noNode ? ConnectionListener.REASON_NO_NODE : null);
                 reply(out, failureCode(e), 0);
                 return;
             }
         }
+        report(source, addr, port, false, null); // allowed: a node, or the direct fallback, accepted it
         open.add(up);
         try {
             connectOk.incrementAndGet();

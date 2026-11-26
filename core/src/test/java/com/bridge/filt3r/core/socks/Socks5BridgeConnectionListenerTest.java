@@ -50,11 +50,13 @@ class Socks5BridgeConnectionListenerTest {
     private final List<Seen> seen = Collections.synchronizedList(new ArrayList<>());
     private final AtomicBoolean paused = new AtomicBoolean();
     private Socks5Bridge bridge;
+    private final java.util.concurrent.atomic.AtomicReference<IOException> dialFailure =
+            new java.util.concurrent.atomic.AtomicReference<>(new IOException("destination unreachable"));
 
     @BeforeEach
     void setUp() throws IOException {
         Dialer failing = (address, port, timeoutMs) -> {
-            throw new IOException("no node");
+            throw dialFailure.get();
         };
         bridge = new Socks5Bridge(OUR_DNS, (client, query) -> new byte[0], failing, null, paused::get);
         bridge.setIpBlockList(IpBlockList.parse(new ByteArrayInputStream("203.0.113.5\n".getBytes(StandardCharsets.US_ASCII))));
@@ -88,6 +90,16 @@ class Socks5BridgeConnectionListenerTest {
         assertEquals(1, seen.size());
         assertFalse(seen.get(0).blocked);
         assertNull(seen.get(0).reason);
+    }
+
+    @Test
+    void aFlowRefusedBecauseNoNodeWorksIsReportedBlockedWithTheReason() throws IOException {
+        dialFailure.set(new NoNodeException());
+        connect("#10.0.2.15#40003", OTHER_IP);
+
+        assertEquals(1, seen.size());
+        assertTrue(seen.get(0).blocked);
+        assertEquals(ConnectionListener.REASON_NO_NODE, seen.get(0).reason);
     }
 
     @Test

@@ -210,7 +210,7 @@
     <string name="dns_sheet_log_off">The log is off, so there is nothing to rank. Turn on Keep a log to save the last 1,000 DNS queries and app connections on this phone.</string>
     <string name="dns_sheet_turn_on">Keep a log</string>
     <string name="dns_sheet_view_blocked">View blocked</string>
-    <string name="dns_sheet_log_on">Query log is on</string>
+    <string name="dns_sheet_log_on">Keep a log is on</string>
 
     <!-- NodesPanel -->
     <string name="nodes_back">Back</string>
@@ -314,12 +314,12 @@
     <!-- QueryLogPanel -->
     <string name="qlog_back">Back</string>
     <string name="qlog_title">Query log</string>
-    <string name="qlog_clear_description">Clear query log</string>
-    <string name="qlog_clear_title">Clear the query log?</string>
+    <string name="qlog_clear_description">Clear the log</string>
+    <string name="qlog_clear_title">Clear this log?</string>
     <string name="qlog_clear_message">This removes the DNS queries kept on this phone. It cannot be undone.</string>
     <string name="qlog_clear_confirm">Clear</string>
     <string name="qlog_rules_description">My rules</string>
-    <string name="qlog_export_description">Save query log as a text file</string>
+    <string name="qlog_export_description">Save the log as a text file</string>
     <string name="qlog_switch">Keep a log</string>
     <string name="qlog_search_hint">Search names</string>
     <string name="qlog_chip_all">All</string>
@@ -338,7 +338,7 @@
     <string name="qlog_cancel">Cancel</string>
     <string name="qlog_empty_no_match">Nothing matches.</string>
     <string name="qlog_empty_no_queries">No queries yet.</string>
-    <string name="qlog_empty_off">The query log is off. Turn it on with the switch above.</string>
+    <string name="qlog_empty_off">The log is off. Turn on Keep a log with the switch above.</string>
     <string name="qlog_clear_menu_title">Clear</string>
     <string name="qlog_clear_menu_all">Everything</string>
     <string name="qlog_clear_menu_removed">Entries of uninstalled apps</string>
