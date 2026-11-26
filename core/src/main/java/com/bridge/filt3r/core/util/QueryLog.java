@@ -15,7 +15,8 @@ import java.util.Locale;
 import java.util.function.BooleanSupplier;
 
 /**
- * A plain-text log of DNS queries, one line each: "MM-dd HH:mm:ss ALLOWED|BLOCKED name". It keeps
+ * A plain-text log of DNS queries, one line each: "MM-dd HH:mm:ss ALLOWED|BLOCKED name", followed by
+ * a tab and the asking app's name when it is known. It keeps
  * the last {@value #MAX_LINES} lines in memory and in one private file. Nothing is written while
  * the enabled switch is off. The file is compacted when it grows past twice the limit.
  */
@@ -37,12 +38,74 @@ public final class QueryLog {
         load();
     }
 
-    /** Called for every A/AAAA query the filter decides on. */
-    public synchronized void add(String host, boolean blocked) {
+    /** One parsed log line. */
+    public static final class Entry {
+        public final String time;
+        public final boolean blocked;
+        public final String host;
+        public final String app; // null when the line has no app
+
+        Entry(String time, boolean blocked, String host, String app) {
+            this.time = time;
+            this.blocked = blocked;
+            this.host = host;
+            this.app = app;
+        }
+    }
+
+    private static final int TIME_LENGTH = "MM-dd HH:mm:ss".length();
+    private static final int MAX_APP_LENGTH = 64;
+
+    /** "MM-dd HH:mm:ss ALLOWED|BLOCKED name[TAB app]" -> Entry; null for a line that does not fit. */
+    public static Entry parse(String line) {
+        if (line.length() < TIME_LENGTH + 9) {
+            return null;
+        }
+        String rest = line.substring(TIME_LENGTH + 1);
+        int space = rest.indexOf(' ');
+        if (space < 0) {
+            return null;
+        }
+        String verdict = rest.substring(0, space);
+        if (!verdict.equals("BLOCKED") && !verdict.equals("ALLOWED")) {
+            return null;
+        }
+        String name = rest.substring(space + 1);
+        int tab = name.indexOf('\t');
+        return new Entry(line.substring(0, TIME_LENGTH), verdict.equals("BLOCKED"),
+                tab < 0 ? name : name.substring(0, tab), tab < 0 ? null : name.substring(tab + 1));
+    }
+
+    /**
+     * An app picks its own label, so it is untrusted: control and format characters (line breaks, tabs,
+     * right-to-left overrides) become spaces and it is cut to {@value #MAX_APP_LENGTH} characters.
+     * Null when nothing printable is left.
+     */
+    private static String cleanApp(String app) {
+        if (app == null) {
+            return null;
+        }
+        String clean = app.replaceAll("[\\p{Cc}\\p{Cf}]", " ").trim();
+        if (clean.codePointCount(0, clean.length()) > MAX_APP_LENGTH) {
+            clean = clean.substring(0, clean.offsetByCodePoints(0, MAX_APP_LENGTH)).trim();
+        }
+        return clean.isEmpty() ? null : clean;
+    }
+
+    /**
+     * Called for every A/AAAA query the filter decides on.
+     *
+     * @param app the asking app's name, or null when unknown
+     */
+    public synchronized void add(String host, boolean blocked, String app) {
         if (!enabled.getAsBoolean()) {
             return;
         }
         String line = time.format(new Date()) + (blocked ? " BLOCKED " : " ALLOWED ") + host;
+        String name = cleanApp(app);
+        if (name != null) {
+            line += "\t" + name;
+        }
         lines.addLast(line);
         while (lines.size() > MAX_LINES) {
             lines.removeFirst();

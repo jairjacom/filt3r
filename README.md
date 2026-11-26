@@ -21,7 +21,8 @@ Android 16 or newer (API 36), 64-bit ARM. Java, classic Views. The APK is about 
 ## Build
 
 Builds run in GitHub Actions only (`.github/workflows`). CI fetches hev-socks5-tunnel at a pinned tag,
-checks every pinned commit (`scripts/fetch-hev.sh`) and compiles it with the NDK. Actions and the Gradle
+checks every pinned commit (`scripts/fetch-hev.sh`), applies our small patch that lets the bridge learn which
+app owns a connection (`scripts/hev-app-owner.patch`) and compiles it with the NDK. Actions and the Gradle
 wrapper are pinned by checksum.
 
 ## Licence

@@ -23,6 +23,7 @@ import com.bridge.filt3r.R;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
+import com.bridge.filt3r.core.util.QueryLog;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputEditText;
@@ -42,7 +43,7 @@ public class QueryLogPanel extends LinearLayout {
 
     /** What the panel needs from the app; implemented by the activity. */
     public interface Backend extends OverridesDialog.Backend {
-        /** The kept lines, oldest first: "MM-dd HH:mm:ss ALLOWED|BLOCKED name". */
+        /** The kept lines, oldest first: "MM-dd HH:mm:ss ALLOWED|BLOCKED name", then a tab and the app when known. */
         List<String> queryLines();
 
         boolean queryLogEnabled();
@@ -60,7 +61,6 @@ public class QueryLogPanel extends LinearLayout {
     }
 
     private static final long REFRESH_MS = 2000;
-    private static final int TIME_LENGTH = "MM-dd HH:mm:ss".length();
 
     private static final int ALL = 0;
     private static final int BLOCKED = 1;
@@ -72,16 +72,14 @@ public class QueryLogPanel extends LinearLayout {
         final String time;
         final boolean blocked;
         final String host;
+        final String app; // the asking app's name; null when unknown
         final String summary; // for the Top view: "Blocked 3 · Allowed 1"; null for a single query
 
-        Entry(String time, boolean blocked, String host) {
-            this(time, blocked, host, null);
-        }
-
-        Entry(String time, boolean blocked, String host, String summary) {
+        Entry(String time, boolean blocked, String host, String app, String summary) {
             this.time = time;
             this.blocked = blocked;
             this.host = host;
+            this.app = app;
             this.summary = summary;
         }
     }
@@ -280,7 +278,8 @@ public class QueryLogPanel extends LinearLayout {
                 if (e == null || mode == BLOCKED && !e.blocked || mode == ALLOWED && e.blocked) {
                     continue;
                 }
-                if (!needle.isEmpty() && !e.host.toLowerCase(Locale.ROOT).contains(needle)) {
+                if (!needle.isEmpty() && !e.host.toLowerCase(Locale.ROOT).contains(needle)
+                        && (e.app == null || !e.app.toLowerCase(Locale.ROOT).contains(needle))) {
                     continue;
                 }
                 shown.add(e);
@@ -321,28 +320,16 @@ public class QueryLogPanel extends LinearLayout {
         List<Entry> out = new ArrayList<>();
         for (java.util.Map.Entry<String, int[]> m : sorted) {
             int[] c = m.getValue();
-            out.add(new Entry("", c[0] >= c[1], m.getKey(),
+            out.add(new Entry("", c[0] >= c[1], m.getKey(), null,
                     getContext().getString(R.string.qlog_top_summary, c[0], c[1])));
         }
         return out;
     }
 
-    /** "MM-dd HH:mm:ss ALLOWED name" -> Entry; null for a line that does not fit. */
+    /** A log line as a panel row; null for a line that does not fit. */
     private static Entry parse(String line) {
-        if (line.length() < TIME_LENGTH + 9) {
-            return null;
-        }
-        String time = line.substring(0, TIME_LENGTH);
-        String rest = line.substring(TIME_LENGTH + 1);
-        int space = rest.indexOf(' ');
-        if (space < 0) {
-            return null;
-        }
-        String verdict = rest.substring(0, space);
-        if (!verdict.equals("BLOCKED") && !verdict.equals("ALLOWED")) {
-            return null;
-        }
-        return new Entry(time, verdict.equals("BLOCKED"), rest.substring(space + 1));
+        QueryLog.Entry e = QueryLog.parse(line);
+        return e == null ? null : new Entry(e.time, e.blocked, e.host, e.app, null);
     }
 
     private MaterialButton chip(Context context, String text, int icon) {
@@ -488,7 +475,8 @@ public class QueryLogPanel extends LinearLayout {
                 Entry x = a.get(i);
                 Entry y = b.get(i);
                 if (x.blocked != y.blocked || !x.time.equals(y.time) || !x.host.equals(y.host)
-                        || !java.util.Objects.equals(x.summary, y.summary)) {
+                        || !java.util.Objects.equals(x.summary, y.summary)
+                        || !java.util.Objects.equals(x.app, y.app)) {
                     return false;
                 }
             }
@@ -556,11 +544,12 @@ public class QueryLogPanel extends LinearLayout {
             host.setText(e.host);
             Context ctx = getContext();
             String said = e.summary != null ? e.summary
-                    : ctx.getString(e.blocked ? R.string.qlog_blocked : R.string.qlog_allowed) + " · " + e.time;
+                    : ctx.getString(e.blocked ? R.string.qlog_blocked : R.string.qlog_allowed) + " · " + e.time
+                    + (e.app == null ? "" : " · " + e.app);
             detail.setText(said);
             setContentDescription(ctx.getString(R.string.qlog_row_description, e.host,
                     ctx.getString(e.blocked ? R.string.qlog_said_blocked : R.string.qlog_said_allowed),
-                    e.summary != null ? e.summary : e.time));
+                    e.summary != null ? e.summary : e.time + (e.app == null ? "" : ", " + e.app)));
         }
     }
 }

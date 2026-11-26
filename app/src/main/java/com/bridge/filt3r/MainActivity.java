@@ -36,6 +36,7 @@ import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.filter.UserOverrides;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
+import com.bridge.filt3r.core.util.QueryLog;
 import com.bridge.filt3r.ui.BlurBehind;
 import com.bridge.filt3r.ui.Dialogs;
 import com.bridge.filt3r.ui.DockedToolbar;
@@ -830,9 +831,8 @@ public class MainActivity extends Activity
     private List<String> exportLines(boolean blocked, boolean allowed) {
         List<String> out = new ArrayList<>();
         for (String line : queryLines()) {
-            // "MM-dd HH:mm:ss ALLOWED|BLOCKED name": the verdict starts after the 14-character time and a space
-            boolean isBlocked = line.startsWith("BLOCKED", 15);
-            if (isBlocked ? blocked : allowed) {
+            QueryLog.Entry e = QueryLog.parse(line);
+            if (e != null && (e.blocked ? blocked : allowed)) {
                 out.add(line);
             }
         }

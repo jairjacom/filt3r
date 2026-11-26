@@ -52,7 +52,7 @@ public final class Socks5Bridge {
     private static final int UDP_HEADER = 10; // RSV(2) FRAG(1) ATYP(1) IPv4(4) PORT(2)
     private static final int DNS_MAX = 4096;
     private static final int DNS_TCP_IDLE_MS = 30_000;
-    private static final String DNS_CLIENT = "tunnel"; // label in the query log; hev hides the app
+    private static final String DNS_CLIENT = "tunnel"; // query log label when hev did not name the app
     private static final byte[] LOOPBACK = {127, 0, 0, 1};
 
     private static final int ATYP_IPV4 = 1;
@@ -242,7 +242,8 @@ public final class Socks5Bridge {
             client.setTcpNoDelay(true);
             DataInputStream in = new DataInputStream(client.getInputStream());
             OutputStream out = client.getOutputStream();
-            if (!authenticate(in, out)) {
+            String source = authenticate(in, out);
+            if (source == null) {
                 authFailed.incrementAndGet();
                 return;
             }
@@ -255,9 +256,9 @@ public final class Socks5Bridge {
             byte[] ip = readAddress(in, atyp);
             int port = in.readUnsignedShort();
             if (cmd == CMD_UDP_ASSOCIATE) {
-                udpAssociate(client, in, out);
+                udpAssociate(client, in, out, source.isEmpty() ? DNS_CLIENT : "udp:" + source);
             } else if (cmd == CMD_CONNECT) {
-                connect(client, out, ip, port);
+                connect(client, out, ip, port, source);
             } else {
                 reply(out, REP_CMD_UNSUPPORTED, 0);
             }
@@ -269,10 +270,14 @@ public final class Socks5Bridge {
         }
     }
 
-    /** RFC 1928 method selection, then RFC 1929 username/password. */
-    private boolean authenticate(DataInputStream in, OutputStream out) throws IOException {
+    /**
+     * RFC 1928 method selection, then RFC 1929 username/password. The user name is the bridge's
+     * name, optionally followed by '#' and the app-side "address#port" of the flow (hev patch).
+     * Returns that source text ("" when absent), or null when authentication failed.
+     */
+    private String authenticate(DataInputStream in, OutputStream out) throws IOException {
         if (in.readUnsignedByte() != 5) {
-            return false;
+            return null;
         }
         byte[] methods = new byte[in.readUnsignedByte()];
         in.readFully(methods);
@@ -283,23 +288,31 @@ public final class Socks5Bridge {
         if (!offered) {
             out.write(new byte[] {5, (byte) 0xFF});
             out.flush();
-            return false;
+            return null;
         }
         out.write(new byte[] {5, 2});
         out.flush();
 
         if (in.readUnsignedByte() != 1) {
-            return false;
+            return null;
         }
         byte[] user = new byte[in.readUnsignedByte()];
         in.readFully(user);
         byte[] pass = new byte[in.readUnsignedByte()];
         in.readFully(pass);
-        // Non-short-circuit on purpose: both comparisons always run.
-        boolean ok = MessageDigest.isEqual(user, username) & MessageDigest.isEqual(pass, password);
+        boolean named = user.length == username.length
+                || (user.length > username.length && user[username.length] == '#');
+        // Non-short-circuit on purpose: all comparisons always run.
+        boolean ok = named
+                & MessageDigest.isEqual(Arrays.copyOf(user, username.length), username)
+                & MessageDigest.isEqual(pass, password);
         out.write(new byte[] {1, (byte) (ok ? 0 : 1)});
         out.flush();
-        return ok;
+        if (!ok) {
+            return null;
+        }
+        return user.length == username.length ? ""
+                : new String(user, username.length + 1, user.length - username.length - 1, StandardCharsets.US_ASCII);
     }
 
     /** Reads the address field. Returns 4 bytes (IPv4), 16 bytes (IPv6), or null for a domain name. */
@@ -323,7 +336,7 @@ public final class Socks5Bridge {
         }
     }
 
-    private void connect(Socket client, OutputStream out, byte[] ip, int port) throws IOException {
+    private void connect(Socket client, OutputStream out, byte[] ip, int port, String source) throws IOException {
         if (ip == null) {
             // Domain names never arrive from hev (no mapdns): refuse, fail closed.
             reply(out, REP_ATYP_UNSUPPORTED, 0);
@@ -339,7 +352,7 @@ public final class Socks5Bridge {
             }
             reply(out, REP_OK, 0);
             client.setSoTimeout(DNS_TCP_IDLE_MS);
-            dnsOverTcp(client, out);
+            dnsOverTcp(client, out, source.isEmpty() ? DNS_CLIENT : "tcp:" + source);
             return;
         }
         if (isLocalAddress(ip)) {
@@ -401,7 +414,7 @@ public final class Socks5Bridge {
     }
 
     /** DNS over TCP (RFC 1035 4.2.2): 2-byte length, then the message; any number of queries per connection. */
-    private void dnsOverTcp(Socket client, OutputStream out) throws IOException {
+    private void dnsOverTcp(Socket client, OutputStream out, String label) throws IOException {
         DataInputStream in = new DataInputStream(client.getInputStream());
         while (true) { // ends with an exception: EOF, idle timeout or a bad length
             int len = in.readUnsignedShort();
@@ -412,7 +425,7 @@ public final class Socks5Bridge {
             in.readFully(query);
             Future<byte[]> answer;
             try {
-                answer = dnsPool.submit(() -> dns.handle(DNS_CLIENT, query)); // same bounded pool as UDP
+                answer = dnsPool.submit(() -> dns.handle(label, query)); // same bounded pool as UDP
             } catch (RejectedExecutionException e) {
                 udpDropped.incrementAndGet();
                 throw new IOException("DNS busy");
@@ -494,14 +507,14 @@ public final class Socks5Bridge {
      * UDP ASSOCIATE. The association lives as long as the TCP control connection stays open.
      * Only datagrams to the virtual DNS address, port 53, are forwarded.
      */
-    private void udpAssociate(Socket control, DataInputStream in, OutputStream out) throws IOException {
+    private void udpAssociate(Socket control, DataInputStream in, OutputStream out, String label) throws IOException {
         DatagramSocket relay = new DatagramSocket(0, InetAddress.getByAddress(LOOPBACK));
         open.add(relay);
         try {
             reply(out, REP_OK, relay.getLocalPort());
             control.setSoTimeout(0);
 
-            UdpAssociation assoc = new UdpAssociation(relay);
+            UdpAssociation assoc = new UdpAssociation(relay, label);
             pool.execute(assoc::receiveLoop);
             while (in.read() != -1) {
                 // control connection carries nothing after the request; wait for it to close
@@ -514,9 +527,11 @@ public final class Socks5Bridge {
 
     private final class UdpAssociation {
         private final DatagramSocket relay;
+        private final String client; // query log label: who opened this association
 
-        UdpAssociation(DatagramSocket relay) {
+        UdpAssociation(DatagramSocket relay, String client) {
             this.relay = relay;
+            this.client = client;
         }
 
         void receiveLoop() {
@@ -557,7 +572,7 @@ public final class Socks5Bridge {
         /** Runs on its own pool thread: resolving may block on the network. */
         private void answer(byte[] query, SocketAddress to) {
             try {
-                byte[] response = dns.handle(DNS_CLIENT, query);
+                byte[] response = dns.handle(client, query);
                 if (response == null || response.length > DNS_MAX) {
                     udpDropped.incrementAndGet();
                     return;
