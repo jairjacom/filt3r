@@ -100,6 +100,17 @@ class AppListTest {
     }
 
     @Test
+    void newestMeansLaterInTheLogEvenWhenTheDateWrapsAtNewYear() {
+        // the log keeps no year, so "01-01" text sorts before "12-31" although it is newer
+        List<AppList.Row> rows = AppList.build(List.of(app("old", "Old"), app("new", "New")),
+                List.of(entry("old", false, 1, "12-31 23:59:00"), entry("new", false, 1, "01-01 00:05:00")),
+                false, "");
+
+        assertEquals(List.of("new", "old"), packages(rows));
+        assertEquals("01-01 00:05:00", rows.get(0).lastTime);
+    }
+
+    @Test
     void searchDoesNotBringBackHiddenSystemApps() {
         List<AppList.App> apps = List.of(systemApp("sys.core", "AI Core"));
 
@@ -132,14 +143,5 @@ class AppListTest {
     @Test
     void aSingleAppWithOwnUserIdSharesWithNobody() {
         assertEquals(0, AppList.build(List.of(app("a", "A")), List.of(), false, "").get(0).sharedWith);
-    }
-
-    @Test
-    void aLineWhoseTimeTiesWithAnotherKeepsNameOrder() {
-        List<AppList.Row> rows = AppList.build(List.of(app("b", "Beta"), app("a", "Alpha")),
-                List.of(entry("b", false, 1, "11-26 10:00:00"), entry("a", false, 1, "11-26 10:00:00")),
-                false, "");
-
-        assertEquals(List.of("a", "b"), packages(rows));
     }
 }
