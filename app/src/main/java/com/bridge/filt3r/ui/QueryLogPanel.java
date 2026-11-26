@@ -166,12 +166,12 @@ public class QueryLogPanel extends LinearLayout {
         addView(bar);
 
         // DNS queries or app connections.
-        MaterialButtonToggleGroup sides = new MaterialButtonToggleGroup(context);
+        sides = new MaterialButtonToggleGroup(context);
         sides.setSingleSelection(true);
         sides.setSelectionRequired(true);
         sides.setSpacing(dp(8));
         MaterialButton dnsSide = chip(context, context.getString(R.string.qlog_side_dns), R.drawable.ic_log);
-        MaterialButton connectionsSide = chip(context, context.getString(R.string.qlog_side_connections), R.drawable.ic_list);
+        connectionsSide = chip(context, context.getString(R.string.qlog_side_connections), R.drawable.ic_list);
         sides.addView(dnsSide);
         sides.addView(connectionsSide);
         sides.check(dnsSide.getId());
@@ -263,6 +263,19 @@ public class QueryLogPanel extends LinearLayout {
         chipParams.setMargins(dp(16), dp(4), dp(16), dp(8));
         addView(chips, chipParams);
 
+        // Set when the Apps screen opened the log for one app; a tap clears it.
+        appBanner = new TextView(context);
+        appBanner.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        appBanner.setPadding(dp(20), dp(4), dp(20), dp(8));
+        dim(appBanner);
+        appBanner.setVisibility(GONE);
+        appBanner.setOnClickListener(v -> {
+            appKeys = null;
+            appBanner.setVisibility(GONE);
+            reload();
+        });
+        addView(appBanner);
+
         empty = new TextView(context);
         empty.setGravity(Gravity.CENTER);
         dim(empty);
@@ -299,6 +312,24 @@ public class QueryLogPanel extends LinearLayout {
     private MaterialButton blockedChip;
     private MaterialButton topChip;
     private MaterialButton allChip;
+    private MaterialButtonToggleGroup sides;
+    private MaterialButton connectionsSide;
+
+    /** Only the lines of these app keys are listed while this is set (see {@link #showApp}). */
+    private Set<String> appKeys;
+    private TextView appBanner;
+
+    /**
+     * Opens the Connections side for one app. {@code keys} are the app keys its lines use (the packages that
+     * share its user ID); {@code label} is the name shown in the banner. The Apps screen opens the log this way.
+     */
+    public void showApp(Set<String> keys, String label) {
+        appKeys = keys;
+        appBanner.setText(getContext().getString(R.string.qlog_app_filter, label));
+        appBanner.setVisibility(VISIBLE);
+        sides.check(connectionsSide.getId());
+        reload();
+    }
 
     /** Switches to the Blocked filter; the DNS card's "View blocked" opens the log this way. */
     public void showBlockedOnly() {
@@ -341,6 +372,9 @@ public class QueryLogPanel extends LinearLayout {
         String needle = search.getText() == null ? ""
                 : search.getText().toString().trim().toLowerCase(Locale.ROOT);
         List<String> lines = connections ? backend.connectionLines() : backend.queryLines();
+        if (appKeys != null) {
+            lines = onlyAppKeys(lines);
+        }
         List<Entry> shown = new ArrayList<>();
         if (mode == TOP) {
             shown = top(lines, needle);
@@ -373,6 +407,18 @@ public class QueryLogPanel extends LinearLayout {
                             ? (connections ? R.string.qlog_empty_no_connections : R.string.qlog_empty_no_queries)
                     : R.string.qlog_empty_off);
         }
+    }
+
+    /** The lines of the apps in {@link #appKeys}, in their order. */
+    private List<String> onlyAppKeys(List<String> lines) {
+        List<String> kept = new ArrayList<>();
+        for (String line : lines) {
+            String key = keyOf(line);
+            if (key != null && appKeys.contains(key)) {
+                kept.add(line);
+            }
+        }
+        return kept;
     }
 
     /** Of the apps in these lines, the ones no longer installed. Each app is asked about once per screen open. */

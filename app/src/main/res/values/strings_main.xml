@@ -322,6 +322,7 @@
     <string name="qlog_export_description">Save the log as a text file</string>
     <string name="qlog_switch">Keep a log</string>
     <string name="qlog_search_hint">Search names</string>
+    <string name="qlog_app_filter">Only %1$s. Tap to show everything.</string>
     <string name="qlog_chip_all">All</string>
     <string name="qlog_chip_top">Top</string>
     <string name="qlog_top_summary">"Blocked %1$d  ·  Allowed %2$d"</string>

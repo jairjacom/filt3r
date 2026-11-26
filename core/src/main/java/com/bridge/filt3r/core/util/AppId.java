@@ -16,8 +16,11 @@ public final class AppId {
         this.uid = uid;
     }
 
-    /** An app picks its own label, so it is untrusted: control and format characters become spaces, and it is cut to 64 characters. */
-    private static String cleanLabel(String label, String key) {
+    /**
+     * An app picks its own label, so it is untrusted: control and format characters become spaces, it is cut to
+     * 64 characters, and an empty one becomes the key. Screens that list apps use this too.
+     */
+    public static String cleanLabel(String label, String key) {
         String clean = label == null ? "" : label.replaceAll("[\\p{Cc}\\p{Cf}]", " ").trim();
         if (clean.codePointCount(0, clean.length()) > MAX_LABEL_LENGTH) {
             clean = clean.substring(0, clean.offsetByCodePoints(0, MAX_LABEL_LENGTH)).trim();

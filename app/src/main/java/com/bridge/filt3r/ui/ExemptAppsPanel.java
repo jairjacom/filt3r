@@ -1,12 +1,7 @@
 package com.bridge.filt3r.ui;
 
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.content.res.ColorStateList;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -24,6 +19,8 @@ import android.widget.ListView;
 import android.widget.TextView;
 
 import com.bridge.filt3r.Effects;
+import com.bridge.filt3r.InstalledApps;
+import com.bridge.filt3r.InstalledApps.App;
 import com.bridge.filt3r.R;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.color.MaterialColors;
@@ -33,11 +30,9 @@ import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -64,21 +59,6 @@ public class ExemptAppsPanel extends LinearLayout {
         boolean restartPending();
 
         void setRestartPending(boolean pending);
-    }
-
-    /** One installed app with a launcher icon. */
-    private static final class App {
-        final String pkg;
-        final String label;
-        final boolean system;
-        final Drawable icon;
-
-        App(String pkg, String label, boolean system, Drawable icon) {
-            this.pkg = pkg;
-            this.label = label;
-            this.system = system;
-            this.icon = icon;
-        }
     }
 
     private final Backend backend;
@@ -219,24 +199,10 @@ public class ExemptAppsPanel extends LinearLayout {
         super.onDetachedFromWindow();
     }
 
-    /** Reads the launchable apps off the main thread, then fills the list. */
+    /** Reads every installed app off the main thread, then fills the list. */
     private void loadApps(Context context) {
-        PackageManager pm = context.getPackageManager();
-        String own = context.getPackageName();
         new Thread(() -> {
-            Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-            Map<String, App> byPackage = new HashMap<>();
-            for (ResolveInfo ri : pm.queryIntentActivities(launcher, PackageManager.MATCH_ALL)) {
-                ApplicationInfo info = ri.activityInfo.applicationInfo;
-                if (info.packageName.equals(own) || byPackage.containsKey(info.packageName)) {
-                    continue;
-                }
-                boolean system = (info.flags & ApplicationInfo.FLAG_SYSTEM) != 0
-                        && (info.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0;
-                byPackage.put(info.packageName, new App(info.packageName,
-                        String.valueOf(ri.loadLabel(pm)), system, ri.loadIcon(pm)));
-            }
-            List<App> found = new ArrayList<>(byPackage.values());
+            List<App> found = InstalledApps.load(context);
             handler.post(() -> {
                 if (!detached) {
                     apps = found;

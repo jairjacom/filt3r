@@ -146,6 +146,9 @@ public class SettingsPanel extends LinearLayout {
          */
         void pickListFile(boolean ip);
 
+        /** Replaces this screen with the Apps screen; its back button returns here. */
+        void openApps();
+
         /** Names of the lists picked from files (host lists or IP lists), sorted. */
         java.util.List<String> localLists(boolean ip);
 
@@ -624,6 +627,10 @@ public class SettingsPanel extends LinearLayout {
                 context.getString(R.string.settings_home_dns), PAGE_DNS));
         card.addView(categoryRow(context, context.getString(R.string.settings_page_privacy),
                 context.getString(R.string.settings_home_privacy), PAGE_PRIVACY));
+        Row appsRow = valueRow(context, context.getString(R.string.apps_title),
+                context.getString(R.string.settings_home_apps));
+        appsRow.setOnClickListener(v -> backend.openApps());
+        card.addView(appsRow);
         card.addView(categoryRow(context, context.getString(R.string.settings_page_appearance),
                 context.getString(R.string.settings_home_appearance), PAGE_APPEARANCE));
         card.addView(categoryRow(context, context.getString(R.string.settings_page_about),

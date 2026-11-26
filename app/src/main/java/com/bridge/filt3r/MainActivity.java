@@ -38,6 +38,7 @@ import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.util.ConnectionLog;
 import com.bridge.filt3r.core.util.QueryLog;
+import com.bridge.filt3r.ui.AppsPanel;
 import com.bridge.filt3r.ui.BlurBehind;
 import com.bridge.filt3r.ui.Dialogs;
 import com.bridge.filt3r.ui.DockedToolbar;
@@ -72,7 +73,7 @@ import java.util.function.Supplier;
 
 public class MainActivity extends Activity
         implements TunnelState.Listener, StatusView.Actions, NodesPanel.Backend, SettingsPanel.Backend,
-        QueryLogPanel.Backend, ExemptAppsPanel.Backend {
+        QueryLogPanel.Backend, ExemptAppsPanel.Backend, AppsPanel.Backend {
 
     private static final int REQUEST_VPN = 1;
     private static final int REQUEST_NOTIFICATIONS = 2;
@@ -158,6 +159,11 @@ public class MainActivity extends Activity
             if (panel instanceof SettingsPanel && ((SettingsPanel) panel).handleBack()) {
                 onBackCancelled(); // undo the shrink preview: the panel stays open
                 return; // went back from the block-lists page to the main Settings page
+            }
+            if (panel instanceof AppsPanel) {
+                onBackCancelled(); // undo the shrink preview: Back goes up to Settings, like the screen's own back button
+                showSettings();
+                return;
             }
             closePanelAnimated();
         }
@@ -381,7 +387,7 @@ public class MainActivity extends Activity
             outState.putInt(KEY_SECTION, panel instanceof NodesPanel ? 1
                     : panel instanceof ExemptAppsPanel ? 2
                     : panel instanceof QueryLogPanel ? 3
-                    : panel instanceof SettingsPanel ? 4 : 0);
+                    : panel instanceof SettingsPanel || panel instanceof AppsPanel ? 4 : 0);
         }
         outState.putInt(KEY_SETTINGS_PAGE, panel instanceof SettingsPanel ? ((SettingsPanel) panel).page() : 0);
     }
@@ -587,6 +593,35 @@ public class MainActivity extends Activity
         if (panel instanceof QueryLogPanel) {
             ((QueryLogPanel) panel).showBlockedOnly();
         }
+    }
+
+    @Override
+    public void openApps() {
+        swapPanel(() -> new AppsPanel(this, this, this::showSettings));
+    }
+
+    private void showSettings() {
+        swapPanel(() -> new SettingsPanel(this, this, this::closePanelAnimated));
+    }
+
+    @Override
+    public void showAppConnections(Set<String> keys, String label) {
+        openSection(3);
+        if (panel instanceof QueryLogPanel) {
+            ((QueryLogPanel) panel).showApp(keys, label);
+        }
+    }
+
+    /** Puts another panel in place of the open one at once, without a slide; Back still closes it the same way. */
+    private void swapPanel(Supplier<View> factory) {
+        View old = panel;
+        if (old == null) {
+            return;
+        }
+        panel = factory.get();
+        frame.addView(panel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        frame.removeView(old);
     }
 
     @Override
