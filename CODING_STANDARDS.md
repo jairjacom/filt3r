@@ -6,4 +6,6 @@ Read during review (skill://code-review), not while writing. Judgement calls onl
 - **Partial failure:** when a download or import fails, the app keeps working with what it already has (own nodes, own lists) and says what failed.
 - **Same shape as the neighbours:** new UI and strings follow the closest existing screen (`NodesPanel`, `strings_*.xml`); one helper for one job (see `LinkImport`).
 - **Texts in resources:** user-visible text lives in `strings_*.xml`, not in Java string literals.
+- **One key per thing:** a row and the filter, count or action opened from it use the same key (package, user-ID group), never a display text or a substring.
+- **Order by position, not text:** log timestamps carry no year ("MM-dd HH:mm"), so order and compare by place in the log or a full time value.
 - **Beginner-readable:** plain Java, short methods, no clever generics.
