@@ -119,6 +119,8 @@ public class Filt3rVpnService extends VpnService {
     private final NameCache hostNames = new NameCache(System::currentTimeMillis);
     /** Asks Android who owns each connection, off the connect path. When it falls behind, new connections go unlogged rather than slow the tunnel. */
     private final ThreadPoolExecutor ownerLookups = newOwnerLookups();
+    /** The owner the firewall already named for a refused flow, by flow; the log reads it instead of asking again. */
+    private final ConcurrentHashMap<String, AppId> refusedOwners = new ConcurrentHashMap<>();
     private static final String DNS_V4 = "10.10.10.10";
     private static final InetSocketAddress DNS_REMOTE = new InetSocketAddress(InetAddresses.parseNumericAddress(DNS_V4), 53);
     static final String ACTION_REFRESH_RESOLVERS = "com.bridge.filt3r.REFRESH_RESOLVERS";
@@ -449,7 +451,15 @@ public class Filt3rVpnService extends VpnService {
             }, viaNode, direct, DNSResponsePatcher::isPaused);
             b.setConnectionGate((client, dest, port) -> {
                 AppId owner = firewall.needsOwner() ? owners.owner(client, new InetSocketAddress(dest, port)) : null;
-                return firewallVerdict(owner);
+                String why = firewallVerdict(owner);
+                if (why != null && owner != null && settings.queryLogEnabled()) {
+                    // The refused socket is closed by the time the log looks, and Android then names the wrong owner or none.
+                    if (refusedOwners.size() > 1000) {
+                        refusedOwners.clear();
+                    }
+                    refusedOwners.put(flowKey(client, dest, port), owner);
+                }
+                return why;
             });
             b.setFailureMode(settings.failureMode());
             loadFirewall(settings);
@@ -1930,9 +1940,16 @@ public class Filt3rVpnService extends VpnService {
 
     /** Names the app, then the destination (by what that app resolved, else the IP), and writes the line. */
     private void logConnection(AppSocket client, InetAddress dest, int port, boolean blocked, String reason) {
-        AppId app = owners.owner(client, new InetSocketAddress(dest, port));
+        AppId app = blocked ? refusedOwners.remove(flowKey(client, dest, port)) : null;
+        if (app == null) {
+            app = owners.owner(client, new InetSocketAddress(dest, port));
+        }
         String ip = dest.getHostAddress();
         String name = app == null ? null : hostNames.get(app.key(), ip);
         ConnectionLogs.get(this).add(app, name != null ? name : ip, port, blocked, reason);
+    }
+
+    private static String flowKey(AppSocket client, InetAddress dest, int port) {
+        return client + ">" + dest.getHostAddress() + ":" + port;
     }
 }

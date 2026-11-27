@@ -421,8 +421,15 @@ public class AppsPanel extends LinearLayout {
             ruleButton = new TextView(context);
             ruleButton.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge);
             ruleButton.setTextColor(MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary));
-            ruleButton.setBackground(Ripple.borderless(context));
-            ruleButton.setPadding(dp(12), dp(12), dp(4), dp(12));
+            int accent = MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary);
+            android.graphics.drawable.GradientDrawable outline = new android.graphics.drawable.GradientDrawable();
+            outline.setCornerRadius(dp(8));
+            outline.setStroke(dp(1), accent);
+            ruleButton.setBackground(new android.graphics.drawable.LayerDrawable(
+                    new android.graphics.drawable.Drawable[] {outline, Ripple.borderless(context)}));
+            ruleButton.setPadding(dp(12), dp(8), dp(12), dp(8));
+            ruleButton.setMinimumHeight(dp(36));
+            ruleButton.setGravity(Gravity.CENTER);
             addView(ruleButton, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
         }
 
