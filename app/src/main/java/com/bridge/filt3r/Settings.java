@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import com.bridge.filt3r.core.backup.BackupKeys;
+import com.bridge.filt3r.core.firewall.AppRule;
+import com.bridge.filt3r.core.firewall.FirewallPolicy;
 import com.bridge.filt3r.core.socks.FailureMode;
 
 import java.util.ArrayList;
@@ -60,6 +62,9 @@ final class Settings {
     private static final String KEY_QUERY_LOG = "query_log";
     private static final String KEY_NODE_HISTORY = "node_history";
     private static final String KEY_EXEMPT_APPS = "exempt_apps";
+    private static final String KEY_APP_RULES = "app_rules";
+    private static final String KEY_BLOCK_LOCKED = "block_when_locked";
+    private static final String KEY_BLOCK_METERED = "block_metered";
     private static final String KEY_RESOLVER_NAME = "resolver_name";
     private static final String KEY_RESOLVER_STAMP = "resolver_stamp";
     private static final String KEY_PINNED_NODE = "pinned_node";
@@ -206,6 +211,42 @@ final class Settings {
 
     void setExemptApps(Set<String> packages) {
         prefs.edit().putStringSet(KEY_EXEMPT_APPS, new HashSet<>(packages)).apply();
+    }
+
+    /** The firewall's app rules by app key; an app with none is allowed. */
+    Map<String, AppRule> appRules() {
+        return FirewallPolicy.decode(prefs.getStringSet(KEY_APP_RULES, new HashSet<>()));
+    }
+
+    /** Sets one rule for every key (the apps that share a user ID) in one edit; ALLOW removes the saved rule. */
+    void setAppRules(Set<String> appKeys, AppRule rule) {
+        Map<String, AppRule> rules = appRules();
+        for (String key : appKeys) {
+            if (rule == AppRule.ALLOW) {
+                rules.remove(key);
+            } else {
+                rules.put(key, rule);
+            }
+        }
+        prefs.edit().putStringSet(KEY_APP_RULES, FirewallPolicy.encode(rules)).apply();
+    }
+
+    /** Universal rule: refuse every flow while the device is locked. Off by default. */
+    boolean blockWhenLocked() {
+        return prefs.getBoolean(KEY_BLOCK_LOCKED, false);
+    }
+
+    void setBlockWhenLocked(boolean on) {
+        prefs.edit().putBoolean(KEY_BLOCK_LOCKED, on).apply();
+    }
+
+    /** Universal rule: refuse every flow on a metered network. Off by default. */
+    boolean blockMetered() {
+        return prefs.getBoolean(KEY_BLOCK_METERED, false);
+    }
+
+    void setBlockMetered(boolean on) {
+        prefs.edit().putBoolean(KEY_BLOCK_METERED, on).apply();
     }
 
     /**

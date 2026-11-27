@@ -50,6 +50,7 @@ public class DNSResolver {
 	private static final int MAX_LOCAL_RESPONSE = 4096;
 	private static final AtomicInteger IN_FLIGHT = new AtomicInteger();
 	private static final int NXDOMAIN = 3;
+	private static final int REFUSED = 5;
 
 	private static boolean enableLocalResolver = false;
 	private static int localResolverTTL = 0;
@@ -88,6 +89,11 @@ public class DNSResolver {
 		r[4] = 0; r[5] = 1;                          // one question
 		r[6] = 0; r[7] = 0; r[8] = 0; r[9] = 0; r[10] = 0; r[11] = 0;
 		return r;
+	}
+
+	/** A refusal (RCODE 5) for a query: what a blocked app's DNS question gets. */
+	public static byte[] refused(byte[] request) throws IOException {
+		return emptyAnswer(request, REFUSED);
 	}
 
 	/**
