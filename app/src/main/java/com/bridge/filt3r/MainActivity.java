@@ -1622,9 +1622,7 @@ public class MainActivity extends Activity
 
     @Override
     public void setAppRule(Set<String> keys, AppRule rule) {
-        for (String key : keys) {
-            settings.setAppRule(key, rule);
-        }
+        settings.setAppRules(keys, rule);
         Filt3rVpnService.reloadFirewall();
     }
 

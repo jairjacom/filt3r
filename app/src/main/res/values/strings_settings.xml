@@ -100,7 +100,6 @@
         <item quantity="one">Shares its user ID with %1$d other app</item>
         <item quantity="other">Shares its user ID with %1$d other apps</item>
     </plurals>
-    <string name="firewall_universal_row">Universal rules</string>
     <string name="firewall_universal_title">Universal rules</string>
     <string name="firewall_universal_locked">Block everything while the device is locked</string>
     <string name="firewall_universal_metered">Block everything on a metered network (mobile data)</string>

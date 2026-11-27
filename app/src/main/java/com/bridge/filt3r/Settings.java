@@ -218,12 +218,15 @@ final class Settings {
         return FirewallPolicy.decode(prefs.getStringSet(KEY_APP_RULES, new HashSet<>()));
     }
 
-    void setAppRule(String appKey, AppRule rule) {
+    /** Sets one rule for every key (the apps that share a user ID) in one edit; ALLOW removes the saved rule. */
+    void setAppRules(Set<String> appKeys, AppRule rule) {
         Map<String, AppRule> rules = appRules();
-        if (rule == AppRule.ALLOW) {
-            rules.remove(appKey);
-        } else {
-            rules.put(appKey, rule);
+        for (String key : appKeys) {
+            if (rule == AppRule.ALLOW) {
+                rules.remove(key);
+            } else {
+                rules.put(key, rule);
+            }
         }
         prefs.edit().putStringSet(KEY_APP_RULES, FirewallPolicy.encode(rules)).apply();
     }

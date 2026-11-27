@@ -80,6 +80,7 @@ public final class Socks5Bridge {
     private final byte[] username;
     private final byte[] password;
     private final Set<Closeable> open = ConcurrentHashMap.newKeySet();
+    private final Set<Flow> flows = ConcurrentHashMap.newKeySet();
 
     private final AtomicLong authFailed = new AtomicLong();
     private final AtomicLong connectOk = new AtomicLong();
@@ -372,12 +373,7 @@ public final class Socks5Bridge {
         }
         ConnectionGate firewall = gate;
         if (firewall != null) {
-            String why;
-            try {
-                why = firewall.refuse(AppSocket.parse(AppSocket.Proto.TCP, source), InetAddress.getByAddress(ip), port);
-            } catch (RuntimeException e) {
-                why = FirewallPolicy.REASON_ERROR; // an unexpected error blocks, as in RethinkDNS
-            }
+            String why = askGate(firewall, source, InetAddress.getByAddress(ip), port);
             if (why != null) {
                 report(source, InetAddress.getByAddress(ip), port, true, why);
                 reply(out, REP_NOT_ALLOWED, 0);
@@ -437,14 +433,68 @@ public final class Socks5Bridge {
         }
         report(source, addr, port, false, null); // allowed: a node, or the direct fallback, accepted it
         open.add(up);
+        Flow flow = new Flow(source, addr, port, client, up);
+        flows.add(flow);
         try {
             connectOk.incrementAndGet();
             reply(out, REP_OK, 0);
             client.setSoTimeout(0);
             relay(new SocketLink(client), up);
         } finally {
+            flows.remove(flow);
             open.remove(up);
             closeQuietly(up);
+        }
+    }
+
+    /** A connection that is being relayed: what the gate needs to ask about it again, and what to close. */
+    private static final class Flow {
+        final String source;
+        final InetAddress dest;
+        final int port;
+        final Closeable client;
+        final Closeable up;
+
+        Flow(String source, InetAddress dest, int port, Closeable client, Closeable up) {
+            this.source = source;
+            this.dest = dest;
+            this.port = port;
+            this.client = client;
+            this.up = up;
+        }
+    }
+
+    /**
+     * Asks the gate again about every connection that is open now and closes the ones it now refuses.
+     * Call it when a rule changes or the phone locks: a gate that is asked only at connect time cannot
+     * stop a connection that is already carrying data. Blocks on the gate, so call it off the main thread.
+     *
+     * @return how many connections it closed
+     */
+    public int recheckOpenConnections() {
+        ConnectionGate firewall = gate;
+        if (firewall == null) {
+            return 0;
+        }
+        int closed = 0;
+        for (Flow f : flows) {
+            String why = askGate(firewall, f.source, f.dest, f.port);
+            if (why != null) {
+                report(f.source, f.dest, f.port, true, why);
+                closeQuietly(f.up);
+                closeQuietly(f.client);
+                closed++;
+            }
+        }
+        return closed;
+    }
+
+    /** The gate's reason to refuse, or null. An unexpected error refuses, as in RethinkDNS. */
+    private static String askGate(ConnectionGate firewall, String source, InetAddress dest, int port) {
+        try {
+            return firewall.refuse(AppSocket.parse(AppSocket.Proto.TCP, source), dest, port);
+        } catch (RuntimeException e) {
+            return FirewallPolicy.REASON_ERROR;
         }
     }
 

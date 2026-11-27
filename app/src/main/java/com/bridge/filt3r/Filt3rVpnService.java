@@ -5,8 +5,10 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
 import android.net.ConnectivityManager;
@@ -225,11 +227,21 @@ public class Filt3rVpnService extends VpnService {
         Shortcuts.publish(this);
     };
 
+    /** A locked phone closes the connections a "block when locked" rule now refuses. */
+    private final BroadcastReceiver screenOff = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            // The keyguard may lock a moment after the screen goes off, so ask again after a short wait.
+            handler.postDelayed(Filt3rVpnService.this::recheckOpenFlows, 1500);
+        }
+    };
+
     @Override
     public void onCreate() {
         CrashLog.install(this);
         instance = this;
         TunnelState.register(widgetListener);
+        registerReceiver(screenOff, new IntentFilter(Intent.ACTION_SCREEN_OFF), Context.RECEIVER_NOT_EXPORTED);
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel(
                 CHANNEL_ID, getString(R.string.vpn_channel_name), NotificationManager.IMPORTANCE_LOW));
@@ -1455,6 +1467,7 @@ public class Filt3rVpnService extends VpnService {
 
     @Override
     public void onDestroy() {
+        unregisterReceiver(screenOff);
         worker.shutdownNow();
         stopEverything();
         if (TunnelState.get() != TunnelState.State.FAILED) {
@@ -1649,6 +1662,15 @@ public class Filt3rVpnService extends VpnService {
         Filt3rVpnService s = instance;
         if (s != null) {
             s.loadFirewall(new Settings(s));
+            s.recheckOpenFlows();
+        }
+    }
+
+    /** Closes the open connections the firewall now refuses. Runs on the owner thread: it asks Android who owns each one. */
+    private void recheckOpenFlows() {
+        Socks5Bridge b = bridge;
+        if (b != null) {
+            ownerLookups.execute(b::recheckOpenConnections);
         }
     }
 
