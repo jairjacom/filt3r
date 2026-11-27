@@ -20,6 +20,7 @@ import android.widget.TextView;
 import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.InstalledApps;
 import com.bridge.filt3r.R;
+import com.bridge.filt3r.core.firewall.AppRule;
 import com.bridge.filt3r.core.util.AppList;
 import com.bridge.filt3r.core.util.ConnectionLog;
 import com.google.android.material.color.MaterialColors;
@@ -29,6 +30,7 @@ import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -51,6 +53,23 @@ public class AppsPanel extends LinearLayout {
          * keys its lines use (the packages that share its user ID), {@code label} its name.
          */
         void showAppConnections(Set<String> keys, String label);
+
+        /** The saved app rules by app key; an app with none is allowed. */
+        Map<String, AppRule> appRules();
+
+        /** Saves (and applies at once) one rule for every key in {@code keys}: the apps that share a user ID. */
+        void setAppRule(Set<String> keys, AppRule rule);
+
+        /** Package names of the Exempt apps: they never enter the tunnel, so no rule reaches them. */
+        Set<String> exemptApps();
+
+        boolean blockWhenLocked();
+
+        void setBlockWhenLocked(boolean on);
+
+        boolean blockMetered();
+
+        void setBlockMetered(boolean on);
     }
 
     private final Backend backend;
@@ -64,10 +83,14 @@ public class AppsPanel extends LinearLayout {
     private List<AppList.App> apps = new ArrayList<>();
     private List<ConnectionLog.Entry> entries = new ArrayList<>();
     private boolean detached;
+    private final Map<String, AppRule> rules;
+    private final Set<String> exempt;
 
     public AppsPanel(Context context, Backend backend, Runnable onClose) {
         super(context);
         this.backend = backend;
+        this.rules = new HashMap<>(backend.appRules());
+        this.exempt = new HashSet<>(backend.exemptApps());
         setOrientation(VERTICAL);
         setBackgroundColor(MaterialColors.getColor(this, android.R.attr.colorBackground));
         setClickable(true); // swallow touches so the screen underneath stays still
@@ -96,6 +119,14 @@ public class AppsPanel extends LinearLayout {
         dim(note);
         note.setPadding(dp(20), 0, dp(20), dp(8));
         addView(note);
+
+        TextView universal = new TextView(context);
+        universal.setText(R.string.firewall_universal_row);
+        universal.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+        universal.setPadding(dp(20), dp(12), dp(20), dp(12));
+        universal.setBackground(Ripple.borderless(context));
+        universal.setOnClickListener(v -> chooseUniversal());
+        addView(universal);
 
         // Search field.
         TextInputLayout searchLayout = new TextInputLayout(context);
@@ -208,6 +239,86 @@ public class AppsPanel extends LinearLayout {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
 
+    private String ruleLabel(AppRule rule) {
+        switch (rule) {
+            case BLOCK_WIFI:
+                return getContext().getString(R.string.firewall_rule_block_wifi);
+            case BLOCK_MOBILE:
+                return getContext().getString(R.string.firewall_rule_block_mobile);
+            case BLOCK_BOTH:
+                return getContext().getString(R.string.firewall_rule_block_both);
+            default:
+                return getContext().getString(R.string.firewall_rule_allow);
+        }
+    }
+
+    /** The universal rules: two switches in a dialog. A change applies at once. */
+    private void chooseUniversal() {
+        Context context = getContext();
+        boolean[] on = {backend.blockWhenLocked(), backend.blockMetered()};
+        Dialogs.builder(context)
+                .setTitle(R.string.firewall_universal_title)
+                .setMultiChoiceItems(new CharSequence[] {
+                        context.getString(R.string.firewall_universal_locked),
+                        context.getString(R.string.firewall_universal_metered)},
+                        on, (d, which, checked) -> {
+                            if (which == 0) {
+                                backend.setBlockWhenLocked(checked);
+                            } else {
+                                backend.setBlockMetered(checked);
+                            }
+                        })
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    /** Asks for one app's rule. A system app gets a warning first; an Exempt app is told no rule can reach it. */
+    private void chooseRule(AppList.Row row, Runnable changed) {
+        Context context = getContext();
+        if (exempt.contains(row.app.pkg)) {
+            Dialogs.builder(context)
+                    .setTitle(row.app.label)
+                    .setMessage(R.string.firewall_exempt_message)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show();
+            return;
+        }
+        if (row.app.system) {
+            Dialogs.confirm(context, row.app.label, context.getString(R.string.firewall_system_warning),
+                    context.getString(R.string.firewall_system_continue), () -> showRuleChoice(row, changed));
+            return;
+        }
+        showRuleChoice(row, changed);
+    }
+
+    private void showRuleChoice(AppList.Row row, Runnable changed) {
+        Context context = getContext();
+        AppRule[] choices = AppRule.values();
+        CharSequence[] labels = {
+                context.getString(R.string.firewall_choice_allow),
+                context.getString(R.string.firewall_choice_block_wifi),
+                context.getString(R.string.firewall_choice_block_mobile),
+                context.getString(R.string.firewall_choice_block_both)};
+        AppRule current = rules.getOrDefault(row.app.pkg, AppRule.ALLOW);
+        Dialogs.builder(context)
+                .setTitle(context.getString(R.string.firewall_choice_title, row.app.label))
+                .setSingleChoiceItems(labels, current.ordinal(), (d, which) -> {
+                    AppRule picked = choices[which];
+                    for (String key : row.app.group) {
+                        if (picked == AppRule.ALLOW) {
+                            rules.remove(key);
+                        } else {
+                            rules.put(key, picked);
+                        }
+                    }
+                    backend.setAppRule(row.app.group, picked);
+                    d.dismiss();
+                    changed.run();
+                })
+                .setNegativeButton(R.string.dialogs_cancel, null)
+                .show();
+    }
+
     private final class ListAdapter extends BaseAdapter {
         private List<AppList.Row> items = new ArrayList<>();
 
@@ -246,6 +357,7 @@ public class AppsPanel extends LinearLayout {
         private final TextView pkg;
         private final TextView summary;
         private final TextView shared;
+        private final TextView ruleButton;
 
         AppRow(Context context) {
             super(context);
@@ -278,6 +390,13 @@ public class AppsPanel extends LinearLayout {
             texts.addView(summary);
             texts.addView(shared);
             addView(texts, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
+
+            ruleButton = new TextView(context);
+            ruleButton.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge);
+            ruleButton.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary));
+            ruleButton.setBackground(Ripple.borderless(context));
+            ruleButton.setPadding(dp(12), dp(12), dp(4), dp(12));
+            addView(ruleButton, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
         }
 
         void bind(AppList.Row row) {
@@ -299,6 +418,11 @@ public class AppsPanel extends LinearLayout {
             } else {
                 shared.setVisibility(GONE);
             }
+            boolean isExempt = exempt.contains(row.app.pkg);
+            ruleButton.setText(isExempt ? getContext().getString(R.string.firewall_rule_exempt)
+                    : ruleLabel(rules.getOrDefault(row.app.pkg, AppRule.ALLOW)));
+            ruleButton.setOnClickListener(v -> chooseRule(row, () -> ruleButton.setText(ruleLabel(
+                    rules.getOrDefault(row.app.pkg, AppRule.ALLOW)))));
             setOnClickListener(v -> backend.showAppConnections(row.app.group, row.app.label));
         }
     }

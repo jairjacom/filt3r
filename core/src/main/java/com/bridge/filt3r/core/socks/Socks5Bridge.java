@@ -1,6 +1,7 @@
 package com.bridge.filt3r.core.socks;
 
 import com.bridge.filt3r.core.filter.IpBlockList;
+import com.bridge.filt3r.core.firewall.FirewallPolicy;
 import java.io.Closeable;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -84,6 +85,7 @@ public final class Socks5Bridge {
     private final AtomicLong connectOk = new AtomicLong();
     private final AtomicLong connectFailed = new AtomicLong();
     private final AtomicLong refusedDomain = new AtomicLong();
+    private final AtomicLong refusedFirewall = new AtomicLong();
     private final AtomicLong refusedIpBlock = new AtomicLong();
     private final AtomicLong refusedIPv6 = new AtomicLong();
     private final AtomicLong dnsBypassTcp = new AtomicLong();
@@ -133,6 +135,13 @@ public final class Socks5Bridge {
     /** Told about every tunnelled TCP connection and its verdict. Null = nobody. */
     public void setConnectionListener(ConnectionListener listener) {
         this.connectionListener = listener;
+    }
+
+    private volatile ConnectionGate gate;
+
+    /** Asked before every tunnelled TCP connection is dialled; a reason refuses it. Null = no firewall. */
+    public void setConnectionGate(ConnectionGate gate) {
+        this.gate = gate;
     }
 
     public void setFailureMode(FailureMode mode) {
@@ -212,7 +221,7 @@ public final class Socks5Bridge {
     public String stats() {
         return "authFailed=" + authFailed + " connectOk=" + connectOk + " connectFailed=" + connectFailed
                 + " failedOpen=" + failedOpen + " mode=" + failureMode + " refusedDomain=" + refusedDomain
-                + " refusedIPv6=" + refusedIPv6 + " refusedIpBlock=" + refusedIpBlock
+                + " refusedIPv6=" + refusedIPv6 + " refusedIpBlock=" + refusedIpBlock + " refusedFirewall=" + refusedFirewall
                 + " dnsBypassTcp=" + dnsBypassTcp + " dnsBypassTls=" + dnsBypassTls
                 + " localConnections=" + localConnections
                 + " lastConnectError=" + lastConnectError
@@ -360,6 +369,21 @@ public final class Socks5Bridge {
             client.setSoTimeout(DNS_TCP_IDLE_MS);
             dnsOverTcp(client, out, AppSocket.parse(AppSocket.Proto.TCP, source));
             return;
+        }
+        ConnectionGate firewall = gate;
+        if (firewall != null) {
+            String why;
+            try {
+                why = firewall.refuse(AppSocket.parse(AppSocket.Proto.TCP, source), InetAddress.getByAddress(ip), port);
+            } catch (RuntimeException e) {
+                why = FirewallPolicy.REASON_ERROR; // an unexpected error blocks, as in RethinkDNS
+            }
+            if (why != null) {
+                report(source, InetAddress.getByAddress(ip), port, true, why);
+                reply(out, REP_NOT_ALLOWED, 0);
+                refusedFirewall.incrementAndGet();
+                return;
+            }
         }
         if (isLocalAddress(ip)) {
             localConnections.incrementAndGet();

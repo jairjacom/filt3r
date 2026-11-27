@@ -34,6 +34,7 @@ import com.bridge.filt3r.core.nodes.NodeRankFile;
 import com.bridge.filt3r.core.nodes.NodeManager;
 import com.bridge.filt3r.core.filter.FilterStatus;
 import com.bridge.filt3r.core.filter.UserOverrides;
+import com.bridge.filt3r.core.firewall.AppRule;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.util.ConnectionLog;
@@ -68,6 +69,7 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -1609,6 +1611,43 @@ public class MainActivity extends Activity
     @Override
     public void setExemptApps(Set<String> packages) {
         settings.setExemptApps(packages);
+    }
+
+    // ---- firewall (AppsPanel.Backend) ----
+
+    @Override
+    public Map<String, AppRule> appRules() {
+        return settings.appRules();
+    }
+
+    @Override
+    public void setAppRule(Set<String> keys, AppRule rule) {
+        for (String key : keys) {
+            settings.setAppRule(key, rule);
+        }
+        Filt3rVpnService.reloadFirewall();
+    }
+
+    @Override
+    public boolean blockWhenLocked() {
+        return settings.blockWhenLocked();
+    }
+
+    @Override
+    public void setBlockWhenLocked(boolean on) {
+        settings.setBlockWhenLocked(on);
+        Filt3rVpnService.reloadFirewall();
+    }
+
+    @Override
+    public boolean blockMetered() {
+        return settings.blockMetered();
+    }
+
+    @Override
+    public void setBlockMetered(boolean on) {
+        settings.setBlockMetered(on);
+        Filt3rVpnService.reloadFirewall();
     }
 
     // ---- allow/block rules (OverridesDialog.Backend) ----

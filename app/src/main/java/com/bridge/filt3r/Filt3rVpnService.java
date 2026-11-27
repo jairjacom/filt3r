@@ -1,5 +1,6 @@
 package com.bridge.filt3r;
 
+import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -35,6 +36,7 @@ import com.bridge.filt3r.core.filter.DNSFilterManager;
 import com.bridge.filt3r.core.filter.DNSResolver;
 import com.bridge.filt3r.core.filter.DNSResponsePatcher;
 import com.bridge.filt3r.core.filter.IpBlockList;
+import com.bridge.filt3r.core.firewall.FirewallPolicy;
 import com.bridge.filt3r.core.http.HttpsFetcher;
 import com.bridge.filt3r.core.http.IpLookup;
 import com.bridge.filt3r.core.nodes.FailoverDialer;
@@ -96,6 +98,21 @@ public class Filt3rVpnService extends VpnService {
     private static final byte[] DNS_V4_BYTES = {10, 10, 10, 10};
     private static final ThreadLocal<AppId> queryApp = new ThreadLocal<>();
     private final AppOwner owners = new AppOwner(this);
+    /** The firewall's decision (ADR 0005). Rules are loaded from settings at each start and when the user changes one. */
+    private final FirewallPolicy firewall = new FirewallPolicy(new FirewallPolicy.Environment() {
+        @Override
+        public boolean metered() {
+            // This app is outside the tunnel, so its active network is the real one, not the VPN.
+            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            return cm == null || cm.isActiveNetworkMetered();
+        }
+
+        @Override
+        public boolean deviceLocked() {
+            KeyguardManager km = getSystemService(KeyguardManager.class);
+            return km != null && km.isKeyguardLocked();
+        }
+    });
     /** Which names each app resolved lately, so a connection to an IP can be logged by name. */
     private final NameCache hostNames = new NameCache(System::currentTimeMillis);
     /** Asks Android who owns each connection, off the connect path. When it falls behind, new connections go unlogged rather than slow the tunnel. */
@@ -398,11 +415,17 @@ public class Filt3rVpnService extends VpnService {
             // DNS always goes through the node: it is never sent direct, whatever the failure mode.
             DNSResolver resolver = new DNSResolver(upstream);
             Socks5Bridge b = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
+                // The owner is asked only when the log will keep it or a firewall rule needs it.
+                boolean logging = settings.queryLogEnabled();
+                AppId owner = logging || firewall.needsOwner() ? owners.owner(client, DNS_REMOTE) : null;
+                if (firewallVerdict(owner) != null) {
+                    return DNSResolver.refused(query); // a blocked app does not even resolve names
+                }
                 awaitFilter();
                 // hev names no app: the label is "tunnel", as before
                 String label = client == null ? "tunnel" : client.toString();
-                // The owner is asked only when the log will keep it. The observer reads it inside resolve().
-                AppId app = settings.queryLogEnabled() ? owners.owner(client, DNS_REMOTE) : null;
+                // The observer reads the app inside resolve().
+                AppId app = logging ? owner : null;
                 queryApp.set(app);
                 try {
                     byte[] answer = resolver.resolve(label, query);
@@ -412,7 +435,12 @@ public class Filt3rVpnService extends VpnService {
                     queryApp.remove();
                 }
             }, viaNode, direct, DNSResponsePatcher::isPaused);
+            b.setConnectionGate((client, dest, port) -> {
+                AppId owner = firewall.needsOwner() ? owners.owner(client, new InetSocketAddress(dest, port)) : null;
+                return firewallVerdict(owner);
+            });
             b.setFailureMode(settings.failureMode());
+            loadFirewall(settings);
             b.setConnectionListener((client, dest, port, blocked, reason) -> {
                 if (!settings.queryLogEnabled()) {
                     return;
@@ -1609,6 +1637,23 @@ public class Filt3rVpnService extends VpnService {
             throw new IOException("not connected");
         }
         return IpLookup.lookup(r.fetcher::get, ip);
+    }
+
+    /** Why the firewall refuses this app's traffic (a FirewallPolicy REASON_), or null. An unknown owner has no app rule. */
+    private String firewallVerdict(AppId owner) {
+        return firewall.isActive() ? firewall.check(owner == null ? null : owner.key()) : null;
+    }
+
+    /** Reads the firewall rules from settings. Call after any change; the next flow uses the new rules. */
+    static void reloadFirewall() {
+        Filt3rVpnService s = instance;
+        if (s != null) {
+            s.loadFirewall(new Settings(s));
+        }
+    }
+
+    private void loadFirewall(Settings settings) {
+        firewall.configure(settings.appRules(), settings.blockWhenLocked(), settings.blockMetered());
     }
 
     /** One speed sample every few seconds while the tunnel runs; stopEverything cancels it with the other handler work. */
