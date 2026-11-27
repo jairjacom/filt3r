@@ -283,19 +283,22 @@ public class AppsPanel extends LinearLayout {
     /** The universal rules: two switches in a dialog. A change applies at once. */
     private void chooseUniversal() {
         Context context = getContext();
-        boolean[] on = {backend.blockWhenLocked(), backend.blockMetered()};
+        LinearLayout box = new LinearLayout(context);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(24), dp(8), dp(24), dp(8));
+        MaterialSwitch locked = new MaterialSwitch(context);
+        locked.setText(R.string.firewall_universal_locked);
+        locked.setChecked(backend.blockWhenLocked());
+        locked.setOnCheckedChangeListener((b, checked) -> backend.setBlockWhenLocked(checked));
+        MaterialSwitch metered = new MaterialSwitch(context);
+        metered.setText(R.string.firewall_universal_metered);
+        metered.setChecked(backend.blockMetered());
+        metered.setOnCheckedChangeListener((b, checked) -> backend.setBlockMetered(checked));
+        box.addView(locked);
+        box.addView(metered);
         Dialogs.builder(context)
                 .setTitle(R.string.firewall_universal_title)
-                .setMultiChoiceItems(new CharSequence[] {
-                        context.getString(R.string.firewall_universal_locked),
-                        context.getString(R.string.firewall_universal_metered)},
-                        on, (d, which, checked) -> {
-                            if (which == 0) {
-                                backend.setBlockWhenLocked(checked);
-                            } else {
-                                backend.setBlockMetered(checked);
-                            }
-                        })
+                .setView(box)
                 .setPositiveButton(android.R.string.ok, null)
                 .show();
     }
