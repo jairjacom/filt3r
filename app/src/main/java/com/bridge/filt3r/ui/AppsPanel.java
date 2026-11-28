@@ -268,13 +268,7 @@ public class AppsPanel extends LinearLayout {
 
     /** The apps of the open tab that show boxes, not narrowed by the search: the shared user ID groups the switches act on. */
     private List<Set<String>> tabGroups() {
-        List<Set<String>> groups = new ArrayList<>();
-        for (AppList.App a : apps) {
-            if (a.system == systemTab && !isExempt(a)) {
-                groups.add(a.group);
-            }
-        }
-        return groups;
+        return AppList.tabGroups(apps, systemTab, exempt);
     }
 
     private void onUniversal(UniversalToggle.Box box, boolean on) {
@@ -311,12 +305,7 @@ public class AppsPanel extends LinearLayout {
 
     /** Android leaves a whole user ID out of the tunnel when one package of it is Exempt, so the whole group counts. */
     private boolean isExempt(AppList.App app) {
-        for (String key : app.group) {
-            if (exempt.contains(key)) {
-                return true;
-            }
-        }
-        return exempt.contains(app.pkg);
+        return AppList.isExempt(app, exempt);
     }
 
     private MaterialCheckBox box(Context context) {

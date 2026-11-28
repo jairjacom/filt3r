@@ -2,16 +2,18 @@ package com.bridge.filt3r.core.util;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * What the Firewall screen shows: the installed apps that pass the system switch and the search, A to Z by
- * name, each with what the connection log says about it. Lines are keyed by the first package Android
+ * What the Firewall screen shows: the installed apps of one tab (Apps or System) that pass the search, A to Z
+ * by name, each with what the connection log says about it. Lines are keyed by the first package Android
  * reports for a user ID, so an app counts the lines of every package that shares its user ID (the "group"),
- * each line once.
+ * each line once. A group belongs to one tab: the System tab when any of its packages is a system app,
+ * because a rule for the group reaches every package in it.
  */
 public final class AppList {
 
@@ -62,11 +64,62 @@ public final class AppList {
         String last; // that line's time text
     }
 
+    /** True when the app, or any package that shares its user ID, is a system app: the group is on the System tab. */
+    private static boolean inSystemTab(App a, Set<String> systemPackages) {
+        if (a.system) {
+            return true;
+        }
+        for (String key : a.group) {
+            if (systemPackages.contains(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Set<String> systemPackages(List<App> apps) {
+        Set<String> out = new HashSet<>();
+        for (App a : apps) {
+            if (a.system) {
+                out.add(a.pkg);
+            }
+        }
+        return out;
+    }
+
+    /** True when any package of the app's user ID is on the Exempt list. */
+    public static boolean isExempt(App a, Set<String> exempt) {
+        for (String key : a.group) {
+            if (exempt.contains(key)) {
+                return true;
+            }
+        }
+        return exempt.contains(a.pkg);
+    }
+
     /**
-     * @param system true lists only system apps (the System tab), false only the others (the Apps tab)
+     * The user ID groups a tab's universal switches act on: every app of that tab, whatever the search says,
+     * except Exempt ones (their boxes are not shown yet).
+     *
+     * @param system true for the System tab, false for the Apps tab
+     */
+    public static List<Set<String>> tabGroups(List<App> apps, boolean system, Set<String> exempt) {
+        Set<String> systemPackages = systemPackages(apps);
+        List<Set<String>> groups = new ArrayList<>();
+        for (App a : apps) {
+            if (inSystemTab(a, systemPackages) == system && !isExempt(a, exempt)) {
+                groups.add(a.group);
+            }
+        }
+        return groups;
+    }
+
+    /**
+     * @param system true lists only the System tab's apps, false only the Apps tab's (see {@link #tabGroups})
      * @param query shown only if it is part of the name or the package (any case); blank shows all
      */
     public static List<Row> build(List<App> apps, List<ConnectionLog.Entry> entries, boolean system, String query) {
+        Set<String> systemPackages = systemPackages(apps);
         Map<String, Counts> byKey = new HashMap<>();
         for (int i = 0; i < entries.size(); i++) { // oldest first, so a later line is a newer one
             ConnectionLog.Entry e = entries.get(i);
@@ -85,7 +138,7 @@ public final class AppList {
         String needle = query.trim().toLowerCase(Locale.ROOT);
         List<Row> rows = new ArrayList<>();
         for (App a : apps) {
-            if (a.system != system || !matches(a, needle)) {
+            if (inSystemTab(a, systemPackages) != system || !matches(a, needle)) {
                 continue;
             }
             int allowed = 0;

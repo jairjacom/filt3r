@@ -90,6 +90,29 @@ class AppListTest {
     }
 
     @Test
+    void aSharedUserIdGroupWithASystemPackageIsOnTheSystemTabWhole() {
+        // an updated Play services is a normal app on its own but shares its user ID with a system package
+        Set<String> group = Set.of("gms", "gsf");
+        List<AppList.App> apps = List.of(new AppList.App("gms", "Play services", false, group),
+                new AppList.App("gsf", "Services Framework", true, group), app("a", "A"));
+
+        assertEquals(List.of("a"), packages(AppList.build(apps, List.of(), false, "")));
+        assertEquals(List.of("gms", "gsf"), packages(AppList.build(apps, List.of(), true, "")));
+    }
+
+    @Test
+    void aTabsSwitchesActOnItsOwnGroupsOnlyWhateverTheSearchSaysAndSkipExemptApps() {
+        Set<String> mixed = Set.of("gms", "gsf");
+        List<AppList.App> apps = List.of(app("a", "A"), app("exempt.app", "Calls"),
+                new AppList.App("gms", "Play services", false, mixed),
+                new AppList.App("gsf", "Services Framework", true, mixed), systemApp("sys.core", "AI Core"));
+
+        assertEquals(List.of(Set.of("a")), AppList.tabGroups(apps, false, Set.of("exempt.app")));
+        assertEquals(List.of(mixed, mixed, Set.of("sys.core")), AppList.tabGroups(apps, true, Set.of()));
+        assertEquals(List.of(Set.of("a"), Set.of("exempt.app")), AppList.tabGroups(apps, false, Set.of()));
+    }
+
+    @Test
     void searchMatchesNameOrPackageIgnoringCaseAndSurroundingSpaces() {
         List<AppList.App> apps = List.of(app("org.example.chrome", "Browser"), app("com.other", "Chromium Notes"),
                 app("net.mail", "Mail"));
