@@ -105,7 +105,10 @@
     <string name="firewall_box_locked_description">Block %1$s while the device is locked</string>
     <string name="firewall_shared_with">Changes together with: %1$s</string>
     <string name="firewall_rule_exempt">Exempt</string>
-    <string name="firewall_exempt_message">This app is Exempt: it skips filt3r completely, so no rule can reach it. Change that in Exempt apps.</string>
+    <string name="firewall_exempt_message">This app is Exempt: it skips filt3r, with its real IP and real DNS, until you tick a box for it. With a box ticked it goes through filt3r only so that rule can stop it; its traffic still goes out directly and its DNS is not filtered. Untick every box to take it out again. Change the Exempt list in Exempt apps.</string>
+    <string name="firewall_exempt_notice">This app is Exempt. Ticking a box makes filt3r restart the VPN for about a second and puts the app inside it, so the rule can reach it. Its traffic still goes out directly with real DNS, but calls, video calls and other fast traffic (non-DNS UDP) stop working while a box is ticked. Untick every box to restore that.</string>
+    <string name="firewall_exempt_all_title">Include Exempt apps?</string>
+    <string name="firewall_exempt_all_message">Some apps in this tab are Exempt. Ticking the box for them makes filt3r restart the VPN once, for about a second, and puts them inside it so the rule can reach them. Their traffic still goes out directly with real DNS, but calls, video calls and other fast traffic (non-DNS UDP) stop working for them while a box is ticked. Switch it off again to restore that.</string>
     <string name="firewall_system_warning">Blocking a system app can break calls, messages, notifications or Google services. Block it only if you know what it does.</string>
     <string name="firewall_system_continue">Continue</string>
     <string name="firewall_tab_apps">Apps</string>

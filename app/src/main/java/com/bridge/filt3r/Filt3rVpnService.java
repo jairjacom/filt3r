@@ -39,6 +39,7 @@ import com.bridge.filt3r.core.filter.DNSFilterManager;
 import com.bridge.filt3r.core.filter.DNSResolver;
 import com.bridge.filt3r.core.filter.DNSResponsePatcher;
 import com.bridge.filt3r.core.filter.IpBlockList;
+import com.bridge.filt3r.core.firewall.ExemptTunnel;
 import com.bridge.filt3r.core.firewall.FirewallPolicy;
 import com.bridge.filt3r.core.firewall.Verdict;
 import com.bridge.filt3r.core.http.HttpsFetcher;
@@ -74,8 +75,10 @@ import java.nio.file.Files;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -185,6 +188,7 @@ public class Filt3rVpnService extends VpnService {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile ParcelFileDescriptor tun;
     private volatile ParcelFileDescriptor heldTun; // the previous interface, kept (with nobody reading it, so traffic is dropped) until a restart has a new one
+    private volatile Set<String> tunnelOutside = Collections.emptySet(); // the Exempt apps the running tunnel leaves out; see reloadFirewall
     private volatile Socks5Bridge bridge;
     private File config;
     private FileObserver configObserver;
@@ -521,14 +525,16 @@ public class Filt3rVpnService extends VpnService {
             if (settings.bypassLan()) {
                 bypassLocalNetworks(builder);
             }
-            // Exempt apps skip the tunnel: they use the real IP and the real DNS.
-            for (String pkg : settings.exemptApps()) {
+            // Exempt apps skip the tunnel (real IP, real DNS) unless a box is ticked for them: then the rule has to reach them.
+            Set<String> outside = ExemptTunnel.outside(exemptGroupMap(settings.exemptApps()), settings.appRules());
+            for (String pkg : outside) {
                 try {
                     builder.addDisallowedApplication(pkg);
                 } catch (android.content.pm.PackageManager.NameNotFoundException e) {
                     Log.w(TAG, "exempt app is not installed, skipped");
                 }
             }
+            tunnelOutside = outside;
             // On a restart the old interface is still open; establish() replaces it without a gap.
             ParcelFileDescriptor established = builder.establish();
             if (established == null) {
@@ -1677,12 +1683,28 @@ public class Filt3rVpnService extends VpnService {
         return firewall.decide(owner == null ? null : owner.key());
     }
 
-    /** Reads the firewall rules from settings. Call after any change; the next flow uses the new rules. */
+    /**
+     * Reads the firewall rules from settings. Call after any change; the next flow uses the new rules. The one rule
+     * change that needs more is the first box on an Exempt app (or the last one cleared): that app has to enter (or
+     * leave) the tunnel, so the tunnel is re-established, once.
+     */
     static void reloadFirewall() {
         Filt3rVpnService s = instance;
         if (s != null) {
-            s.loadFirewall(new Settings(s));
+            Settings settings = new Settings(s);
+            s.loadFirewall(settings);
             s.recheckOpenFlows();
+            s.restartIfExemptSetChanged(settings);
+        }
+    }
+
+    private void restartIfExemptSetChanged(Settings settings) {
+        if (tun == null || starting) {
+            return; // not running, or a start in progress reads the new rules itself
+        }
+        Set<String> now = ExemptTunnel.outside(exemptGroupMap(settings.exemptApps()), settings.appRules());
+        if (!now.equals(tunnelOutside)) {
+            startForegroundService(new Intent(this, Filt3rVpnService.class).setAction(ACTION_RESTART));
         }
     }
 
@@ -1695,13 +1717,13 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private void loadFirewall(Settings settings) {
-        firewall.configure(settings.appRules(), exemptGroups(settings.exemptApps()));
+        firewall.configure(settings.appRules(), exemptGroupMap(settings.exemptApps()).values());
     }
 
-    /** The user ID group of each Exempt app: Android leaves the whole user ID out of the tunnel, so the rule follows the group. */
-    private List<Set<String>> exemptGroups(Set<String> exemptPackages) {
+    /** Each Exempt app with its user ID group: Android leaves the whole user ID out of the tunnel, so rules follow the group. */
+    private Map<String, Set<String>> exemptGroupMap(Set<String> exemptPackages) {
         PackageManager pm = getPackageManager();
-        List<Set<String>> groups = new ArrayList<>();
+        Map<String, Set<String>> groups = new HashMap<>();
         for (String pkg : exemptPackages) {
             Set<String> group = new HashSet<>();
             group.add(pkg);
@@ -1713,7 +1735,7 @@ public class Filt3rVpnService extends VpnService {
             } catch (PackageManager.NameNotFoundException e) {
                 // not installed any more: it still counts as itself
             }
-            groups.add(group);
+            groups.put(pkg, group);
         }
         return groups;
     }
