@@ -130,6 +130,6 @@ public final class AppRule {
 
     @Override
     public String toString() {
-        return isEmpty() ? "ALLOW" : encode();
+        return isEmpty() ? "NONE" : encode();
     }
 }

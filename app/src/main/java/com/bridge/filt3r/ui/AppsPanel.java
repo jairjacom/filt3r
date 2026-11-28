@@ -295,17 +295,11 @@ public class AppsPanel extends LinearLayout {
         handler.post(adapter::notifyDataSetChanged);
     }
 
-    /** The other apps that share this app's user ID, by name, A to Z; "" when it shares with nobody. */
-    private String sharedNames(AppList.Row row) {
-        List<String> names = new ArrayList<>();
-        for (String pkg : row.app.group) {
-            if (pkg.equals(row.app.pkg)) {
-                continue;
-            }
-            InstalledApps.App other = byPackage.get(pkg);
-            names.add(other == null ? pkg : other.label);
-        }
-        Collections.sort(names, String.CASE_INSENSITIVE_ORDER);
+    /** The other packages that share this app's user ID, A to Z; "" when it shares with nobody. */
+    private String sharedPackages(AppList.Row row) {
+        List<String> names = new ArrayList<>(row.app.group);
+        names.remove(row.app.pkg);
+        Collections.sort(names);
         return String.join(", ", names);
     }
 
@@ -420,7 +414,7 @@ public class AppsPanel extends LinearLayout {
             }
             if (row.sharedWith > 0) {
                 shared.setVisibility(VISIBLE);
-                shared.setText(getContext().getString(R.string.firewall_shared_with, sharedNames(row)));
+                shared.setText(getContext().getString(R.string.firewall_shared_with, sharedPackages(row)));
             } else {
                 shared.setVisibility(GONE);
             }
