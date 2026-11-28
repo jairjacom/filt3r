@@ -35,7 +35,7 @@ class ConnectivityRiskTest {
     }
 
     @Test
-    void anNameThatOnlyContainsAListedNameIsNotTagged() {
+    void aNameThatOnlyContainsAListedNameIsNotTagged() {
         assertFalse(ConnectivityRisk.mayBreakConnectivity(Set.of("com.google.android.gms.extra.app")));
     }
 }
