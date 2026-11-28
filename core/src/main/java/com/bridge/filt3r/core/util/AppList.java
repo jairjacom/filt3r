@@ -63,10 +63,10 @@ public final class AppList {
     }
 
     /**
-     * @param showSystem false hides system apps
+     * @param system true lists only system apps (the System tab), false only the others (the Apps tab)
      * @param query shown only if it is part of the name or the package (any case); blank shows all
      */
-    public static List<Row> build(List<App> apps, List<ConnectionLog.Entry> entries, boolean showSystem, String query) {
+    public static List<Row> build(List<App> apps, List<ConnectionLog.Entry> entries, boolean system, String query) {
         Map<String, Counts> byKey = new HashMap<>();
         for (int i = 0; i < entries.size(); i++) { // oldest first, so a later line is a newer one
             ConnectionLog.Entry e = entries.get(i);
@@ -85,7 +85,7 @@ public final class AppList {
         String needle = query.trim().toLowerCase(Locale.ROOT);
         List<Row> rows = new ArrayList<>();
         for (App a : apps) {
-            if ((a.system && !showSystem) || !matches(a, needle)) {
+            if (a.system != system || !matches(a, needle)) {
                 continue;
             }
             int allowed = 0;

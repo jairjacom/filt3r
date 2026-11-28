@@ -81,12 +81,12 @@ class AppListTest {
     }
 
     @Test
-    void systemAppsAreHiddenUntilTheSwitchIsOn() {
+    void eachTabListsOnlyItsOwnKindOfApp() {
         List<AppList.App> apps = List.of(app("a", "A"), systemApp("sys.core", "AI Core"));
         List<ConnectionLog.Entry> lines = List.of(entry("sys.core", false, 1, "11-26 10:00:00"));
 
         assertEquals(List.of("a"), packages(AppList.build(apps, lines, false, "")));
-        assertEquals(List.of("a", "sys.core"), packages(AppList.build(apps, lines, true, "")));
+        assertEquals(List.of("sys.core"), packages(AppList.build(apps, lines, true, "")));
     }
 
     @Test
