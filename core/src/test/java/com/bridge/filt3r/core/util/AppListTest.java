@@ -11,7 +11,7 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
-/** The Apps screen: which apps are listed, what the log says about each, and in what order. */
+/** The Firewall screen's app list: which apps are listed, what the log says about each, and in what order. */
 class AppListTest {
 
     private static AppList.App app(String pkg, String label) {
@@ -69,7 +69,7 @@ class AppListTest {
     }
 
     @Test
-    void activeAppsComeFirstNewestFirstThenTheRestByName() {
+    void appsAreSortedAToZByNameIgnoringCaseWhateverTheLogSays() {
         List<AppList.App> apps = Arrays.asList(app("z.quiet", "Zebra"), app("b.old", "Bee"),
                 app("a.quiet", "apple"), app("c.new", "Cat"));
         List<AppList.Row> rows = AppList.build(apps,
@@ -77,7 +77,7 @@ class AppListTest {
                 false, "");
 
         // apple sorts before Zebra although it is lower case
-        assertEquals(List.of("c.new", "b.old", "a.quiet", "z.quiet"), packages(rows));
+        assertEquals(List.of("a.quiet", "b.old", "c.new", "z.quiet"), packages(rows));
     }
 
     @Test
@@ -86,7 +86,7 @@ class AppListTest {
         List<ConnectionLog.Entry> lines = List.of(entry("sys.core", false, 1, "11-26 10:00:00"));
 
         assertEquals(List.of("a"), packages(AppList.build(apps, lines, false, "")));
-        assertEquals(List.of("sys.core", "a"), packages(AppList.build(apps, lines, true, "")));
+        assertEquals(List.of("a", "sys.core"), packages(AppList.build(apps, lines, true, "")));
     }
 
     @Test
@@ -100,13 +100,12 @@ class AppListTest {
     }
 
     @Test
-    void newestMeansLaterInTheLogEvenWhenTheDateWrapsAtNewYear() {
+    void theNewestLineIsTheOneLatestInTheLogEvenWhenTheDateWrapsAtNewYear() {
         // the log keeps no year, so "01-01" text sorts before "12-31" although it is newer
-        List<AppList.Row> rows = AppList.build(List.of(app("old", "Old"), app("new", "New")),
-                List.of(entry("old", false, 1, "12-31 23:59:00"), entry("new", false, 1, "01-01 00:05:00")),
+        List<AppList.Row> rows = AppList.build(List.of(app("a", "A")),
+                List.of(entry("a", false, 1, "12-31 23:59:00"), entry("a", false, 1, "01-01 00:05:00")),
                 false, "");
 
-        assertEquals(List.of("new", "old"), packages(rows));
         assertEquals("01-01 00:05:00", rows.get(0).lastTime);
     }
 

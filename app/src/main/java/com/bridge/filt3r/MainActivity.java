@@ -614,6 +614,14 @@ public class MainActivity extends Activity
         }
     }
 
+    @Override
+    public void showConnectionLog() {
+        openSection(3);
+        if (panel instanceof QueryLogPanel) {
+            ((QueryLogPanel) panel).showConnections();
+        }
+    }
+
     /** Puts another panel in place of the open one at once, without a slide; Back still closes it the same way. */
     private void swapPanel(Supplier<View> factory) {
         View old = panel;
@@ -1623,28 +1631,6 @@ public class MainActivity extends Activity
     @Override
     public void setAppRule(Set<String> keys, AppRule rule) {
         settings.setAppRules(keys, rule);
-        Filt3rVpnService.reloadFirewall();
-    }
-
-    @Override
-    public boolean blockWhenLocked() {
-        return settings.blockWhenLocked();
-    }
-
-    @Override
-    public void setBlockWhenLocked(boolean on) {
-        settings.setBlockWhenLocked(on);
-        Filt3rVpnService.reloadFirewall();
-    }
-
-    @Override
-    public boolean blockMetered() {
-        return settings.blockMetered();
-    }
-
-    @Override
-    public void setBlockMetered(boolean on) {
-        settings.setBlockMetered(on);
         Filt3rVpnService.reloadFirewall();
     }
 
