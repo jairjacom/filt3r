@@ -113,6 +113,10 @@
     <string name="firewall_all_wifi">Wi-Fi, every app in this tab</string>
     <string name="firewall_all_mobile">Mobile, every app in this tab</string>
     <string name="firewall_all_locked">Device locked, every app in this tab</string>
+    <string name="firewall_system_card">Blocking a system app can break connectivity, captive portal login, push notifications and calls. Some system apps never show in the connection log, so a rule may not stop them. A missing tag proves nothing: any system app can matter.</string>
+    <string name="firewall_may_break">May break connectivity</string>
+    <string name="firewall_system_all_title">Block every system app?</string>
+    <string name="firewall_system_all_message">This ticks the box for every system app in this tab. That can break connectivity, captive portal login, push notifications and calls. Switch it off again to clear the box for all of them.</string>
     <string name="settings_home_apps">Block apps on Wi-Fi, mobile data or while locked, and see their connections</string>
     <string name="settings_filter_url_https_only">Only https:// addresses work: %1$s</string>
     <string name="settings_subscription_url_invalid">Enter one complete address that starts with https://</string>
