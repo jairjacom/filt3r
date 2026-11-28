@@ -1634,6 +1634,12 @@ public class MainActivity extends Activity
         Filt3rVpnService.reloadFirewall();
     }
 
+    @Override
+    public void setAppRules(Map<String, AppRule> rules) {
+        settings.saveAppRules(rules);
+        Filt3rVpnService.reloadFirewall();
+    }
+
     // ---- allow/block rules (OverridesDialog.Backend) ----
 
     @Override

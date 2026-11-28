@@ -21,11 +21,13 @@ import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.InstalledApps;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.firewall.AppRule;
+import com.bridge.filt3r.core.firewall.UniversalToggle;
 import com.bridge.filt3r.core.util.AppList;
 import com.bridge.filt3r.core.util.ConnectionLog;
 import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -39,10 +41,10 @@ import java.util.Set;
 
 /**
  * The Firewall screen: every installed app, A to Z, with three boxes (Wi-Fi, Mobile, Device locked) that
- * block it, and what the connection log says about it. Ticking a box applies at once. Tapping an app opens
- * the log's Connections side for it; the "Connection log" button opens it for every app. The counts are
- * over the lines the log still holds, not lifetime totals. System apps are hidden unless the switch at the
- * top shows them.
+ * block it, and what the connection log says about it. Ticking a box applies at once. Two tabs, Apps and
+ * System, each with its own list and its own three universal switches, which tick or clear one box for every
+ * app in the tab. Tapping an app opens the log's Connections side for it; the "Connection log" button opens
+ * it for every app. The counts are over the lines the log still holds, not lifetime totals.
  */
 public class AppsPanel extends LinearLayout {
 
@@ -66,6 +68,9 @@ public class AppsPanel extends LinearLayout {
         /** Saves (and applies at once) one rule for every key in {@code keys}: the apps that share a user ID. */
         void setAppRule(Set<String> keys, AppRule rule);
 
+        /** Saves (and applies at once) these rules in place of every saved rule; the universal switches change many. */
+        void setAppRules(Map<String, AppRule> rules);
+
         /** Package names of the Exempt apps: they never enter the tunnel, so no rule reaches them. */
         Set<String> exemptApps();
     }
@@ -74,7 +79,9 @@ public class AppsPanel extends LinearLayout {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ListAdapter adapter = new ListAdapter();
     private final TextInputEditText search;
-    private final MaterialSwitch showSystem;
+    private boolean systemTab;
+    private boolean refreshing;
+    private final MaterialSwitch[] toggles = new MaterialSwitch[UniversalToggle.Box.values().length];
     private final TextView empty;
     private List<InstalledApps.App> installed = new ArrayList<>();
     private final Map<String, InstalledApps.App> byPackage = new HashMap<>();
@@ -83,9 +90,6 @@ public class AppsPanel extends LinearLayout {
     private boolean detached;
     private final Map<String, AppRule> rules;
     private final Set<String> exempt;
-    private static final int BOX_WIFI = 0;
-    private static final int BOX_MOBILE = 1;
-    private static final int BOX_LOCKED = 2;
 
     public AppsPanel(Context context, Backend backend, Runnable onClose) {
         super(context);
@@ -130,6 +134,30 @@ public class AppsPanel extends LinearLayout {
         connectionLog.setOnClickListener(v -> backend.showConnectionLog());
         addView(connectionLog);
 
+        // Tabs: Apps and System, each with its own list and its own switches.
+        TabLayout tabs = new TabLayout(context);
+        tabs.addTab(tabs.newTab().setText(R.string.firewall_tab_apps));
+        tabs.addTab(tabs.newTab().setText(R.string.firewall_tab_system));
+        tabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                systemTab = tab.getPosition() == 1;
+                applyFilter();
+            }
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) {
+            }
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {
+            }
+        });
+        addView(tabs);
+        addView(toggleRow(context, UniversalToggle.Box.WIFI, R.string.firewall_all_wifi));
+        addView(toggleRow(context, UniversalToggle.Box.MOBILE, R.string.firewall_all_mobile));
+        addView(toggleRow(context, UniversalToggle.Box.LOCKED, R.string.firewall_all_locked));
+
         // Search field.
         TextInputLayout searchLayout = new TextInputLayout(context);
         searchLayout.setHint(context.getString(R.string.exempt_apps_search_hint));
@@ -153,24 +181,6 @@ public class AppsPanel extends LinearLayout {
         LayoutParams searchParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         searchParams.setMargins(dp(16), dp(4), dp(16), dp(4));
         addView(searchLayout, searchParams);
-
-        // Show-system switch.
-        LinearLayout systemRow = new LinearLayout(context);
-        systemRow.setGravity(Gravity.CENTER_VERTICAL);
-        systemRow.setPadding(dp(20), dp(4), dp(20), dp(4));
-        TextView systemText = new TextView(context);
-        systemText.setText(R.string.exempt_apps_show_system);
-        systemText.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
-        showSystem = new MaterialSwitch(context);
-        showSystem.setContentDescription(context.getString(R.string.exempt_apps_show_system));
-        showSystem.setOnCheckedChangeListener((b, on) -> {
-            Effects.toggle(showSystem, on);
-            applyFilter();
-        });
-        systemRow.addView(systemText, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
-        systemRow.addView(showSystem);
-        systemRow.setOnClickListener(v -> showSystem.toggle());
-        addView(systemRow);
 
         empty = new TextView(context);
         empty.setText(R.string.exempt_apps_loading);
@@ -226,10 +236,58 @@ public class AppsPanel extends LinearLayout {
 
     private void applyFilter() {
         String needle = search.getText() == null ? "" : search.getText().toString();
-        List<AppList.Row> rows = AppList.build(apps, entries, showSystem.isChecked(), needle);
+        List<AppList.Row> rows = AppList.build(apps, entries, systemTab, needle);
         adapter.set(rows);
         empty.setVisibility(rows.isEmpty() ? VISIBLE : GONE);
         empty.setText(installed.isEmpty() ? R.string.exempt_apps_loading : R.string.exempt_apps_no_match);
+        refreshToggles();
+    }
+
+    /** One universal switch: on only while every app of the tab has the box; flipping it ticks or clears the box for all. */
+    private LinearLayout toggleRow(Context context, UniversalToggle.Box box, int label) {
+        LinearLayout row = new LinearLayout(context);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(20), dp(2), dp(20), dp(2));
+        TextView text = new TextView(context);
+        text.setText(label);
+        text.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+        MaterialSwitch toggle = new MaterialSwitch(context);
+        toggle.setContentDescription(context.getString(label));
+        toggle.setOnCheckedChangeListener((b, on) -> {
+            if (!refreshing) {
+                Effects.toggle(toggle, on);
+                onUniversal(box, on);
+            }
+        });
+        row.addView(text, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(toggle);
+        row.setOnClickListener(v -> toggle.toggle());
+        toggles[box.ordinal()] = toggle;
+        return row;
+    }
+
+    /** The apps of the open tab that show boxes, not narrowed by the search: the shared user ID groups the switches act on. */
+    private List<Set<String>> tabGroups() {
+        return AppList.tabGroups(apps, systemTab, exempt);
+    }
+
+    private void onUniversal(UniversalToggle.Box box, boolean on) {
+        Map<String, AppRule> next = UniversalToggle.switchTo(box, on, tabGroups(), rules);
+        rules.clear();
+        rules.putAll(next);
+        backend.setAppRules(next);
+        adapter.notifyDataSetChanged();
+        refreshToggles();
+    }
+
+    /** Sets each switch from the rules, without counting it as a tap. */
+    private void refreshToggles() {
+        List<Set<String>> groups = tabGroups();
+        refreshing = true;
+        for (UniversalToggle.Box box : UniversalToggle.Box.values()) {
+            toggles[box.ordinal()].setChecked(UniversalToggle.isOn(box, groups, rules));
+        }
+        refreshing = false;
     }
 
     private static void dim(TextView t) {
@@ -246,13 +304,8 @@ public class AppsPanel extends LinearLayout {
     }
 
     /** Android leaves a whole user ID out of the tunnel when one package of it is Exempt, so the whole group counts. */
-    private boolean isExempt(AppList.Row row) {
-        for (String key : row.app.group) {
-            if (exempt.contains(key)) {
-                return true;
-            }
-        }
-        return exempt.contains(row.app.pkg);
+    private boolean isExempt(AppList.App app) {
+        return AppList.isExempt(app, exempt);
     }
 
     private MaterialCheckBox box(Context context) {
@@ -262,16 +315,9 @@ public class AppsPanel extends LinearLayout {
     }
 
     /** Applies a tick or an untick. The first box on a system app asks first, with the box shown unticked meanwhile. */
-    private void onBox(AppList.Row row, int which, boolean on) {
+    private void onBox(AppList.Row row, UniversalToggle.Box which, boolean on) {
         AppRule current = ruleOf(row);
-        AppRule next;
-        if (which == BOX_WIFI) {
-            next = current.withWifi(on);
-        } else if (which == BOX_MOBILE) {
-            next = current.withMobile(on);
-        } else {
-            next = current.withLocked(on);
-        }
+        AppRule next = which.with(current, on);
         if (row.app.system && on && current.isEmpty()) {
             handler.post(adapter::notifyDataSetChanged);
             Context context = getContext();
@@ -293,6 +339,7 @@ public class AppsPanel extends LinearLayout {
         }
         backend.setAppRule(row.app.group, rule);
         handler.post(adapter::notifyDataSetChanged);
+        refreshToggles();
     }
 
     /** The other packages that share this app's user ID, A to Z; "" when it shares with nobody. */
@@ -418,7 +465,7 @@ public class AppsPanel extends LinearLayout {
             } else {
                 shared.setVisibility(GONE);
             }
-            boolean isExempt = isExempt(row);
+            boolean isExempt = isExempt(row.app);
             exemptTag.setVisibility(isExempt ? VISIBLE : GONE);
             exemptTag.setOnClickListener(v -> Dialogs.builder(getContext())
                     .setTitle(row.app.label)
@@ -427,14 +474,14 @@ public class AppsPanel extends LinearLayout {
                     .show());
             boxes.setVisibility(isExempt ? GONE : VISIBLE);
             AppRule rule = ruleOf(row);
-            bindBox(wifi, row, rule.wifi(), BOX_WIFI, R.string.firewall_box_wifi_description);
-            bindBox(mobile, row, rule.mobile(), BOX_MOBILE, R.string.firewall_box_mobile_description);
-            bindBox(locked, row, rule.locked(), BOX_LOCKED, R.string.firewall_box_locked_description);
+            bindBox(wifi, row, rule.wifi(), UniversalToggle.Box.WIFI, R.string.firewall_box_wifi_description);
+            bindBox(mobile, row, rule.mobile(), UniversalToggle.Box.MOBILE, R.string.firewall_box_mobile_description);
+            bindBox(locked, row, rule.locked(), UniversalToggle.Box.LOCKED, R.string.firewall_box_locked_description);
             setOnClickListener(v -> backend.showAppConnections(row.app.group, row.app.label));
         }
 
         /** Shows one box without firing its listener, then listens for the user's tick. */
-        private void bindBox(MaterialCheckBox b, AppList.Row row, boolean on, int which, int description) {
+        private void bindBox(MaterialCheckBox b, AppList.Row row, boolean on, UniversalToggle.Box which, int description) {
             b.setOnCheckedChangeListener(null);
             b.setChecked(on);
             b.setContentDescription(getContext().getString(description, row.app.label));

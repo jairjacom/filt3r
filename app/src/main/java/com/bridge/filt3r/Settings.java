@@ -226,6 +226,11 @@ final class Settings {
                 rules.put(key, rule);
             }
         }
+        saveAppRules(rules);
+    }
+
+    /** Replaces every saved app rule (the universal toggles change many at once); empty rules are not saved. */
+    void saveAppRules(Map<String, AppRule> rules) {
         prefs.edit().putStringSet(KEY_APP_RULES, FirewallPolicy.encode(rules)).apply();
     }
 
