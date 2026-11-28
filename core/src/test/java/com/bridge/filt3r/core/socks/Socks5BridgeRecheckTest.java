@@ -15,11 +15,14 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import com.bridge.filt3r.core.firewall.Verdict;
 
 /** A connection that is already open is asked about again when a rule changes, and closed if it is now refused. */
 class Socks5BridgeRecheckTest {
@@ -70,14 +73,19 @@ class Socks5BridgeRecheckTest {
     }
 
     private final IdleLink link = new IdleLink();
-    private final AtomicReference<String> verdict = new AtomicReference<>();
+    private final AtomicReference<Verdict> decision = new AtomicReference<>(Verdict.ALLOW);
+    private final AtomicInteger directDials = new AtomicInteger();
     private final List<String> reasons = Collections.synchronizedList(new ArrayList<>());
     private Socks5Bridge bridge;
 
     @BeforeEach
     void setUp() throws IOException {
-        bridge = new Socks5Bridge(OUR_DNS, (client, query) -> new byte[0], (address, port, timeoutMs) -> link, null, () -> false);
-        bridge.setConnectionGate((client, dest, port) -> verdict.get());
+        Dialer direct = (address, port, timeoutMs) -> {
+            directDials.incrementAndGet();
+            return link;
+        };
+        bridge = new Socks5Bridge(OUR_DNS, (client, query) -> new byte[0], (address, port, timeoutMs) -> link, direct, () -> false);
+        bridge.setConnectionGate((client, dest, port) -> decision.get());
         bridge.setConnectionListener((client, dest, port, blocked, reason) -> {
             if (blocked) {
                 reasons.add(reason);
@@ -97,10 +105,25 @@ class Socks5BridgeRecheckTest {
             assertEquals(0, bridge.recheckOpenConnections()); // still allowed
             assertTrue(link.closed.getCount() == 1);
 
-            verdict.set("Device locked");
+            decision.set(Verdict.refuse("Device locked"));
             assertEquals(1, bridge.recheckOpenConnections());
             assertTrue(link.closed.await(5, TimeUnit.SECONDS), "the link to the node must be closed");
             assertEquals(List.of("Device locked"), reasons);
+        }
+    }
+
+    @Test
+    void anOpenExemptConnectionIsClosedWhenItsRuleNowRefusesAndKeptWhileItIsDialledDirectly() throws Exception {
+        decision.set(Verdict.DIRECT);
+        try (Socket s = open("#10.0.2.15#40002")) {
+            assertEquals(1, directDials.get());
+            assertEquals(0, bridge.recheckOpenConnections()); // the rule does not refuse it: it stays
+            assertEquals(1, link.closed.getCount());
+
+            decision.set(Verdict.refuse("App rule"));
+            assertEquals(1, bridge.recheckOpenConnections());
+            assertTrue(link.closed.await(5, TimeUnit.SECONDS), "the direct link must be closed");
+            assertEquals(List.of("App rule"), reasons);
         }
     }
 

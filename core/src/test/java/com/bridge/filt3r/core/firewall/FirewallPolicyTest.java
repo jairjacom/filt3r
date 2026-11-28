@@ -3,9 +3,11 @@ package com.bridge.filt3r.core.firewall;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -193,5 +195,53 @@ class FirewallPolicyTest {
         Map<String, AppRule> out = FirewallPolicy.decode(lines);
         assertEquals(1, out.size());
         assertEquals(MOBILE, out.get("b"));
+    }
+
+    @Test
+    void anExemptAppIsMatchedByItsWholeUserIdGroup() {
+        policy.configure(Map.of(), List.of(Set.of("a", "b")));
+        assertTrue(policy.isExempt("a"));
+        assertTrue(policy.isExempt("b")); // another package of the same user ID
+        assertFalse(policy.isExempt("c"));
+        assertFalse(policy.isExempt(null));
+    }
+
+    @Test
+    void anExemptAppIsRefusedByItsOwnRuleAndOtherwiseLetThroughToBeDialledDirectly() {
+        policy.configure(rules("a", WIFI), List.of(Set.of("a", "b")));
+        metered = false;
+        assertEquals(FirewallPolicy.REASON_APP_RULE, policy.check("a")); // Wi-Fi ticked, on Wi-Fi: refused
+        metered = true;
+        assertNull(policy.check("a")); // on mobile data it is not refused, and it is Exempt: direct
+        assertTrue(policy.isExempt("a"));
+    }
+
+    @Test
+    void configureWithoutExemptGroupsMakesNoAppExempt() {
+        policy.configure(Map.of(), List.of(Set.of("a")));
+        assertTrue(policy.isExempt("a"));
+        assertNull(policy.check("a"));
+
+        policy.configure(rules("a", WIFI));
+        assertFalse(policy.isExempt("a"));
+    }
+
+    @Test
+    void decideRefusesFirstThenSendsAnExemptFlowDirectAndAnyOtherThroughTheNode() {
+        Map<String, AppRule> both = new HashMap<>();
+        both.put("exempt.app", WIFI);
+        both.put("plain.app", WIFI);
+        policy.configure(both, List.of(Set.of("exempt.app", "exempt.sibling")));
+
+        metered = false; // on Wi-Fi both are refused, the Exempt one too
+        assertEquals(FirewallPolicy.REASON_APP_RULE, policy.decide("exempt.app").refusal());
+        assertEquals(FirewallPolicy.REASON_APP_RULE, policy.decide("plain.app").refusal());
+
+        metered = true; // on mobile data neither is refused: the Exempt one goes direct, the other via the node
+        assertTrue(policy.decide("exempt.app").isDirect());
+        assertNull(policy.decide("exempt.app").refusal());
+        assertTrue(policy.decide("exempt.sibling").isDirect()); // same user ID, no rule of its own
+        assertFalse(policy.decide("plain.app").isDirect());
+        assertNull(policy.decide("plain.app").refusal());
     }
 }
