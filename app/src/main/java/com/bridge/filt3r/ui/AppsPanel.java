@@ -22,6 +22,7 @@ import com.bridge.filt3r.InstalledApps;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.firewall.AppRule;
 import com.bridge.filt3r.core.firewall.ConnectivityRisk;
+import com.bridge.filt3r.core.firewall.ExemptTunnel;
 import com.bridge.filt3r.core.firewall.UniversalToggle;
 import com.bridge.filt3r.core.util.AppList;
 import com.bridge.filt3r.core.util.ConnectionLog;
@@ -72,7 +73,7 @@ public class AppsPanel extends LinearLayout {
         /** Saves (and applies at once) these rules in place of every saved rule; the universal switches change many. */
         void setAppRules(Map<String, AppRule> rules);
 
-        /** Package names of the Exempt apps: they never enter the tunnel, so no rule reaches them. */
+        /** Package names of the Exempt apps: one stays outside the tunnel until a box is ticked for it. */
         Set<String> exemptApps();
     }
 
@@ -278,9 +279,9 @@ public class AppsPanel extends LinearLayout {
         return row;
     }
 
-    /** The apps of the open tab that show boxes, not narrowed by the search: the shared user ID groups the switches act on. */
+    /** The apps of the open tab, not narrowed by the search: the shared user ID groups the switches act on. */
     private List<Set<String>> tabGroups() {
-        return AppList.tabGroups(apps, systemTab, exempt);
+        return AppList.tabGroups(apps, systemTab);
     }
 
     /** A switch flipped on in the System tab asks first; the switch shows off meanwhile and cancelling changes nothing. */
@@ -290,6 +291,19 @@ public class AppsPanel extends LinearLayout {
             Context context = getContext();
             Dialogs.confirm(context, context.getString(R.string.firewall_system_all_title),
                     context.getString(R.string.firewall_system_all_message),
+                    context.getString(R.string.firewall_system_continue), () -> universalAfterNotice(box, true));
+            return;
+        }
+        universalAfterNotice(box, on);
+    }
+
+    /** Ticking a box for an Exempt app that has none moves it into the tunnel, which costs it calls and fast video: say so first. */
+    private void universalAfterNotice(UniversalToggle.Box box, boolean on) {
+        if (on && ExemptTunnel.wouldEnterTunnel(tabGroups(), exempt, rules)) {
+            handler.post(this::refreshToggles);
+            Context context = getContext();
+            Dialogs.confirm(context, context.getString(R.string.firewall_exempt_all_title),
+                    context.getString(R.string.firewall_exempt_all_message),
                     context.getString(R.string.firewall_system_continue), () -> applyUniversal(box, true));
             return;
         }
@@ -347,6 +361,18 @@ public class AppsPanel extends LinearLayout {
             handler.post(adapter::notifyDataSetChanged);
             Context context = getContext();
             Dialogs.confirm(context, row.app.label, context.getString(R.string.firewall_system_warning),
+                    context.getString(R.string.firewall_system_continue), () -> ruleAfterNotice(row, next));
+            return;
+        }
+        ruleAfterNotice(row, next);
+    }
+
+    /** The first box on an Exempt app moves it into the tunnel (calls and fast video stop working while a rule is on): say so first. */
+    private void ruleAfterNotice(AppList.Row row, AppRule next) {
+        if (!next.isEmpty() && ExemptTunnel.wouldEnterTunnel(List.of(row.app.group), exempt, rules)) {
+            handler.post(adapter::notifyDataSetChanged);
+            Context context = getContext();
+            Dialogs.confirm(context, row.app.label, context.getString(R.string.firewall_exempt_notice),
                     context.getString(R.string.firewall_system_continue), () -> applyRule(row, next));
             return;
         }
@@ -504,7 +530,6 @@ public class AppsPanel extends LinearLayout {
                     .setMessage(R.string.firewall_exempt_message)
                     .setPositiveButton(android.R.string.ok, null)
                     .show());
-            boxes.setVisibility(isExempt ? GONE : VISIBLE);
             AppRule rule = ruleOf(row);
             bindBox(wifi, row, rule.wifi(), UniversalToggle.Box.WIFI, R.string.firewall_box_wifi_description);
             bindBox(mobile, row, rule.mobile(), UniversalToggle.Box.MOBILE, R.string.firewall_box_mobile_description);

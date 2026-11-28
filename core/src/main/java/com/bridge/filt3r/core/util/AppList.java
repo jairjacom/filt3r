@@ -98,16 +98,15 @@ public final class AppList {
     }
 
     /**
-     * The user ID groups a tab's universal switches act on: every app of that tab, whatever the search says,
-     * except Exempt ones (their boxes are not shown yet).
+     * The user ID groups a tab's universal switches act on: every app of that tab, whatever the search says.
      *
      * @param system true for the System tab, false for the Apps tab
      */
-    public static List<Set<String>> tabGroups(List<App> apps, boolean system, Set<String> exempt) {
+    public static List<Set<String>> tabGroups(List<App> apps, boolean system) {
         Set<String> systemPackages = systemPackages(apps);
         List<Set<String>> groups = new ArrayList<>();
         for (App a : apps) {
-            if (inSystemTab(a, systemPackages) == system && !isExempt(a, exempt)) {
+            if (inSystemTab(a, systemPackages) == system) {
                 groups.add(a.group);
             }
         }
