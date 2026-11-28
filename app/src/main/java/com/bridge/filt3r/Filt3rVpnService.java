@@ -189,6 +189,7 @@ public class Filt3rVpnService extends VpnService {
     private volatile ParcelFileDescriptor tun;
     private volatile ParcelFileDescriptor heldTun; // the previous interface, kept (with nobody reading it, so traffic is dropped) until a restart has a new one
     private volatile Set<String> tunnelOutside = Collections.emptySet(); // the Exempt apps the running tunnel leaves out; see reloadFirewall
+    private volatile boolean restartQueued; // a rule-driven restart is on its way; set on the main thread, cleared when it arrives
     private volatile Socks5Bridge bridge;
     private File config;
     private FileObserver configObserver;
@@ -292,6 +293,7 @@ public class Filt3rVpnService extends VpnService {
             return tun != null ? START_STICKY : START_NOT_STICKY;
         }
         if (ACTION_RESTART.equals(action)) {
+            restartQueued = false;
             stopEverything(true); // keep the old interface so nothing leaks while the new one is prepared
         }
         // Touching the class loads libhev-socks5-tunnel.so; JNI_OnLoad then
@@ -566,6 +568,8 @@ public class Filt3rVpnService extends VpnService {
                     ipBlockStatus = "";
                 }
                 starting = false;
+                // A box ticked while this start ran was too late for its builder: look again now that it is over.
+                handler.post(() -> restartIfExemptSetChanged(new Settings(this)));
                 TunnelState.set(TunnelState.State.RUNNING);
                 handler.postDelayed(sampleTick, TrafficHistory.INTERVAL_MS);
                 // the running notification carries the Pause action, which the starting one does not
@@ -1699,11 +1703,12 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private void restartIfExemptSetChanged(Settings settings) {
-        if (tun == null || starting) {
-            return; // not running, or a start in progress reads the new rules itself
+        if (tun == null || starting || restartQueued) {
+            return; // not running; or a start is on (it checks again when it ends); or a restart is already coming
         }
         Set<String> now = ExemptTunnel.outside(exemptGroupMap(settings.exemptApps()), settings.appRules());
         if (!now.equals(tunnelOutside)) {
+            restartQueued = true;
             startForegroundService(new Intent(this, Filt3rVpnService.class).setAction(ACTION_RESTART));
         }
     }
