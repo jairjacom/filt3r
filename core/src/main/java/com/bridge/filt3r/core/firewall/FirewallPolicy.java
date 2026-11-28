@@ -7,14 +7,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The firewall's decision, kept free of Android so it can be tested on the JVM. Order, as in RethinkDNS: the
- * app rule first, then the universal rules; the first match wins. An unexpected error blocks.
- * Apps that are Exempt never reach this class: they do not enter the tunnel (ADR 0005).
+ * The firewall's decision, kept free of Android so it can be tested on the JVM. One app rule per app (the boxes
+ * the user ticked); a flow with no known owner has no rule and passes (ADR 0004, ADR 0006). An unexpected error
+ * blocks. Apps that are Exempt and have no box ticked never reach this class: they do not enter the tunnel.
  */
 public final class FirewallPolicy {
 
     public static final String REASON_APP_RULE = "App rule";
-    public static final String REASON_METERED = "Metered";
     public static final String REASON_DEVICE_LOCKED = "Device locked";
     public static final String REASON_ERROR = "Firewall error";
 
@@ -25,75 +24,47 @@ public final class FirewallPolicy {
         boolean deviceLocked();
     }
 
-    private static final class Config {
-        final Map<String, AppRule> rules;
-        final boolean blockWhenLocked;
-        final boolean blockMetered;
-
-        Config(Map<String, AppRule> rules, boolean blockWhenLocked, boolean blockMetered) {
-            this.rules = rules;
-            this.blockWhenLocked = blockWhenLocked;
-            this.blockMetered = blockMetered;
-        }
-    }
-
     private final Environment environment;
-    private volatile Config config = new Config(Collections.emptyMap(), false, false);
+    private volatile Map<String, AppRule> rules = Collections.emptyMap();
 
     public FirewallPolicy(Environment environment) {
         this.environment = environment;
     }
 
-    /** Replaces everything. {@code rules} may hold ALLOW entries; they are dropped. */
-    public void configure(Map<String, AppRule> rules, boolean blockWhenLocked, boolean blockMetered) {
+    /** Replaces everything. {@code rules} may hold empty entries; they are dropped. */
+    public void configure(Map<String, AppRule> rules) {
         Map<String, AppRule> kept = new HashMap<>();
         for (Map.Entry<String, AppRule> e : rules.entrySet()) {
-            if (e.getValue() != AppRule.ALLOW) {
+            if (!e.getValue().isEmpty()) {
                 kept.put(e.getKey(), e.getValue());
             }
         }
-        config = new Config(Collections.unmodifiableMap(kept), blockWhenLocked, blockMetered);
+        this.rules = Collections.unmodifiableMap(kept);
     }
 
     /** True when a rule needs to know which app owns a flow; when false the owner lookup can be skipped. */
     public boolean needsOwner() {
-        return !config.rules.isEmpty();
-    }
-
-    /** True when any rule at all is on. */
-    public boolean isActive() {
-        Config c = config;
-        return !c.rules.isEmpty() || c.blockWhenLocked || c.blockMetered;
+        return !rules.isEmpty();
     }
 
     /**
      * @param appKey the app's key ({@code AppId.key()}); null when the owner is unknown or was not looked up.
-     *               An unknown owner has no app rule, so only the universal rules can stop it.
+     *               An unknown owner has no rule, so it always passes.
      * @return the reason to refuse the flow (one of the REASON_ constants), or null to let it through
      */
     public String check(String appKey) {
         try {
-            Config c = config;
-            AppRule rule = appKey == null ? AppRule.ALLOW : c.rules.getOrDefault(appKey, AppRule.ALLOW);
-            Boolean metered = null; // asked at most once, and only if a rule cares
-            if (rule != AppRule.ALLOW) {
-                if (rule == AppRule.BLOCK_BOTH) {
-                    return REASON_APP_RULE;
-                }
-                metered = environment.metered();
-                if (rule.blocks(metered)) {
-                    return REASON_APP_RULE;
-                }
+            AppRule rule = appKey == null ? null : rules.get(appKey);
+            if (rule == null) {
+                return null;
             }
-            if (c.blockMetered) {
-                if (metered == null) {
-                    metered = environment.metered();
-                }
-                if (metered) {
-                    return REASON_METERED;
-                }
+            if (rule.wifi() && rule.mobile()) {
+                return REASON_APP_RULE; // blocked on every network: no need to ask which one this is
             }
-            if (c.blockWhenLocked && environment.deviceLocked()) {
+            if ((rule.wifi() || rule.mobile()) && rule.blocks(environment.metered())) {
+                return REASON_APP_RULE;
+            }
+            if (rule.locked() && environment.deviceLocked()) {
                 return REASON_DEVICE_LOCKED;
             }
             return null;
@@ -102,18 +73,18 @@ public final class FirewallPolicy {
         }
     }
 
-    /** One line per rule, "key=RULE", ready for a string set in settings. ALLOW is not saved. */
+    /** One line per rule, "key=WIFI,LOCKED", ready for a string set in settings. Empty rules are not saved. */
     public static Set<String> encode(Map<String, AppRule> rules) {
         Set<String> out = new HashSet<>();
         for (Map.Entry<String, AppRule> e : rules.entrySet()) {
-            if (e.getValue() != AppRule.ALLOW) {
-                out.add(e.getKey() + "=" + e.getValue().name());
+            if (!e.getValue().isEmpty()) {
+                out.add(e.getKey() + "=" + e.getValue().encode());
             }
         }
         return out;
     }
 
-    /** The inverse of {@link #encode}. Lines without a known rule are skipped. */
+    /** The inverse of {@link #encode}; also reads the lines the first firewall saved. Lines without a known rule are skipped. */
     public static Map<String, AppRule> decode(Set<String> lines) {
         Map<String, AppRule> out = new HashMap<>();
         for (String line : lines) {
@@ -122,7 +93,7 @@ public final class FirewallPolicy {
                 continue;
             }
             AppRule rule = AppRule.parse(line.substring(eq + 1));
-            if (rule != AppRule.ALLOW) {
+            if (!rule.isEmpty()) {
                 out.put(line.substring(0, eq), rule);
             }
         }

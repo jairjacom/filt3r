@@ -3,7 +3,6 @@ package com.bridge.filt3r.core.firewall;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -12,8 +11,13 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
-/** The decision order from ADR 0005: app rule, then universal rules; first match wins; an error blocks. */
+/** The decision from ADR 0006: one rule per app made of Wi-Fi, Mobile and Device locked boxes; an error blocks. */
 class FirewallPolicyTest {
+
+    private static final AppRule WIFI = AppRule.of(true, false, false);
+    private static final AppRule MOBILE = AppRule.of(false, true, false);
+    private static final AppRule LOCKED = AppRule.of(false, false, true);
+    private static final AppRule WIFI_AND_MOBILE = AppRule.of(true, true, false);
 
     private boolean metered;
     private boolean locked;
@@ -40,16 +44,17 @@ class FirewallPolicyTest {
 
     @Test
     void withNoRulesEverythingPassesAndNothingIsAsked() {
-        assertFalse(policy.isActive());
         assertFalse(policy.needsOwner());
-        assertNull(policy.check("com.example.app"));
+        metered = true;
+        locked = true;
+        assertNull(policy.check("a"));
         assertNull(policy.check(null));
         assertEquals(0, asked);
     }
 
     @Test
-    void blockWifiStopsAnAppOnAnUnmeteredNetworkOnly() {
-        policy.configure(rules("a", AppRule.BLOCK_WIFI), false, false);
+    void wifiStopsAnAppOnAnUnmeteredNetworkOnly() {
+        policy.configure(rules("a", WIFI));
         metered = false;
         assertEquals(FirewallPolicy.REASON_APP_RULE, policy.check("a"));
         metered = true;
@@ -57,8 +62,8 @@ class FirewallPolicyTest {
     }
 
     @Test
-    void blockMobileStopsAnAppOnAMeteredNetworkOnly() {
-        policy.configure(rules("a", AppRule.BLOCK_MOBILE), false, false);
+    void mobileStopsAnAppOnAMeteredNetworkOnly() {
+        policy.configure(rules("a", MOBILE));
         metered = true;
         assertEquals(FirewallPolicy.REASON_APP_RULE, policy.check("a"));
         metered = false;
@@ -66,58 +71,72 @@ class FirewallPolicyTest {
     }
 
     @Test
-    void blockBothStopsAnAppWithoutAskingTheNetwork() {
-        policy.configure(rules("a", AppRule.BLOCK_BOTH), false, false);
+    void wifiAndMobileTogetherStopAnAppEverywhereWithoutAskingTheNetwork() {
+        policy.configure(rules("a", WIFI_AND_MOBILE));
         assertEquals(FirewallPolicy.REASON_APP_RULE, policy.check("a"));
         assertEquals(0, asked);
     }
 
     @Test
-    void anAppRuleOnlyAffectsThatApp() {
-        policy.configure(rules("a", AppRule.BLOCK_BOTH), false, false);
-        assertNull(policy.check("b"));
-    }
-
-    @Test
-    void anUnknownOwnerHasNoAppRuleButUniversalRulesStillApply() {
-        policy.configure(rules("a", AppRule.BLOCK_BOTH), true, false);
-        locked = false;
-        assertNull(policy.check(null));
+    void deviceLockedStopsAnAppOnlyWhileTheDeviceIsLocked() {
+        policy.configure(rules("a", LOCKED));
         locked = true;
-        assertEquals(FirewallPolicy.REASON_DEVICE_LOCKED, policy.check(null));
-    }
-
-    @Test
-    void theAppRuleIsReportedBeforeAUniversalRule() {
-        policy.configure(rules("a", AppRule.BLOCK_BOTH), true, true);
-        metered = true;
-        locked = true;
-        assertEquals(FirewallPolicy.REASON_APP_RULE, policy.check("a"));
-    }
-
-    @Test
-    void blockMeteredIsReportedBeforeBlockWhenLocked() {
-        policy.configure(new HashMap<>(), true, true);
-        metered = true;
-        locked = true;
-        assertEquals(FirewallPolicy.REASON_METERED, policy.check("a"));
-        metered = false;
         assertEquals(FirewallPolicy.REASON_DEVICE_LOCKED, policy.check("a"));
         locked = false;
         assertNull(policy.check("a"));
     }
 
     @Test
-    void allowEntriesAreDropped() {
-        policy.configure(rules("a", AppRule.ALLOW), false, false);
-        assertFalse(policy.isActive());
+    void lockedDoesNotAskWhichNetworkItIsAndMobileDoesNotAskIfLocked() {
+        policy.configure(rules("a", LOCKED));
+        policy.check("a");
+        assertEquals(1, asked); // only deviceLocked
+
+        asked = 0;
+        policy.configure(rules("a", MOBILE));
+        policy.check("a");
+        assertEquals(1, asked); // only metered
     }
 
     @Test
-    void universalRulesAloneDoNotNeedTheOwner() {
-        policy.configure(new HashMap<>(), true, false);
-        assertTrue(policy.isActive());
+    void theBoxesCombine() {
+        policy.configure(rules("a", AppRule.of(true, false, true)));
+        metered = true;
+        locked = false;
+        assertNull(policy.check("a")); // mobile and unlocked: neither box applies
+        locked = true;
+        assertEquals(FirewallPolicy.REASON_DEVICE_LOCKED, policy.check("a"));
+        metered = false;
+        locked = false;
+        assertEquals(FirewallPolicy.REASON_APP_RULE, policy.check("a"));
+    }
+
+    @Test
+    void aNetworkBoxIsReportedBeforeDeviceLocked() {
+        policy.configure(rules("a", AppRule.of(true, false, true)));
+        metered = false;
+        locked = true;
+        assertEquals(FirewallPolicy.REASON_APP_RULE, policy.check("a"));
+    }
+
+    @Test
+    void aRuleOnlyAffectsThatApp() {
+        policy.configure(rules("a", WIFI_AND_MOBILE));
+        assertNull(policy.check("b"));
+    }
+
+    @Test
+    void anUnknownOwnerAlwaysPasses() {
+        policy.configure(rules("a", AppRule.of(true, true, true)));
+        locked = true;
+        assertNull(policy.check(null));
+    }
+
+    @Test
+    void emptyRulesAreDropped() {
+        policy.configure(rules("a", AppRule.NONE));
         assertFalse(policy.needsOwner());
+        assertNull(policy.check("a"));
     }
 
     @Test
@@ -133,31 +152,46 @@ class FirewallPolicyTest {
                 return false;
             }
         });
-        broken.configure(new HashMap<>(), false, true);
+        broken.configure(rules("a", WIFI));
         assertEquals(FirewallPolicy.REASON_ERROR, broken.check("a"));
     }
 
     @Test
     void savedRulesComeBackAsTheyWentIn() {
         Map<String, AppRule> in = new HashMap<>();
-        in.put("com.example.app", AppRule.BLOCK_WIFI);
-        in.put("system:android.uid.system:1000", AppRule.BLOCK_BOTH);
-        in.put("uid:10123", AppRule.ALLOW);
+        in.put("com.example.app", AppRule.of(true, false, true));
+        in.put("system:android.uid.system:1000", AppRule.of(true, true, true));
+        in.put("uid:10123", AppRule.NONE);
         Map<String, AppRule> out = FirewallPolicy.decode(FirewallPolicy.encode(in));
         assertEquals(2, out.size());
-        assertEquals(AppRule.BLOCK_WIFI, out.get("com.example.app"));
-        assertEquals(AppRule.BLOCK_BOTH, out.get("system:android.uid.system:1000"));
+        assertEquals(AppRule.of(true, false, true), out.get("com.example.app"));
+        assertEquals(AppRule.of(true, true, true), out.get("system:android.uid.system:1000"));
+    }
+
+    @Test
+    void rulesSavedByTheFirstFirewallStillMeanTheSame() {
+        Set<String> lines = new HashSet<>();
+        lines.add("a=BLOCK_WIFI");
+        lines.add("b=BLOCK_MOBILE");
+        lines.add("c=BLOCK_BOTH");
+        lines.add("d=ALLOW");
+        Map<String, AppRule> out = FirewallPolicy.decode(lines);
+        assertEquals(3, out.size());
+        assertEquals(WIFI, out.get("a"));
+        assertEquals(MOBILE, out.get("b"));
+        assertEquals(WIFI_AND_MOBILE, out.get("c"));
+        assertFalse(out.containsKey("d"));
     }
 
     @Test
     void decodeSkipsLinesItDoesNotUnderstand() {
         Set<String> lines = new HashSet<>();
-        lines.add("=BLOCK_BOTH");
+        lines.add("=WIFI");
         lines.add("no-equals-sign");
         lines.add("a=SOMETHING_NEW");
-        lines.add("b=BLOCK_MOBILE");
+        lines.add("b=MOBILE,SOMETHING_NEW");
         Map<String, AppRule> out = FirewallPolicy.decode(lines);
         assertEquals(1, out.size());
-        assertEquals(AppRule.BLOCK_MOBILE, out.get("b"));
+        assertEquals(MOBILE, out.get("b"));
     }
 }

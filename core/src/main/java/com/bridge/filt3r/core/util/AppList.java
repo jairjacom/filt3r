@@ -8,10 +8,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * What the Apps screen shows: the installed apps that pass the system switch and the search, each with
- * what the connection log says about it. Apps with log lines come first, newest first; the rest follow by
- * name. Lines are keyed by the first package Android reports for a user ID, so an app counts the lines of
- * every package that shares its user ID (the "group"), each line once.
+ * What the Firewall screen shows: the installed apps that pass the system switch and the search, A to Z by
+ * name, each with what the connection log says about it. Lines are keyed by the first package Android
+ * reports for a user ID, so an app counts the lines of every package that shares its user ID (the "group"),
+ * each line once.
  */
 public final class AppList {
 
@@ -35,8 +35,8 @@ public final class AppList {
 
     /**
      * One line of the screen. {@code lastTime} is the log's time text of the newest line, null when there
-     * is none. {@code order} is that line's place in the log (later is newer), -1 when there is none; the
-     * log keeps no year, so the time text alone cannot say which line is newer across New Year.
+     * is none; the newest is the one latest in the log, because the log keeps no year and the time text
+     * alone cannot say which line is newer across New Year.
      */
     public static final class Row {
         public final App app;
@@ -44,14 +44,12 @@ public final class AppList {
         public final int blocked;
         public final String lastTime;
         public final int sharedWith;
-        private final int order;
 
-        Row(App app, int allowed, int blocked, String lastTime, int order) {
+        Row(App app, int allowed, int blocked, String lastTime) {
             this.app = app;
             this.allowed = allowed;
             this.blocked = blocked;
             this.lastTime = lastTime;
-            this.order = order;
             this.sharedWith = app.group.size() - 1;
         }
     }
@@ -106,7 +104,7 @@ public final class AppList {
                     last = c.last;
                 }
             }
-            rows.add(new Row(a, allowed, blocked, last, order));
+            rows.add(new Row(a, allowed, blocked, last));
         }
         rows.sort(AppList::compare);
         return rows;
@@ -117,11 +115,8 @@ public final class AppList {
                 || a.pkg.toLowerCase(Locale.ROOT).contains(needle);
     }
 
-    /** Apps with log lines first, the newest line first; then A to Z by name (any case), then by package. */
+    /** A to Z by name (any case), then by package. */
     private static int compare(Row a, Row b) {
-        if (a.order != b.order) {
-            return a.order > b.order ? -1 : 1; // -1 (no lines) is the smallest, so it ends up last
-        }
         int byName = a.app.label.compareToIgnoreCase(b.app.label);
         return byName != 0 ? byName : a.app.pkg.compareTo(b.app.pkg);
     }

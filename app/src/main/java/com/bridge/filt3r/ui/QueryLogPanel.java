@@ -331,6 +331,14 @@ public class QueryLogPanel extends LinearLayout {
         reload();
     }
 
+    /** Opens the Connections side for every app. The Firewall screen's "Connection log" button opens the log this way. */
+    public void showConnections() {
+        appKeys = null;
+        appBanner.setVisibility(GONE);
+        sides.check(connectionsSide.getId());
+        reload();
+    }
+
     /** Switches to the Blocked filter; the DNS card's "View blocked" opens the log this way. */
     public void showBlockedOnly() {
         chipGroup.check(blockedChip.getId());

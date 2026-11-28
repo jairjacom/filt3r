@@ -1662,9 +1662,9 @@ public class Filt3rVpnService extends VpnService {
         return IpLookup.lookup(r.fetcher::get, ip);
     }
 
-    /** Why the firewall refuses this app's traffic (a FirewallPolicy REASON_), or null. An unknown owner has no app rule. */
+    /** Why the firewall refuses this app's traffic (a FirewallPolicy REASON_), or null. An unknown owner has no rule and passes. */
     private String firewallVerdict(AppId owner) {
-        return firewall.isActive() ? firewall.check(owner == null ? null : owner.key()) : null;
+        return firewall.check(owner == null ? null : owner.key());
     }
 
     /** Reads the firewall rules from settings. Call after any change; the next flow uses the new rules. */
@@ -1685,7 +1685,7 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private void loadFirewall(Settings settings) {
-        firewall.configure(settings.appRules(), settings.blockWhenLocked(), settings.blockMetered());
+        firewall.configure(settings.appRules());
     }
 
     /** One speed sample every few seconds while the tunnel runs; stopEverything cancels it with the other handler work. */
