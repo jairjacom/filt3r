@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import com.bridge.filt3r.core.filter.IpBlockList;
 import com.bridge.filt3r.core.firewall.FirewallPolicy;
+import com.bridge.filt3r.core.firewall.Verdict;
 
 /** The firewall gate runs before the bridge dials, and a refusal never reaches a node. */
 class Socks5BridgeConnectionGateTest {
@@ -59,7 +60,7 @@ class Socks5BridgeConnectionGateTest {
 
     @Test
     void aRefusedFlowIsAnsweredNotAllowedReportedWithTheReasonAndNeverDialled() throws IOException {
-        bridge.setConnectionGate((client, dest, port) -> ConnectionGate.Decision.refuse(FirewallPolicy.REASON_APP_RULE));
+        bridge.setConnectionGate((client, dest, port) -> Verdict.refuse(FirewallPolicy.REASON_APP_RULE));
 
         assertEquals(2, connect("#10.0.2.15#40000")); // REP_NOT_ALLOWED
         assertEquals(0, dials.get());
@@ -68,7 +69,7 @@ class Socks5BridgeConnectionGateTest {
 
     @Test
     void aFlowTheGateLetsThroughIsDialled() throws IOException {
-        bridge.setConnectionGate((client, dest, port) -> ConnectionGate.Decision.ALLOW);
+        bridge.setConnectionGate((client, dest, port) -> Verdict.ALLOW);
 
         connect("#10.0.2.15#40001");
         assertEquals(1, dials.get());
@@ -91,7 +92,7 @@ class Socks5BridgeConnectionGateTest {
         List<String> got = Collections.synchronizedList(new ArrayList<>());
         bridge.setConnectionGate((client, dest, port) -> {
             got.add(client + " " + dest.getHostAddress() + " " + port);
-            return ConnectionGate.Decision.ALLOW;
+            return Verdict.ALLOW;
         });
 
         connect("#10.0.2.15#40003");
@@ -100,7 +101,7 @@ class Socks5BridgeConnectionGateTest {
 
     @Test
     void aDirectFlowIsDialledWithTheDirectDialerAndNeverTheNode() throws IOException {
-        bridge.setConnectionGate((client, dest, port) -> ConnectionGate.Decision.DIRECT);
+        bridge.setConnectionGate((client, dest, port) -> Verdict.DIRECT);
 
         connect("#10.0.2.15#40004");
         assertEquals(0, dials.get());
@@ -112,18 +113,18 @@ class Socks5BridgeConnectionGateTest {
     void aDirectFlowIsNotFilteredByTheIpBlockList() throws IOException {
         bridge.setIpBlockList(IpBlockList.parse(new ByteArrayInputStream("198.51.100.7\n".getBytes(StandardCharsets.US_ASCII))));
 
-        bridge.setConnectionGate((client, dest, port) -> ConnectionGate.Decision.ALLOW);
+        bridge.setConnectionGate((client, dest, port) -> Verdict.ALLOW);
         assertEquals(2, connect("#10.0.2.15#40005")); // an ordinary flow to a listed IP is refused
         assertEquals(List.of(ConnectionListener.REASON_IP_LIST), reasons);
 
-        bridge.setConnectionGate((client, dest, port) -> ConnectionGate.Decision.DIRECT);
+        bridge.setConnectionGate((client, dest, port) -> Verdict.DIRECT);
         connect("#10.0.2.15#40006");
         assertEquals(1, directDials.get()); // an Exempt app's flow is not
     }
 
     @Test
     void aRefusedExemptFlowIsRefusedLikeAnyOtherAndDialsNothing() throws IOException {
-        bridge.setConnectionGate((client, dest, port) -> ConnectionGate.Decision.refuse(FirewallPolicy.REASON_APP_RULE));
+        bridge.setConnectionGate((client, dest, port) -> Verdict.refuse(FirewallPolicy.REASON_APP_RULE));
 
         assertEquals(2, connect("#10.0.2.15#40007"));
         assertEquals(0, dials.get());

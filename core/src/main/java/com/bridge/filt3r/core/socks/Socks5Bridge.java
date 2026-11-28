@@ -2,6 +2,7 @@ package com.bridge.filt3r.core.socks;
 
 import com.bridge.filt3r.core.filter.IpBlockList;
 import com.bridge.filt3r.core.firewall.FirewallPolicy;
+import com.bridge.filt3r.core.firewall.Verdict;
 import java.io.Closeable;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -374,7 +375,7 @@ public final class Socks5Bridge {
         ConnectionGate firewall = gate;
         boolean direct = false; // an Exempt app that a rule lets through: no node, no IP block list
         if (firewall != null) {
-            ConnectionGate.Decision decision = askGate(firewall, source, InetAddress.getByAddress(ip), port);
+            Verdict decision = askGate(firewall, source, InetAddress.getByAddress(ip), port);
             String why = decision.refusal();
             if (why != null) {
                 report(source, InetAddress.getByAddress(ip), port, true, why);
@@ -497,11 +498,11 @@ public final class Socks5Bridge {
     }
 
     /** The gate's decision. An unexpected error refuses, as in RethinkDNS. */
-    private static ConnectionGate.Decision askGate(ConnectionGate firewall, String source, InetAddress dest, int port) {
+    private static Verdict askGate(ConnectionGate firewall, String source, InetAddress dest, int port) {
         try {
             return firewall.decide(AppSocket.parse(AppSocket.Proto.TCP, source), dest, port);
         } catch (RuntimeException e) {
-            return ConnectionGate.Decision.refuse(FirewallPolicy.REASON_ERROR);
+            return Verdict.refuse(FirewallPolicy.REASON_ERROR);
         }
     }
 

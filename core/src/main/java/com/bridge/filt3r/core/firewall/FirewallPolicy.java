@@ -66,6 +66,18 @@ public final class FirewallPolicy {
         return appKey != null && exemptKeys.contains(appKey);
     }
 
+    /**
+     * The whole answer for a flow: refused by its own rule, else direct when it belongs to an Exempt app (it is
+     * only here because it has a rule), else allowed through the node. A refusal always wins over direct.
+     */
+    public Verdict decide(String appKey) {
+        String why = check(appKey);
+        if (why != null) {
+            return Verdict.refuse(why);
+        }
+        return isExempt(appKey) ? Verdict.DIRECT : Verdict.ALLOW;
+    }
+
     /** True when a rule needs to know which app owns a flow; when false the owner lookup can be skipped. */
     public boolean needsOwner() {
         return !rules.isEmpty();

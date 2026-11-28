@@ -40,6 +40,7 @@ import com.bridge.filt3r.core.filter.DNSResolver;
 import com.bridge.filt3r.core.filter.DNSResponsePatcher;
 import com.bridge.filt3r.core.filter.IpBlockList;
 import com.bridge.filt3r.core.firewall.FirewallPolicy;
+import com.bridge.filt3r.core.firewall.Verdict;
 import com.bridge.filt3r.core.http.HttpsFetcher;
 import com.bridge.filt3r.core.http.IpLookup;
 import com.bridge.filt3r.core.nodes.FailoverDialer;
@@ -51,7 +52,6 @@ import com.bridge.filt3r.core.nodes.NodeRankFile;
 import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.AppSocket;
-import com.bridge.filt3r.core.socks.ConnectionGate;
 import com.bridge.filt3r.core.socks.DirectDialer;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
@@ -432,16 +432,17 @@ public class Filt3rVpnService extends VpnService {
             HttpsFetcher listFetcher = new HttpsFetcher(viaNode, names);
             ResolverStamp dnsStamp = parseStampOrDefault(settings.resolverStamp());
             FailoverUpstream upstream = new FailoverUpstream(manager, dnsStamp.upstream(viaNode, names), health);
-            // DNS always goes through the node: it is never sent direct, whatever the failure mode.
+            // DNS goes through the node and the filter, whatever the failure mode; the one exception is an Exempt app a rule lets through.
             DNSResolver resolver = new DNSResolver(upstream);
             Socks5Bridge b = new Socks5Bridge(DNS_V4_BYTES, (client, query) -> {
                 // The owner is asked only when the log will keep it or a firewall rule needs it.
                 boolean logging = settings.queryLogEnabled();
                 AppId owner = logging || firewall.needsOwner() ? owners.owner(client, DNS_REMOTE) : null;
-                if (firewallVerdict(owner) != null) {
+                Verdict verdict = firewallVerdict(owner);
+                if (verdict.refusal() != null) {
                     return DNSResolver.refused(query); // a blocked app does not even resolve names
                 }
-                if (firewall.isExempt(owner == null ? null : owner.key())) {
+                if (verdict.isDirect()) {
                     return systemDns.resolve(query); // an Exempt app a rule lets through keeps its real DNS, unfiltered
                 }
                 awaitFilter();
@@ -460,20 +461,15 @@ public class Filt3rVpnService extends VpnService {
             }, viaNode, direct, DNSResponsePatcher::isPaused);
             b.setConnectionGate((client, dest, port) -> {
                 AppId owner = firewall.needsOwner() ? owners.owner(client, new InetSocketAddress(dest, port)) : null;
-                String why = firewallVerdict(owner);
-                if (why != null) {
-                    if (owner != null && settings.queryLogEnabled()) {
-                        // The refused socket is closed by the time the log looks, and Android then names the wrong owner or none.
-                        if (refusedOwners.size() > 1000) {
-                            refusedOwners.clear();
-                        }
-                        refusedOwners.put(flowKey(client, dest, port), owner);
+                Verdict verdict = firewallVerdict(owner);
+                if (verdict.refusal() != null && owner != null && settings.queryLogEnabled()) {
+                    // The refused socket is closed by the time the log looks, and Android then names the wrong owner or none.
+                    if (refusedOwners.size() > 1000) {
+                        refusedOwners.clear();
                     }
-                    return ConnectionGate.Decision.refuse(why);
+                    refusedOwners.put(flowKey(client, dest, port), owner);
                 }
-                // An Exempt app is only here because it has a rule; this one does not refuse it now, so it goes direct.
-                return firewall.isExempt(owner == null ? null : owner.key())
-                        ? ConnectionGate.Decision.DIRECT : ConnectionGate.Decision.ALLOW;
+                return verdict; // refused, or direct for an Exempt app a rule does not refuse now, or allowed
             });
             b.setFailureMode(settings.failureMode());
             loadFirewall(settings);
@@ -1676,9 +1672,9 @@ public class Filt3rVpnService extends VpnService {
         return IpLookup.lookup(r.fetcher::get, ip);
     }
 
-    /** Why the firewall refuses this app's traffic (a FirewallPolicy REASON_), or null. An unknown owner has no rule and passes. */
-    private String firewallVerdict(AppId owner) {
-        return firewall.check(owner == null ? null : owner.key());
+    /** What the firewall says about this app's traffic. An unknown owner has no rule and passes. */
+    private Verdict firewallVerdict(AppId owner) {
+        return firewall.decide(owner == null ? null : owner.key());
     }
 
     /** Reads the firewall rules from settings. Call after any change; the next flow uses the new rules. */

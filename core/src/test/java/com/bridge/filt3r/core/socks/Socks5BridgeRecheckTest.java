@@ -22,6 +22,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.bridge.filt3r.core.firewall.Verdict;
+
 /** A connection that is already open is asked about again when a rule changes, and closed if it is now refused. */
 class Socks5BridgeRecheckTest {
 
@@ -71,7 +73,7 @@ class Socks5BridgeRecheckTest {
     }
 
     private final IdleLink link = new IdleLink();
-    private final AtomicReference<ConnectionGate.Decision> decision = new AtomicReference<>(ConnectionGate.Decision.ALLOW);
+    private final AtomicReference<Verdict> decision = new AtomicReference<>(Verdict.ALLOW);
     private final AtomicInteger directDials = new AtomicInteger();
     private final List<String> reasons = Collections.synchronizedList(new ArrayList<>());
     private Socks5Bridge bridge;
@@ -103,7 +105,7 @@ class Socks5BridgeRecheckTest {
             assertEquals(0, bridge.recheckOpenConnections()); // still allowed
             assertTrue(link.closed.getCount() == 1);
 
-            decision.set(ConnectionGate.Decision.refuse("Device locked"));
+            decision.set(Verdict.refuse("Device locked"));
             assertEquals(1, bridge.recheckOpenConnections());
             assertTrue(link.closed.await(5, TimeUnit.SECONDS), "the link to the node must be closed");
             assertEquals(List.of("Device locked"), reasons);
@@ -112,13 +114,13 @@ class Socks5BridgeRecheckTest {
 
     @Test
     void anOpenExemptConnectionIsClosedWhenItsRuleNowRefusesAndKeptWhileItIsDialledDirectly() throws Exception {
-        decision.set(ConnectionGate.Decision.DIRECT);
+        decision.set(Verdict.DIRECT);
         try (Socket s = open("#10.0.2.15#40002")) {
             assertEquals(1, directDials.get());
             assertEquals(0, bridge.recheckOpenConnections()); // the rule does not refuse it: it stays
             assertEquals(1, link.closed.getCount());
 
-            decision.set(ConnectionGate.Decision.refuse("App rule"));
+            decision.set(Verdict.refuse("App rule"));
             assertEquals(1, bridge.recheckOpenConnections());
             assertTrue(link.closed.await(5, TimeUnit.SECONDS), "the direct link must be closed");
             assertEquals(List.of("App rule"), reasons);

@@ -225,4 +225,23 @@ class FirewallPolicyTest {
         policy.configure(rules("a", WIFI));
         assertFalse(policy.isExempt("a"));
     }
+
+    @Test
+    void decideRefusesFirstThenSendsAnExemptFlowDirectAndAnyOtherThroughTheNode() {
+        Map<String, AppRule> both = new HashMap<>();
+        both.put("exempt.app", WIFI);
+        both.put("plain.app", WIFI);
+        policy.configure(both, List.of(Set.of("exempt.app", "exempt.sibling")));
+
+        metered = false; // on Wi-Fi both are refused, the Exempt one too
+        assertEquals(FirewallPolicy.REASON_APP_RULE, policy.decide("exempt.app").refusal());
+        assertEquals(FirewallPolicy.REASON_APP_RULE, policy.decide("plain.app").refusal());
+
+        metered = true; // on mobile data neither is refused: the Exempt one goes direct, the other via the node
+        assertTrue(policy.decide("exempt.app").isDirect());
+        assertNull(policy.decide("exempt.app").refusal());
+        assertTrue(policy.decide("exempt.sibling").isDirect()); // same user ID, no rule of its own
+        assertFalse(policy.decide("plain.app").isDirect());
+        assertNull(policy.decide("plain.app").refusal());
+    }
 }
