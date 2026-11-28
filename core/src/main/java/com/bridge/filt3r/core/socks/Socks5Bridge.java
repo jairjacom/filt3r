@@ -372,19 +372,22 @@ public final class Socks5Bridge {
             return;
         }
         ConnectionGate firewall = gate;
+        boolean direct = false; // an Exempt app that a rule lets through: no node, no IP block list
         if (firewall != null) {
-            String why = askGate(firewall, source, InetAddress.getByAddress(ip), port);
+            ConnectionGate.Decision decision = askGate(firewall, source, InetAddress.getByAddress(ip), port);
+            String why = decision.refusal();
             if (why != null) {
                 report(source, InetAddress.getByAddress(ip), port, true, why);
                 reply(out, REP_NOT_ALLOWED, 0);
                 refusedFirewall.incrementAndGet();
                 return;
             }
+            direct = decision.isDirect();
         }
         if (isLocalAddress(ip)) {
             localConnections.incrementAndGet();
         }
-        if (ip.length == 16 && !allowIPv6) {
+        if (!direct && ip.length == 16 && !allowIPv6) {
             // The node has no IPv6 exit: fail at once so the app falls back to IPv4 without waiting.
             report(source, InetAddress.getByAddress(ip), port, true, ConnectionListener.REASON_IPV6_OFF);
             reply(out, REP_NET_UNREACHABLE, 0);
@@ -393,7 +396,7 @@ public final class Socks5Bridge {
         }
         InetAddress addr = InetAddress.getByAddress(ip);
         IpBlockList blockedIps = ipBlock;
-        if (blockedIps != null && !paused.getAsBoolean()
+        if (!direct && blockedIps != null && !paused.getAsBoolean()
                 && blockedIps.isBlocked(addr)) {
             // Refused before any node is dialled, so the FAIL_OPEN fallback cannot reach it either.
             report(source, addr, port, true, ConnectionListener.REASON_IP_LIST);
@@ -408,7 +411,11 @@ public final class Socks5Bridge {
         }
         Link up;
         try {
-            up = dialer.dial(addr, port, CONNECT_TIMEOUT_MS);
+            Dialer chosen = direct ? fallback : dialer;
+            if (chosen == null) {
+                throw new IOException("no direct dialer");
+            }
+            up = chosen.dial(addr, port, CONNECT_TIMEOUT_MS);
         } catch (IOException e) {
             connectFailed.incrementAndGet();
             lastConnectError = e.getClass().getSimpleName();
@@ -478,7 +485,7 @@ public final class Socks5Bridge {
         }
         int closed = 0;
         for (Flow f : flows) {
-            String why = askGate(firewall, f.source, f.dest, f.port);
+            String why = askGate(firewall, f.source, f.dest, f.port).refusal();
             if (why != null) {
                 report(f.source, f.dest, f.port, true, why);
                 closeQuietly(f.up);
@@ -489,12 +496,12 @@ public final class Socks5Bridge {
         return closed;
     }
 
-    /** The gate's reason to refuse, or null. An unexpected error refuses, as in RethinkDNS. */
-    private static String askGate(ConnectionGate firewall, String source, InetAddress dest, int port) {
+    /** The gate's decision. An unexpected error refuses, as in RethinkDNS. */
+    private static ConnectionGate.Decision askGate(ConnectionGate firewall, String source, InetAddress dest, int port) {
         try {
-            return firewall.refuse(AppSocket.parse(AppSocket.Proto.TCP, source), dest, port);
+            return firewall.decide(AppSocket.parse(AppSocket.Proto.TCP, source), dest, port);
         } catch (RuntimeException e) {
-            return FirewallPolicy.REASON_ERROR;
+            return ConnectionGate.Decision.refuse(FirewallPolicy.REASON_ERROR);
         }
     }
 

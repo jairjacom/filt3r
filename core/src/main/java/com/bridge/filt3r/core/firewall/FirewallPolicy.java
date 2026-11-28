@@ -1,5 +1,6 @@
 package com.bridge.filt3r.core.firewall;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -26,20 +27,43 @@ public final class FirewallPolicy {
 
     private final Environment environment;
     private volatile Map<String, AppRule> rules = Collections.emptyMap();
+    private volatile Set<String> exemptKeys = Collections.emptySet();
 
     public FirewallPolicy(Environment environment) {
         this.environment = environment;
     }
 
-    /** Replaces everything. {@code rules} may hold empty entries; they are dropped. */
+    /** Replaces everything; no app is Exempt. {@code rules} may hold empty entries; they are dropped. */
     public void configure(Map<String, AppRule> rules) {
+        configure(rules, Collections.emptyList());
+    }
+
+    /**
+     * Replaces everything. {@code rules} may hold empty entries; they are dropped. {@code exemptGroups} are the
+     * user ID groups (the packages that share one user ID) of the Exempt apps: Android leaves a whole user ID out
+     * of the tunnel, so a flow of any package in such a group belongs to an Exempt app.
+     */
+    public void configure(Map<String, AppRule> rules, Collection<Set<String>> exemptGroups) {
         Map<String, AppRule> kept = new HashMap<>();
         for (Map.Entry<String, AppRule> e : rules.entrySet()) {
             if (!e.getValue().isEmpty()) {
                 kept.put(e.getKey(), e.getValue());
             }
         }
+        Set<String> exempt = new HashSet<>();
+        for (Set<String> group : exemptGroups) {
+            exempt.addAll(group);
+        }
         this.rules = Collections.unmodifiableMap(kept);
+        this.exemptKeys = Collections.unmodifiableSet(exempt);
+    }
+
+    /**
+     * True when the flow belongs to an Exempt app (matched by user ID group). Such a flow only reaches the
+     * firewall when it has a rule ticked (ADR 0006); when {@link #check} lets it through it is dialled directly.
+     */
+    public boolean isExempt(String appKey) {
+        return appKey != null && exemptKeys.contains(appKey);
     }
 
     /** True when a rule needs to know which app owns a flow; when false the owner lookup can be skipped. */

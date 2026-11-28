@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
 import android.net.ConnectivityManager;
@@ -50,6 +51,7 @@ import com.bridge.filt3r.core.nodes.NodeRankFile;
 import com.bridge.filt3r.core.nodes.NodeTester;
 import com.bridge.filt3r.core.shadowsocks.ShadowsocksNode;
 import com.bridge.filt3r.core.socks.AppSocket;
+import com.bridge.filt3r.core.socks.ConnectionGate;
 import com.bridge.filt3r.core.socks.DirectDialer;
 import com.bridge.filt3r.core.socks.FailureMode;
 import com.bridge.filt3r.core.socks.Socks5Bridge;
@@ -72,8 +74,10 @@ import java.nio.file.Files;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -100,6 +104,8 @@ public class Filt3rVpnService extends VpnService {
     private static final byte[] DNS_V4_BYTES = {10, 10, 10, 10};
     private static final ThreadLocal<AppId> queryApp = new ThreadLocal<>();
     private final AppOwner owners = new AppOwner(this);
+    /** The phone's own DNS on the real network, for an Exempt app that has a rule (ADR 0006). */
+    private final SystemDns systemDns = new SystemDns(this);
     /** The firewall's decision (ADR 0005). Rules are loaded from settings at each start and when the user changes one. */
     private final FirewallPolicy firewall = new FirewallPolicy(new FirewallPolicy.Environment() {
         @Override
@@ -435,6 +441,9 @@ public class Filt3rVpnService extends VpnService {
                 if (firewallVerdict(owner) != null) {
                     return DNSResolver.refused(query); // a blocked app does not even resolve names
                 }
+                if (firewall.isExempt(owner == null ? null : owner.key())) {
+                    return systemDns.resolve(query); // an Exempt app a rule lets through keeps its real DNS, unfiltered
+                }
                 awaitFilter();
                 // hev names no app: the label is "tunnel", as before
                 String label = client == null ? "tunnel" : client.toString();
@@ -452,14 +461,19 @@ public class Filt3rVpnService extends VpnService {
             b.setConnectionGate((client, dest, port) -> {
                 AppId owner = firewall.needsOwner() ? owners.owner(client, new InetSocketAddress(dest, port)) : null;
                 String why = firewallVerdict(owner);
-                if (why != null && owner != null && settings.queryLogEnabled()) {
-                    // The refused socket is closed by the time the log looks, and Android then names the wrong owner or none.
-                    if (refusedOwners.size() > 1000) {
-                        refusedOwners.clear();
+                if (why != null) {
+                    if (owner != null && settings.queryLogEnabled()) {
+                        // The refused socket is closed by the time the log looks, and Android then names the wrong owner or none.
+                        if (refusedOwners.size() > 1000) {
+                            refusedOwners.clear();
+                        }
+                        refusedOwners.put(flowKey(client, dest, port), owner);
                     }
-                    refusedOwners.put(flowKey(client, dest, port), owner);
+                    return ConnectionGate.Decision.refuse(why);
                 }
-                return why;
+                // An Exempt app is only here because it has a rule; this one does not refuse it now, so it goes direct.
+                return firewall.isExempt(owner == null ? null : owner.key())
+                        ? ConnectionGate.Decision.DIRECT : ConnectionGate.Decision.ALLOW;
             });
             b.setFailureMode(settings.failureMode());
             loadFirewall(settings);
@@ -1685,7 +1699,27 @@ public class Filt3rVpnService extends VpnService {
     }
 
     private void loadFirewall(Settings settings) {
-        firewall.configure(settings.appRules());
+        firewall.configure(settings.appRules(), exemptGroups(settings.exemptApps()));
+    }
+
+    /** The user ID group of each Exempt app: Android leaves the whole user ID out of the tunnel, so the rule follows the group. */
+    private List<Set<String>> exemptGroups(Set<String> exemptPackages) {
+        PackageManager pm = getPackageManager();
+        List<Set<String>> groups = new ArrayList<>();
+        for (String pkg : exemptPackages) {
+            Set<String> group = new HashSet<>();
+            group.add(pkg);
+            try {
+                String[] sharing = pm.getPackagesForUid(pm.getPackageUid(pkg, 0));
+                if (sharing != null) {
+                    Collections.addAll(group, sharing);
+                }
+            } catch (PackageManager.NameNotFoundException e) {
+                // not installed any more: it still counts as itself
+            }
+            groups.add(group);
+        }
+        return groups;
     }
 
     /** One speed sample every few seconds while the tunnel runs; stopEverything cancels it with the other handler work. */
