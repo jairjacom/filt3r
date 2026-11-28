@@ -21,6 +21,7 @@ import com.bridge.filt3r.Effects;
 import com.bridge.filt3r.InstalledApps;
 import com.bridge.filt3r.R;
 import com.bridge.filt3r.core.firewall.AppRule;
+import com.bridge.filt3r.core.firewall.ConnectivityRisk;
 import com.bridge.filt3r.core.firewall.UniversalToggle;
 import com.bridge.filt3r.core.util.AppList;
 import com.bridge.filt3r.core.util.ConnectionLog;
@@ -82,6 +83,7 @@ public class AppsPanel extends LinearLayout {
     private boolean systemTab;
     private boolean refreshing;
     private final MaterialSwitch[] toggles = new MaterialSwitch[UniversalToggle.Box.values().length];
+    private final TextView systemCard;
     private final TextView empty;
     private List<InstalledApps.App> installed = new ArrayList<>();
     private final Map<String, InstalledApps.App> byPackage = new HashMap<>();
@@ -134,6 +136,14 @@ public class AppsPanel extends LinearLayout {
         connectionLog.setOnClickListener(v -> backend.showConnectionLog());
         addView(connectionLog);
 
+        // The System tab's warning: shown only there.
+        systemCard = new TextView(context);
+        systemCard.setText(R.string.firewall_system_card);
+        systemCard.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
+        systemCard.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnErrorContainer));
+        systemCard.setBackgroundColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorErrorContainer));
+        systemCard.setPadding(dp(20), dp(12), dp(20), dp(12));
+        systemCard.setVisibility(GONE);
         // Tabs: Apps and System, each with its own list and its own switches.
         TabLayout tabs = new TabLayout(context);
         tabs.addTab(tabs.newTab().setText(R.string.firewall_tab_apps));
@@ -142,6 +152,7 @@ public class AppsPanel extends LinearLayout {
             @Override
             public void onTabSelected(TabLayout.Tab tab) {
                 systemTab = tab.getPosition() == 1;
+                systemCard.setVisibility(systemTab ? VISIBLE : GONE);
                 applyFilter();
             }
 
@@ -154,6 +165,7 @@ public class AppsPanel extends LinearLayout {
             }
         });
         addView(tabs);
+        addView(systemCard);
         addView(toggleRow(context, UniversalToggle.Box.WIFI, R.string.firewall_all_wifi));
         addView(toggleRow(context, UniversalToggle.Box.MOBILE, R.string.firewall_all_mobile));
         addView(toggleRow(context, UniversalToggle.Box.LOCKED, R.string.firewall_all_locked));
@@ -271,7 +283,20 @@ public class AppsPanel extends LinearLayout {
         return AppList.tabGroups(apps, systemTab, exempt);
     }
 
+    /** A switch flipped on in the System tab asks first; the switch shows off meanwhile and cancelling changes nothing. */
     private void onUniversal(UniversalToggle.Box box, boolean on) {
+        if (systemTab && on) {
+            handler.post(this::refreshToggles);
+            Context context = getContext();
+            Dialogs.confirm(context, context.getString(R.string.firewall_system_all_title),
+                    context.getString(R.string.firewall_system_all_message),
+                    context.getString(R.string.firewall_system_continue), () -> applyUniversal(box, true));
+            return;
+        }
+        applyUniversal(box, on);
+    }
+
+    private void applyUniversal(UniversalToggle.Box box, boolean on) {
         Map<String, AppRule> next = UniversalToggle.switchTo(box, on, tabGroups(), rules);
         rules.clear();
         rules.putAll(next);
@@ -388,6 +413,7 @@ public class AppsPanel extends LinearLayout {
         private final TextView pkg;
         private final TextView summary;
         private final TextView shared;
+        private final TextView breakTag;
         private final LinearLayout boxes;
         private final MaterialCheckBox wifi;
         private final MaterialCheckBox mobile;
@@ -420,10 +446,15 @@ public class AppsPanel extends LinearLayout {
             shared = new TextView(context);
             shared.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium);
             dim(shared);
+            breakTag = new TextView(context);
+            breakTag.setText(R.string.firewall_may_break);
+            breakTag.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge);
+            breakTag.setTextColor(MaterialColors.getColor(this, androidx.appcompat.R.attr.colorError));
             texts.addView(name);
             texts.addView(pkg);
             texts.addView(summary);
             texts.addView(shared);
+            texts.addView(breakTag);
 
             boxes = new LinearLayout(context);
             wifi = box(context);
@@ -465,6 +496,7 @@ public class AppsPanel extends LinearLayout {
             } else {
                 shared.setVisibility(GONE);
             }
+            breakTag.setVisibility(ConnectivityRisk.mayBreakConnectivity(row.app.group) ? VISIBLE : GONE);
             boolean isExempt = isExempt(row.app);
             exemptTag.setVisibility(isExempt ? VISIBLE : GONE);
             exemptTag.setOnClickListener(v -> Dialogs.builder(getContext())
